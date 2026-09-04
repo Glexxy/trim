@@ -34,8 +34,11 @@
   --sans:    "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono:    "IBM Plex Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
 
-  --gutter:  clamp(1.15rem, 4vw, 3rem);
-  --maxw:    1180px;
+  --gutter:  clamp(1.15rem, 4vw, 3.5rem);
+  /* Grows with the screen instead of pinning a 1180px column in the middle of a
+     1440p monitor. Capped so line lengths stay readable rather than running the
+     full width of an ultrawide. */
+  --maxw:    min(94vw, 1560px);
   --radius:  10px;
 
   /* One motion vocabulary, used everywhere. */
@@ -59,7 +62,7 @@ body {
   background: var(--void);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 1rem;
+  font-size: clamp(1rem, 0.16vw + 0.96rem, 1.12rem);
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -190,8 +193,8 @@ main { position: relative; z-index: 1; }
   border-top: 1px solid var(--rule);
 }
 
-.band-head { max-width: 46rem; margin-bottom: clamp(2.5rem, 6vh, 4rem); }
-.band-sub { color: var(--soft); margin: 1rem 0 0; max-width: 40rem; }
+.band-head { max-width: 52ch; margin-bottom: clamp(2.5rem, 6vh, 4.5rem); }
+.band-sub { color: var(--soft); margin: 1rem 0 0; max-width: 56ch; }
 
 .eyebrow {
   font: 500 0.72rem/1 var(--mono);
@@ -209,14 +212,17 @@ h1 {
      than a 375px screen. 2.3rem fits with the break intact, which is better
      than dropping the break: the two halves have no whitespace between them
      in the markup, so hiding the <br> renders "Windowswithout". */
-  font-size: clamp(2.3rem, 7.2vw, 5rem);
+  /* Sized against the column it sits in, not the viewport it sits on. The
+     hero splits in two above 1080px, so a headline scaled to full viewport
+     width overflowed its half and stacked into four lines. */
+  font-size: clamp(2.3rem, 3.5vw + 0.65rem, 4.4rem);
   line-height: 1;
   margin: 0;
   text-wrap: balance;
 }
 
 h2 {
-  font-size: clamp(1.85rem, 4vw, 3rem);
+  font-size: clamp(1.85rem, 2.4vw + 0.7rem, 3.4rem);
   line-height: 1.04;
   margin: 0;
   text-wrap: balance;
@@ -271,8 +277,18 @@ b, strong { font-weight: 600; color: var(--ink); }
   -webkit-mask-image: radial-gradient(ellipse 80% 60% at 30% 20%, #000 0%, transparent 75%);
 }
 
-@media (min-width: 1000px) {
-  .hero { grid-template-columns: minmax(0, 1fr); }
+/* The product goes beside the pitch, not a screen below it. Single column was
+   fine on a laptop and left roughly half a 1440p monitor empty, with the
+   screenshot pushed under the fold. */
+@media (min-width: 1080px) {
+  .hero {
+    grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
+    align-items: center;
+    gap: clamp(2.5rem, 4vw, 5rem);
+    padding-top: clamp(3rem, 7vh, 6.5rem);
+    padding-bottom: clamp(3.5rem, 8vh, 7rem);
+  }
+  .hero-shot { margin-top: 0.5rem; }
 }
 
 .kicker {
@@ -295,12 +311,13 @@ b, strong { font-weight: 600; color: var(--ink); }
 }
 
 .sub {
-  font-size: clamp(1.05rem, 1.7vw, 1.3rem);
+  font-size: clamp(1.05rem, 0.55vw + 0.85rem, 1.4rem);
   line-height: 1.55;
   color: var(--soft);
-  max-width: 40rem;
+  max-width: 34ch;
   margin: 1.6rem 0 0;
 }
+@media (max-width: 1079px) { .sub { max-width: 42ch; } }
 
 .cta { margin-top: 2.2rem; }
 
@@ -377,24 +394,32 @@ b, strong { font-weight: 600; color: var(--ink); }
   .cmd-copy { margin-left: auto; }
 }
 
+/* Three even columns with the number over its label. As an inline flex row the
+   labels wrapped raggedly and the third item dropped onto a line of its own the
+   moment the hero split into two columns. */
 .proof {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 clamp(1.5rem, 4vw, 3rem);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1rem, 2vw, 2rem);
   list-style: none;
-  padding: 0;
-  margin: 2.6rem 0 0;
+  padding: clamp(1.4rem, 2.5vw, 2rem) 0 0;
+  margin: clamp(2rem, 4vh, 3rem) 0 0;
+  border-top: 1px solid var(--rule);
+  max-width: 34rem;
 }
-.proof li { display: flex; align-items: baseline; gap: 0.55rem; padding: 0.4rem 0; }
+.proof li { display: block; }
 .proof strong {
+  display: block;
   font-family: var(--display);
-  font-size: 1.7rem;
+  font-size: clamp(1.6rem, 1.4vw + 1rem, 2.4rem);
   font-weight: 800;
   color: var(--mint);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin-bottom: 0.4rem;
 }
-.proof span { font-size: 0.85rem; color: var(--faint); max-width: 12rem; line-height: 1.35; }
+.proof span { display: block; font-size: 0.8rem; color: var(--faint); line-height: 1.4; }
 
 /* --- the screenshot frame ------------------------------------------------- */
 

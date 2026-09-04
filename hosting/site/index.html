@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 
 <title>Trim — debloat Windows 10 and 11 without breaking it</title>
-<meta name="description" content="Free, open-source Windows debloater. Strips advertising, telemetry and preinstalled apps, tunes the rest for games, and undoes every change on request.">
+<meta name="description" content="Free, open-source Windows debloater. Strips ads, telemetry and preinstalled junk, tunes the rest for games, and hands you one file that undoes all of it.">
 <link rel="canonical" href="https://trimbloat.com/">
 <meta name="theme-color" content="#080B0C">
 <meta name="color-scheme" content="dark">
@@ -14,14 +14,14 @@
 <meta property="og:site_name" content="Trim">
 <meta property="og:url" content="https://trimbloat.com/">
 <meta property="og:title" content="Trim — debloat Windows without breaking it">
-<meta property="og:description" content="Removes the junk, tunes the rest for games, and hands you a script that puts every change back. Free and open source.">
+<meta property="og:description" content="Rips out the ads and telemetry, tunes the rest for games, and hands you one file that puts it all back. Free and open source.">
 <meta property="og:image" content="https://trimbloat.com/img/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Trim — debloat Windows without breaking it">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Trim — debloat Windows without breaking it">
-<meta name="twitter:description" content="Removes the junk, tunes the rest for games, and hands you a script that puts every change back.">
+<meta name="twitter:description" content="Rips out the ads and telemetry, tunes the rest for games, and hands you one file that puts it all back.">
 <meta name="twitter:image" content="https://trimbloat.com/img/og.png">
 
 <link rel="icon" href="/favicon.svg?v={{V}}" type="image/svg+xml">
@@ -81,27 +81,27 @@
       <h1 class="r" style="--d:50ms">Debloat Windows<br>without breaking it.</h1>
 
       <p class="sub r" style="--d:110ms">
-        Trim strips advertising, telemetry and preinstalled apps out of Windows 10 and 11,
-        then tunes what is left for games. It shows you every single change before it makes
-        one, and writes a script that puts them all back.
+        Trim rips out the ads, telemetry and preinstalled junk, then tunes what&rsquo;s
+        left for games. You see the whole list before anything happens. Hate the
+        result? One file puts it all back.
       </p>
 
       <div class="cta r" style="--d:170ms">
-        <div class="cmd" data-copy>
+        <div class="cmd">
           <span class="cmd-prompt" aria-hidden="true">PS&gt;</span>
           <code class="cmd-text">irm https://trimbloat.com/go | iex</code>
           <button class="cmd-copy" type="button" aria-label="Copy the install command">Copy</button>
         </div>
         <p class="cmd-note">
-          Paste into PowerShell. It asks for administrator rights, opens a window,
-          and changes nothing until you click Apply.
+          Paste that into PowerShell. Windows will ask for admin rights. A window
+          opens, and nothing on your PC changes until you click Apply.
         </p>
       </div>
 
       <ul class="proof r" style="--d:230ms">
-        <li><strong>60</strong><span>changes found on a typical PC</span></li>
-        <li><strong>1</strong><span>click to undo all of them</span></li>
-        <li><strong>0</strong><span>files installed on your system</span></li>
+        <li><strong>60</strong><span>things to change on a typical PC</span></li>
+        <li><strong>1</strong><span>file that undoes every one</span></li>
+        <li><strong>0</strong><span>things installed on your system</span></li>
       </ul>
     </div>
 
@@ -109,11 +109,11 @@
       <div class="shot">
         <img src="/img/overview.webp?v={{V}}"
              srcset="/img/overview.webp?v={{V}} 1200w, /img/overview@2x.webp?v={{V}} 2320w"
-             sizes="(max-width: 1100px) 92vw, 1000px"
+             sizes="(max-width: 1079px) 92vw, 46vw"
              width="2320" height="1540" fetchpriority="high" decoding="async"
-             alt="The Trim window on the Overview screen, listing what the tool is, the backup it takes first, and a machine summary.">
+             alt="The Trim window open on its Overview screen, explaining what the tool does and listing the machine it is running on.">
       </div>
-      <figcaption>The window that opens. Nothing has been changed at this point.</figcaption>
+      <figcaption>This is the window that opens. Nothing has happened yet.</figcaption>
     </figure>
   </section>
 
@@ -121,16 +121,17 @@
   <section class="band" id="what" aria-labelledby="what-h">
     <div class="band-head">
       <p class="eyebrow">What it does</p>
-      <h2 id="what-h">Four jobs, and it tells you before doing any of them.</h2>
+      <h2 id="what-h">Four jobs.</h2>
+      <p class="band-sub">It tells you exactly what it plans to do in each one, and
+         waits for you to agree.</p>
     </div>
 
     <div class="jobs">
       <article class="job">
         <span class="job-n" aria-hidden="true">01</span>
-        <h3>Removes the junk</h3>
-        <p>Advertising ID, telemetry, suggested content, Copilot, Widgets, Bing in
-           search, the Start menu&rsquo;s recommendation feed, and the preinstalled apps
-           you have never opened.</p>
+        <h3>Takes out the junk</h3>
+        <p>Advertising ID. Telemetry. Copilot. Widgets. Bing wedged into your Start
+           menu. The suggested apps you have never once opened. All of it, gone.</p>
         <ul class="tags">
           <li>Telemetry</li><li>Ad tracking</li><li>Copilot</li><li>Bloatware</li><li>Start ads</li>
         </ul>
@@ -138,10 +139,10 @@
 
       <article class="job">
         <span class="job-n" aria-hidden="true">02</span>
-        <h3>Tunes it for games</h3>
-        <p>Game Bar and background capture off, windowed-game optimisations on, CPU
-           priority favouring what you are looking at, and every installed game pointed
-           at the high-performance GPU.</p>
+        <h3>Sets it up for games</h3>
+        <p>Game Bar off. Background recording off. Windowed games get the fast path.
+           Every game it finds gets pointed at your real GPU instead of the
+           integrated one.</p>
         <ul class="tags">
           <li>Game Bar</li><li>GPU scheduling</li><li>Per-game GPU</li><li>Latency</li>
         </ul>
@@ -149,21 +150,21 @@
 
       <article class="job">
         <span class="job-n" aria-hidden="true">03</span>
-        <h3>Clears real disk space</h3>
-        <p>Sweeps every drive, not just C:. Windows Update leftovers, crash dumps,
-           delivery caches, browser and shader caches, empty recycle bins &mdash; each
-           category listed separately with the size, before anything is deleted.</p>
+        <h3>Finds the wasted space</h3>
+        <p>It checks every drive, not just C:. Update leftovers, crash dumps, shader
+           caches, the recycle bins you forgot about. You see the size of each pile
+           and where it lives before any of it goes.</p>
         <ul class="tags">
-          <li>14 categories</li><li>All drives</li><li>Itemised</li>
+          <li>14 categories</li><li>Every drive</li><li>Itemised</li>
         </ul>
       </article>
 
       <article class="job">
         <span class="job-n" aria-hidden="true">04</span>
-        <h3>Uninstalls properly</h3>
-        <p>Runs the app&rsquo;s own uninstaller, then finds what it left behind: orphaned
-           folders, registry keys, services and scheduled tasks. You approve each
-           leftover before it goes.</p>
+        <h3>Uninstalls things properly</h3>
+        <p>Most uninstallers leave a mess. Trim runs the app&rsquo;s own uninstaller, then
+           goes looking for the folders, registry keys, services and scheduled tasks
+           it abandoned. You approve each one.</p>
         <ul class="tags">
           <li>Leftover scan</li><li>Registry</li><li>You approve</li>
         </ul>
@@ -175,28 +176,28 @@
   <section class="band tour" id="tour" aria-labelledby="tour-h">
     <div class="band-head">
       <p class="eyebrow">The actual app</p>
-      <h2 id="tour-h">No installer, no telemetry, no upsell. Just a window.</h2>
-      <p class="band-sub">These are unedited screenshots of the tool running on a
-         normal desktop PC.</p>
+      <h2 id="tour-h">Here&rsquo;s what you get.</h2>
+      <p class="band-sub">Straight screenshots, nothing staged. This is a normal
+         desktop with an RTX 4070 in it.</p>
     </div>
 
     <div class="tourbox">
       <div class="tabs" role="tablist" aria-label="Screenshots of Trim">
         <button role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" tabindex="0">
           <span class="tab-t">Overview</span>
-          <span class="tab-d">What it is, and what it found</span>
+          <span class="tab-d">What it is, what it found</span>
         </button>
         <button role="tab" id="tab-changes" aria-controls="panel-changes" aria-selected="false" tabindex="-1">
           <span class="tab-t">Every change</span>
-          <span class="tab-d">The setting, the old value, the new one</span>
+          <span class="tab-d">Old value, new value, risk</span>
         </button>
         <button role="tab" id="tab-cleanup" aria-controls="panel-cleanup" aria-selected="false" tabindex="-1">
           <span class="tab-t">Disk cleanup</span>
-          <span class="tab-d">Itemised, across every drive</span>
+          <span class="tab-d">What is safe to bin</span>
         </button>
         <button role="tab" id="tab-uninstall" aria-controls="panel-uninstall" aria-selected="false" tabindex="-1">
           <span class="tab-t">Uninstall</span>
-          <span class="tab-d">Apps, plus what they leave behind</span>
+          <span class="tab-d">Apps and their leftovers</span>
         </button>
       </div>
 
@@ -205,52 +206,52 @@
           <div class="shot">
             <img src="/img/overview.webp?v={{V}}"
                  srcset="/img/overview.webp?v={{V}} 1200w, /img/overview@2x.webp?v={{V}} 2320w"
-                 sizes="(max-width: 900px) 92vw, 760px"
+                 sizes="(max-width: 949px) 92vw, 62vw"
                  width="2320" height="1540" loading="lazy" decoding="async"
                  alt="Overview screen explaining what Trim is, that a restore point is taken first, and showing the SAFE, CAUTION and RISKY labels.">
           </div>
-          <p class="shot-cap">Plain-English explanation first, then a full spec sheet of
-             the machine it is running on. It reports what it found: 60 changes, and 38
-             settings already the way it would set them.</p>
+          <p class="shot-cap">It explains itself in plain English, then prints a full
+             spec sheet of your machine. On this PC it found 60 things worth changing,
+             and 38 already set the way it would set them.</p>
         </div>
 
         <div role="tabpanel" id="panel-changes" aria-labelledby="tab-changes" tabindex="0" hidden>
           <div class="shot">
             <img src="/img/changes.webp?v={{V}}"
                  srcset="/img/changes.webp?v={{V}} 1200w, /img/changes@2x.webp?v={{V}} 2320w"
-                 sizes="(max-width: 900px) 92vw, 760px"
+                 sizes="(max-width: 949px) 92vw, 62vw"
                  width="2320" height="1540" loading="lazy" decoding="async"
                  alt="The Privacy section listing individual settings with checkboxes, each showing the registry value name, its current value, the value Trim would set, and a SAFE or CAUTION label.">
           </div>
-          <p class="shot-cap">Every row names the setting, what it is now, and what it
-             would become. Tick and untick whatever you like. Only the changes marked
-             <b class="t-safe">SAFE</b> are selected when it opens.</p>
+          <p class="shot-cap">Every row shows the setting, what it is now, and what it
+             would become. Untick anything you disagree with. Only the
+             <b class="t-safe">SAFE</b> ones are ticked when it opens.</p>
         </div>
 
         <div role="tabpanel" id="panel-cleanup" aria-labelledby="tab-cleanup" tabindex="0" hidden>
           <div class="shot">
             <img src="/img/cleanup.webp?v={{V}}"
                  srcset="/img/cleanup.webp?v={{V}} 1200w, /img/cleanup@2x.webp?v={{V}} 2320w"
-                 sizes="(max-width: 900px) 92vw, 760px"
+                 sizes="(max-width: 949px) 92vw, 62vw"
                  width="2320" height="1540" loading="lazy" decoding="async"
                  alt="The disk cleanup screen listing cleanup categories with the amount of space each would free.">
           </div>
-          <p class="shot-cap">Fourteen categories, scanned across every drive in the
-             machine, each with its own size and location so you know exactly what is
-             going and from where.</p>
+          <p class="shot-cap">Fourteen categories, scanned across every drive you have.
+             Each one shows its size and where it is, so you are never agreeing to
+             delete something described only as &ldquo;temporary files&rdquo;.</p>
         </div>
 
         <div role="tabpanel" id="panel-uninstall" aria-labelledby="tab-uninstall" tabindex="0" hidden>
           <div class="shot">
             <img src="/img/uninstall.webp?v={{V}}"
                  srcset="/img/uninstall.webp?v={{V}} 1200w, /img/uninstall@2x.webp?v={{V}} 2320w"
-                 sizes="(max-width: 900px) 92vw, 760px"
+                 sizes="(max-width: 949px) 92vw, 62vw"
                  width="2320" height="1540" loading="lazy" decoding="async"
                  alt="The uninstall screen listing installed applications with their publisher and size, ready to be removed.">
           </div>
-          <p class="shot-cap">Uninstall an app, then review the folders, registry keys,
-             services and tasks it left on the disk. Nothing is removed without you
-             seeing it first.</p>
+          <p class="shot-cap">Remove an app, then look at what it left on the disk.
+             Folders, registry keys, services, scheduled tasks. Nothing goes without
+             you seeing it.</p>
         </div>
       </div>
     </div>
@@ -260,30 +261,31 @@
   <section class="band steps" aria-labelledby="how-h">
     <div class="band-head">
       <p class="eyebrow">How it works</p>
-      <h2 id="how-h">Three steps, and you can stop at any of them.</h2>
+      <h2 id="how-h">Run it. Read it. Apply it.</h2>
+      <p class="band-sub">You can stop after step two and nothing will have happened.</p>
     </div>
 
     <ol class="stepgrid">
       <li>
         <span class="step-n">1</span>
         <h3>Run one line</h3>
-        <p>Paste the command into PowerShell. Nothing is downloaded to your disk and
-           nothing is installed. Windows will ask for administrator rights, because
-           changing these settings genuinely needs them.</p>
+        <p>Nothing downloads to your disk and nothing installs. Windows asks for admin
+           rights because these settings genuinely need them, and you should be wary
+           of anything that claims otherwise.</p>
       </li>
       <li>
         <span class="step-n">2</span>
         <h3>Read the list</h3>
-        <p>Trim scans your PC and shows you what it would change, labelled by risk.
-           Untick anything you disagree with. Close the window and absolutely nothing
-           has happened.</p>
+        <p>It scans your PC and shows what it would change, labelled by risk. Untick
+           what you do not want. Close the window and your machine is exactly as you
+           left it.</p>
       </li>
       <li>
         <span class="step-n">3</span>
         <h3>Apply, or undo</h3>
-        <p>Click Apply and it makes the changes you kept. A restore point is taken
-           first, and an undo script lands in <code>C:\ProgramData\Trim\undo</code>
-           that reverses every one of them.</p>
+        <p>Click Apply and it makes the changes you kept. A restore point goes first,
+           and an undo script lands in <code>C:\ProgramData\Trim\undo</code> that
+           reverses every single one.</p>
       </li>
     </ol>
   </section>
@@ -292,56 +294,59 @@
   <section class="band trust" id="trust" aria-labelledby="trust-h">
     <div class="band-head">
       <p class="eyebrow">Is it safe?</p>
-      <h2 id="trust-h">You are about to pipe a script into an admin shell. Be suspicious.</h2>
-      <p class="band-sub">That is the correct instinct, and it should include being
-         suspicious of this page. Here are three ways to check, ordered by how little
-         you have to take our word for it.</p>
+      <h2 id="trust-h">Should you trust this?</h2>
+      <p class="band-sub">You are about to pipe a stranger&rsquo;s script into an admin
+         shell. No, you should not &mdash; and that includes trusting this page. Here are
+         three ways to check, from easiest to most convincing.</p>
     </div>
 
     <div class="checks">
       <article class="check">
-        <h3><span class="chk-n">01</span> Read the source</h3>
-        <p>The script is served as plain text, not as a download. Open it in a browser
-           tab and read all of it before you run anything.</p>
+        <h3><span class="chk-n">01</span> Read it</h3>
+        <p>The script comes back as plain text, not a download. Open it in a tab and
+           read the whole thing first. It is long, but it is all there.</p>
         <a class="link" href="/go">Open the script</a>
       </article>
 
       <article class="check">
         <h3><span class="chk-n">02</span> Check the fingerprint</h3>
-        <p>Every build publishes its SHA256. Running <code>-Version</code> prints the
-           fingerprint of the file actually on your machine.</p>
+        <p>Every build publishes its SHA256. Run it with <code>-Version</code> and it
+           prints the fingerprint of the file sitting on your machine.</p>
         <p class="hash" title="SHA256 of the current build">{{SHA256}}</p>
         <a class="link" href="/sha256">View /sha256</a>
       </article>
 
       <article class="check hero-check">
-        <h3><span class="chk-n">03</span> Rebuild it yourself</h3>
-        <p>A hash we publish only proves nobody tampered with the file in transit. So
-           the build is <strong>reproducible</strong>. Clone the repository, compile it,
-           and you get byte-identical output.</p>
+        <h3><span class="chk-n">03</span> Build it yourself</h3>
+        <p>A hash we publish only proves nobody touched the file on its way to you. It
+           says nothing about whether our script matches our source. So the build is
+           <strong>reproducible</strong>. Clone it, compile it, get identical bytes.</p>
         <pre><code>git clone https://github.com/Glexxy/trim
 cd trim
 .\build.ps1</code></pre>
-        <p class="small">Same commit, same fingerprint. If it does not match, the
-           published script contains something the source does not, and you should
-           not run it.</p>
+        <p class="small">Same commit, same fingerprint. If yours comes out different,
+           the published script has something in it that the source does not, and you
+           should walk away.</p>
       </article>
     </div>
 
     <div class="never">
-      <h3>Things it will not do, on purpose</h3>
+      <h3>What it refuses to touch</h3>
       <ul>
-        <li><b>Touch your camera or microphone.</b> Those, plus screenshots and screen
-            recording, are on a never-touch list enforced at runtime.</li>
-        <li><b>Go near fan curves, BIOS or overclocking.</b> Out of scope by design.</li>
-        <li><b>Set up AutoLogon.</b> It writes your password where anything on the box
-            can read it.</li>
-        <li><b>Remove load-bearing components.</b> Shared frameworks, winget and the
-            Xbox sign-in service are protected and unit-tested.</li>
-        <li><b>Guess about your hardware.</b> Laptop, desktop, NVIDIA, AMD, Intel, SSD
-            or hard disk &mdash; it checks, then skips what does not apply.</li>
-        <li><b>Phone home.</b> No analytics, no accounts, no network calls except
-            fetching the script itself.</li>
+        <li><b>Your camera and mic.</b> Those, plus screenshots and screen recording,
+            are on a never-touch list checked while it runs. A typo cannot switch off
+            your webcam.</li>
+        <li><b>Fan curves, BIOS, overclocking.</b> Nothing here can cook your hardware,
+            because none of it goes anywhere near that.</li>
+        <li><b>AutoLogon.</b> WinUtil offers it. It writes your password somewhere
+            anything on the machine can read, so Trim leaves it alone.</li>
+        <li><b>Anything load-bearing.</b> Shared runtimes, winget, the Xbox sign-in
+            service. Remove those and games start failing in ways that look nothing
+            like a debloat problem.</li>
+        <li><b>Guesswork about your PC.</b> Laptop or desktop, NVIDIA or AMD or Intel,
+            SSD or spinning disk. It checks first and skips what does not apply.</li>
+        <li><b>You.</b> No analytics, no account, no telemetry of its own. The only
+            thing it ever fetches is the script.</li>
       </ul>
     </div>
   </section>
@@ -351,30 +356,33 @@ cd trim
     <div class="undo-grid">
       <div>
         <p class="eyebrow">Reversible</p>
-        <h2 id="undo-h">The undo is a file, not a promise.</h2>
-        <p>Every registry write goes through one function that records the old value
-           first. At the end of the run &mdash; including if it crashes &mdash; that ledger is
-           written out as a standalone rollback script.</p>
+        <h2 id="undo-h">Changed your mind?</h2>
+        <p>Every registry write goes through one function, and that function writes
+           down the old value before it touches anything. When the run ends &mdash; even
+           if it crashes halfway &mdash; that ledger becomes a script.</p>
         <pre class="path"><code>C:\ProgramData\Trim\undo\undo_&lt;timestamp&gt;.ps1</code></pre>
-        <p class="small">Three things it cannot reverse, said plainly: removed Store
-           apps (reinstall from the Store), WinUtil&rsquo;s own changes (use the restore
-           point), and <code>netsh</code> TCP settings (one command, printed in the log).</p>
+        <p class="small">Three things it genuinely cannot take back, said up front:
+           Store apps it removed (reinstall them from the Store), WinUtil&rsquo;s own
+           changes (that is what the restore point is for), and <code>netsh</code> TCP
+           settings (one command, printed in the log).</p>
       </div>
       <ul class="undo-facts">
         <li>
-          <h3>Values that never existed get removed</h3>
-          <p>Not overwritten with a zero. That single mistake is what makes most
-             &ldquo;restore&rdquo; scripts quietly lie about having worked.</p>
+          <h3>A value that never existed gets deleted</h3>
+          <p>Not set to zero. Getting that one case wrong is why so many
+             &ldquo;restore&rdquo; scripts quietly leave your machine different from how
+             they found it.</p>
         </li>
         <li>
-          <h3>A restore point first</h3>
-          <p>Taken before anything is touched, so the whole machine can go back, not
-             just the settings Trim knows about.</p>
+          <h3>A restore point goes first</h3>
+          <p>Before anything is touched, so you can roll back the whole machine and not
+             just the settings Trim happens to know about.</p>
         </li>
         <li>
           <h3>The round trip is tested</h3>
-          <p>Apply, roll back, then assert every value returned to its exact previous
-             state and type &mdash; including the awkward ones like multi-strings.</p>
+          <p>Apply, roll back, then check every value came back to its exact previous
+             state and type. Including the awkward ones nobody tests, like
+             multi-strings.</p>
         </li>
       </ul>
     </div>
@@ -384,69 +392,71 @@ cd trim
   <section class="band faq" id="faq" aria-labelledby="faq-h">
     <div class="band-head">
       <p class="eyebrow">Questions</p>
-      <h2 id="faq-h">The things people ask before running it.</h2>
+      <h2 id="faq-h">Fair questions.</h2>
     </div>
 
     <div class="faqlist">
       <details>
-        <summary>Is Trim free?</summary>
-        <div><p>Yes. It is free and open source under the MIT licence. There is no paid
-           tier, no account, and nothing to buy.</p></div>
+        <summary>Is it actually free?</summary>
+        <div><p>Yes. MIT licensed, open source, no paid tier, no account, nothing to
+           buy later. There is no business model here to be suspicious of.</p></div>
       </details>
       <details>
-        <summary>Will this break my PC?</summary>
-        <div><p>It is built specifically to avoid that. Only changes marked SAFE are
-           selected by default, a System Restore point is taken before anything runs,
-           and every registry change is recorded so it can be reversed exactly. It also
-           refuses to touch the categories that actually brick machines: BIOS, fan
-           curves, overclocking, and load-bearing Windows components.</p></div>
+        <summary>Will it break my PC?</summary>
+        <div><p>That is the thing it is built to avoid. Only the changes marked SAFE are
+           ticked when it opens, a restore point is taken before anything runs, and
+           every registry change is written down so it can be put back exactly. It also
+           stays away from the things that actually kill machines: BIOS, fan curves,
+           overclocking, and the Windows components other software depends on.</p></div>
       </details>
       <details>
         <summary>Does it work on Windows 10?</summary>
-        <div><p>Yes, Windows 10 and Windows 11. It detects which one you are on and
-           skips anything that does not apply to your build.</p></div>
+        <div><p>Yes, 10 and 11. It works out which one you are on and skips whatever
+           does not apply to your build.</p></div>
       </details>
       <details>
         <summary>Do I have to install anything?</summary>
-        <div><p>No. It runs from PowerShell and leaves no installed program behind. The
-           only files it writes are its own log and the undo script, both under
+        <div><p>No. It runs from PowerShell and leaves no program behind. The only files
+           it writes are its own log and the undo script, both in
            <code>C:\ProgramData\Trim</code>.</p></div>
       </details>
       <details>
-        <summary>Why does it need administrator rights?</summary>
-        <div><p>Because the settings it changes are machine-wide: scheduled tasks,
-           system services, and registry keys under HKEY_LOCAL_MACHINE. A dry run needs
-           no admin rights at all &mdash; you can inspect the entire plan first without
-           granting anything.</p></div>
+        <summary>Why does it want admin rights?</summary>
+        <div><p>Because half of what it changes is machine-wide: scheduled tasks,
+           services, and registry keys under HKEY_LOCAL_MACHINE. A dry run needs no
+           admin at all, so you can look at the entire plan before granting
+           anything.</p></div>
       </details>
       <details>
-        <summary>Will it improve my FPS?</summary>
-        <div><p>Honestly: usually a little, sometimes not at all. Removing background
-           telemetry and pointing games at the right GPU has a real effect on some
-           machines and none on a clean, well-specced one. Anyone promising you a
-           guaranteed frame-rate number from registry edits is selling something.</p></div>
+        <summary>Will it give me more FPS?</summary>
+        <div><p>Sometimes a bit. Often nothing you would notice. Killing background
+           telemetry and pointing games at the right GPU does real work on a cluttered
+           laptop and almost nothing on a clean, well-specced desktop. Anyone promising
+           you a specific frame-rate gain from registry edits is guessing or
+           lying.</p></div>
       </details>
       <details>
-        <summary>Can I undo it later, not straight away?</summary>
-        <div><p>Yes. The undo script is a normal file with a timestamp in the name.
-           It stays on disk until you delete it, and it works whenever you run it.</p></div>
+        <summary>Can I undo it weeks later?</summary>
+        <div><p>Yes. The undo script is an ordinary file with a timestamp in its name.
+           It sits there until you delete it, and it works whenever you run it.</p></div>
       </details>
       <details>
         <summary>How is this different from WinUtil?</summary>
-        <div><p>It is not a competitor &mdash; it uses WinUtil. Chris Titus Tech&rsquo;s WinUtil
-           is the debloat engine underneath. Trim wraps it in a specific workflow: a
-           recorded undo path, a dry run you can inspect, hardware detection, and per-change
-           risk labels. If you want a full-featured Windows utility, go and use WinUtil
-           directly.</p></div>
+        <div><p>It is not competing with WinUtil, it runs WinUtil. Chris Titus Tech
+           built the debloat engine underneath this. What Trim adds is the wrapper: a
+           dry run you can read, a recorded undo path, hardware detection, and a risk
+           label on every single change. If you want a full Windows toolbox, go and use
+           WinUtil directly &mdash; it does far more than this does.</p></div>
       </details>
     </div>
   </section>
 
   <!-- ══ close ══════════════════════════════════════════════════════════ -->
   <section class="closer" aria-labelledby="close-h">
-    <h2 id="close-h">See what it would change on your PC.</h2>
-    <p>The scan needs no administrator rights and changes nothing.</p>
-    <div class="cmd solo" data-copy>
+    <h2 id="close-h">Go and look at your own PC.</h2>
+    <p>The scan needs no admin rights and changes nothing. Worst case you close the
+       window, having found out what Windows has been up to.</p>
+    <div class="cmd solo">
       <span class="cmd-prompt" aria-hidden="true">PS&gt;</span>
       <code class="cmd-text">irm https://trimbloat.com/go | iex</code>
       <button class="cmd-copy" type="button" aria-label="Copy the install command">Copy</button>
@@ -468,15 +478,15 @@ cd trim
         <rect x="1" y="10.5" width="15" height="4.5" rx="2.25" opacity=".62"/>
         <rect x="1" y="18" width="8" height="4.5" rx="2.25" opacity=".34"/>
       </svg>
-      <p>Reversible Windows tuning.<br>MIT licensed, free forever.</p>
+      <p>Reversible Windows tuning.<br>MIT licensed. Free, and staying that way.</p>
     </div>
     <div class="foot-credit">
       <h2>Built on WinUtil</h2>
-      <p>The debloat and tweak engine is not ours. Trim calls
+      <p>The debloat engine underneath this is not ours. Trim calls
          <a href="https://christitus.com/win" rel="noopener">WinUtil by Chris Titus Tech</a>
-         and lets it do that work. What Trim adds is the wrapper: a recorded undo path,
-         a dry-run manifest, hardware gating and risk labelling.</p>
-      <p class="go-use">If you want a full Windows utility, go use WinUtil. It is more
+         and lets it do that work. What Trim adds is the wrapper around it: a recorded
+         undo path, a dry run you can read, hardware detection and risk labelling.</p>
+      <p class="go-use">If you want a proper Windows toolbox, go use WinUtil. It is more
          capable and better maintained than this.</p>
     </div>
     <nav class="foot-links" aria-label="Footer">
@@ -501,7 +511,7 @@ cd trim
       "applicationSubCategory": "System optimisation",
       "operatingSystem": "Windows 10, Windows 11",
       "softwareRequirements": "Windows PowerShell 5.1 or later",
-      "description": "Free, open-source Windows debloater. Removes advertising, telemetry and preinstalled apps, tunes what is left for games, shows every change before it makes one, and writes an undo script for all of them.",
+      "description": "Free, open-source Windows debloater. Strips ads, telemetry and preinstalled junk, tunes the rest for games, shows every change before it makes one, and writes a script that undoes all of them.",
       "license": "https://opensource.org/licenses/MIT",
       "isAccessibleForFree": true,
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -524,22 +534,22 @@ cd trim
       "@type": "FAQPage",
       "@id": "https://trimbloat.com/#faq",
       "mainEntity": [
-        { "@type": "Question", "name": "Is Trim free?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Yes. It is free and open source under the MIT licence. There is no paid tier, no account, and nothing to buy." } },
-        { "@type": "Question", "name": "Will this break my PC?",
-          "acceptedAnswer": { "@type": "Answer", "text": "It is built specifically to avoid that. Only changes marked SAFE are selected by default, a System Restore point is taken before anything runs, and every registry change is recorded so it can be reversed exactly. It refuses to touch BIOS, fan curves, overclocking and load-bearing Windows components." } },
+        { "@type": "Question", "name": "Is Trim actually free?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. MIT licensed, open source, no paid tier, no account, and nothing to buy later." } },
+        { "@type": "Question", "name": "Will Trim break my PC?",
+          "acceptedAnswer": { "@type": "Answer", "text": "That is the thing it is built to avoid. Only changes marked SAFE are ticked when it opens, a restore point is taken before anything runs, and every registry change is written down so it can be put back exactly. It also stays away from BIOS, fan curves, overclocking and the Windows components other software depends on." } },
         { "@type": "Question", "name": "Does it work on Windows 10?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Yes, Windows 10 and Windows 11. It detects which one you are on and skips anything that does not apply to your build." } },
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes, Windows 10 and 11. It works out which one you are on and skips whatever does not apply to your build." } },
         { "@type": "Question", "name": "Do I have to install anything?",
-          "acceptedAnswer": { "@type": "Answer", "text": "No. It runs from PowerShell and leaves no installed program behind. The only files it writes are its own log and the undo script, both under C:\\ProgramData\\Trim." } },
-        { "@type": "Question", "name": "Why does it need administrator rights?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Because the settings it changes are machine-wide: scheduled tasks, services and registry keys under HKEY_LOCAL_MACHINE. A dry run needs no admin rights at all, so the entire plan can be inspected first." } },
-        { "@type": "Question", "name": "Will it improve my FPS?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Usually a little, sometimes not at all. Removing background telemetry and pointing games at the right GPU has a real effect on some machines and none on a clean, well-specced one. Anyone promising a guaranteed frame-rate number from registry edits is selling something." } },
-        { "@type": "Question", "name": "Can I undo it later, not straight away?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Yes. The undo script is a normal file with a timestamp in the name. It stays on disk until you delete it, and it works whenever you run it." } },
+          "acceptedAnswer": { "@type": "Answer", "text": "No. It runs from PowerShell and leaves no program behind. The only files it writes are its own log and the undo script, both in C:\\ProgramData\\Trim." } },
+        { "@type": "Question", "name": "Why does Trim need administrator rights?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Because much of what it changes is machine-wide: scheduled tasks, services and registry keys under HKEY_LOCAL_MACHINE. A dry run needs no admin at all, so the entire plan can be inspected before granting anything." } },
+        { "@type": "Question", "name": "Will Trim give me more FPS?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Sometimes a bit, often nothing you would notice. Killing background telemetry and pointing games at the right GPU does real work on a cluttered laptop and almost nothing on a clean, well-specced desktop. Anyone promising a specific frame-rate gain from registry edits is guessing or lying." } },
+        { "@type": "Question", "name": "Can I undo it weeks later?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. The undo script is an ordinary file with a timestamp in its name. It sits there until you delete it and works whenever you run it." } },
         { "@type": "Question", "name": "How is Trim different from WinUtil?",
-          "acceptedAnswer": { "@type": "Answer", "text": "It is not a competitor, it uses WinUtil. Chris Titus Tech's WinUtil is the debloat engine underneath. Trim wraps it in a specific workflow: a recorded undo path, an inspectable dry run, hardware detection and per-change risk labels." } }
+          "acceptedAnswer": { "@type": "Answer", "text": "It is not competing with WinUtil, it runs WinUtil. Chris Titus Tech built the debloat engine underneath. Trim adds the wrapper: a dry run you can read, a recorded undo path, hardware detection, and a risk label on every change." } }
       ]
     }
   ]
