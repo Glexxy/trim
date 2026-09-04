@@ -1,9 +1,9 @@
 /**
  * trimbloat.com
  *
- * Serves the one-liner, the script, its fingerprint, and the landing page.
+ * Serves the one-liner, the script, its fingerprint, and the site.
  *
- * Three things this exists to get right that a plain static host does not:
+ * Four things this exists to get right that a plain static host does not:
  *
  *   1. The script is served as text/plain, so a browser DISPLAYS it. Anyone
  *      about to pipe it into an elevated shell should be able to read it first
@@ -16,11 +16,60 @@
  *
  *   3. The landing page's fingerprint is read from the artefact that is
  *      actually being served, not pasted into the HTML at authoring time. A
- *      published hash that disagrees with the published script would be worse
+ *      published hash that disagreed with the published script would be worse
  *      than publishing no hash at all.
+ *
+ *   4. Binary assets are streamed through untouched. An earlier version read
+ *      every asset with .text(), which is correct for a script and silently
+ *      destroys a PNG.
  */
 
 const CANONICAL = 'https://trimbloat.com';
+
+/**
+ * The complete set of paths this Worker will serve, and how. Anything absent
+ * redirects to the front page, so a typo cannot expose an asset that was never
+ * meant to be a URL.
+ *
+ *   file   - the asset to read
+ *   type   - the Content-Type to send, chosen here rather than sniffed
+ *   cache  - max-age in seconds
+ *   binary - stream the body instead of decoding it as text
+ */
+const ROUTES = {
+  // The one-liner target and the script itself. text/plain on purpose: this is
+  // what makes "read it in your browser first" possible.
+  // Short cache: a fix to something that runs as administrator should not sit
+  // in an edge cache for a day.
+  '/go':                        { file: '/trim.ps1',        type: 'text/plain; charset=utf-8',       cache: 300 },
+  '/trim.ps1':                  { file: '/trim.ps1',        type: 'text/plain; charset=utf-8',       cache: 300 },
+  '/sha256':                    { file: '/trim.ps1.sha256', type: 'text/plain; charset=utf-8',       cache: 300 },
+  '/trim.ps1.sha256':           { file: '/trim.ps1.sha256', type: 'text/plain; charset=utf-8',       cache: 300 },
+  '/config/winutil-tweaks.json':{ file: '/config/winutil-tweaks.json', type: 'application/json; charset=utf-8', cache: 300 },
+
+  // The site.
+  '/styles.css':  { file: '/styles.css',  type: 'text/css; charset=utf-8',        cache: 300 },
+  '/app.js':      { file: '/app.js',      type: 'text/javascript; charset=utf-8', cache: 300 },
+  '/favicon.svg': { file: '/favicon.svg', type: 'image/svg+xml',                  cache: 86400 },
+
+  // Crawlers.
+  '/robots.txt':  { file: '/robots.txt',  type: 'text/plain; charset=utf-8', cache: 3600 },
+  '/sitemap.xml': { file: '/sitemap.xml', type: 'application/xml; charset=utf-8', cache: 3600 },
+  '/llms.txt':    { file: '/llms.txt',    type: 'text/plain; charset=utf-8', cache: 3600 },
+
+  // Images. The long cache comes from the ?v= on the URL, not from here; these
+  // values are the floor for anyone who requests the bare path.
+  '/img/og.png':          { file: '/img/og.png',          type: 'image/png',  cache: 86400, binary: true },
+  '/img/icon-180.png':    { file: '/img/icon-180.png',    type: 'image/png',  cache: 604800, binary: true },
+  '/img/overview.webp':   { file: '/img/overview.webp',   type: 'image/webp', cache: 604800, binary: true },
+  '/img/overview@2x.webp':{ file: '/img/overview@2x.webp',type: 'image/webp', cache: 604800, binary: true },
+  '/img/changes.webp':    { file: '/img/changes.webp',    type: 'image/webp', cache: 604800, binary: true },
+  '/img/changes@2x.webp': { file: '/img/changes@2x.webp', type: 'image/webp', cache: 604800, binary: true },
+  '/img/cleanup.webp':    { file: '/img/cleanup.webp',    type: 'image/webp', cache: 604800, binary: true },
+  '/img/cleanup@2x.webp': { file: '/img/cleanup@2x.webp', type: 'image/webp', cache: 604800, binary: true },
+  '/img/uninstall.webp':  { file: '/img/uninstall.webp',  type: 'image/webp', cache: 604800, binary: true },
+  '/img/uninstall@2x.webp':{ file: '/img/uninstall@2x.webp',type: 'image/webp', cache: 604800, binary: true },
+};
 
 /**
  * Applied to every response.
@@ -29,14 +78,20 @@ const CANONICAL = 'https://trimbloat.com';
  * should be suspicious of code you did not write: no inline script, no inline
  * event handlers, nothing executable from anywhere but this origin. Styles need
  * 'unsafe-inline' only because Google Fonts serves an @import-able stylesheet
- * and the markup carries a handful of animation-delay custom properties.
+ * and a few elements carry animation-delay custom properties.
  */
 function harden(headers = {}) {
   return {
     'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
     'x-content-type-options': 'nosniff',
-    'referrer-policy': 'no-referrer',
+    'referrer-policy': 'strict-origin-when-cross-origin',
     'x-frame-options': 'DENY',
+    'cross-origin-opener-policy': 'same-origin',
+    'cross-origin-resource-policy': 'same-origin',
+    // Nothing here needs a camera, a location or a payment sheet. Saying so
+    // costs one header and removes the question.
+    'permissions-policy':
+      'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), interest-cohort=()',
     'content-security-policy': [
       "default-src 'none'",
       "script-src 'self'",
@@ -47,25 +102,20 @@ function harden(headers = {}) {
       "base-uri 'none'",
       "form-action 'none'",
       "frame-ancestors 'none'",
+      "object-src 'none'",
+      "upgrade-insecure-requests",
     ].join('; '),
     ...headers,
   };
 }
 
-async function readAsset(env, path) {
-  const res = await env.ASSETS.fetch(new Request(`${CANONICAL}${path}`));
-  return res.ok ? res.text() : null;
+function fetchAsset(env, path) {
+  return env.ASSETS.fetch(new Request(`${CANONICAL}${path}`));
 }
 
-async function asset(env, path, contentType, cacheSeconds) {
-  const body = await readAsset(env, path);
-  if (body === null) return null;
-  return new Response(body, {
-    headers: harden({
-      'content-type': contentType,
-      'cache-control': `public, max-age=${cacheSeconds}`,
-    }),
-  });
+async function readText(env, path) {
+  const res = await fetchAsset(env, path);
+  return res.ok ? res.text() : null;
 }
 
 export default {
@@ -79,56 +129,48 @@ export default {
     }
 
     if (request.method !== 'GET' && request.method !== 'HEAD') {
-      return new Response('Method not allowed', { status: 405, headers: harden() });
+      return new Response('Method not allowed', {
+        status: 405,
+        headers: harden({ 'allow': 'GET, HEAD' }),
+      });
     }
 
-    switch (url.pathname) {
-      // The one-liner target. text/plain on purpose: readable in a browser.
-      case '/go':
-      case '/trim.ps1': {
-        // Short cache. A fix to something that runs as administrator should
-        // not sit in an edge cache for a day.
-        const r = await asset(env, '/trim.ps1', 'text/plain; charset=utf-8', 300);
-        return r ?? new Response('Not built', { status: 503, headers: harden() });
-      }
-
-      case '/sha256':
-      case '/trim.ps1.sha256': {
-        const r = await asset(env, '/trim.ps1.sha256', 'text/plain; charset=utf-8', 300);
-        return r ?? new Response('Not built', { status: 503, headers: harden() });
-      }
-
-      case '/config/winutil-tweaks.json': {
-        const r = await asset(env, '/config/winutil-tweaks.json', 'application/json; charset=utf-8', 300);
-        return r ?? new Response('Not built', { status: 503, headers: harden() });
-      }
-
-      case '/styles.css': {
-        const r = await asset(env, '/styles.css', 'text/css; charset=utf-8', 3600);
-        return r ?? new Response('', { status: 404, headers: harden() });
-      }
-
-      case '/app.js': {
-        const r = await asset(env, '/app.js', 'text/javascript; charset=utf-8', 3600);
-        return r ?? new Response('', { status: 404, headers: harden() });
-      }
-
-      case '/favicon.svg': {
-        const r = await asset(env, '/favicon.svg', 'image/svg+xml', 86400);
-        return r ?? new Response('', { status: 404, headers: harden() });
-      }
-
-      case '/':
-        return new Response(await landing(env), {
-          headers: harden({
-            'content-type': 'text/html; charset=utf-8',
-            'cache-control': 'public, max-age=300',
-          }),
-        });
-
-      default:
-        return Response.redirect(CANONICAL, 302);
+    if (url.pathname === '/') {
+      return new Response(await landing(env), {
+        headers: harden({
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'public, max-age=300',
+        }),
+      });
     }
+
+    const route = ROUTES[url.pathname];
+    if (!route) { return Response.redirect(CANONICAL, 302); }
+
+    const res = await fetchAsset(env, route.file);
+    if (!res.ok) {
+      return new Response('Not built', { status: 503, headers: harden() });
+    }
+
+    // Binary bodies are passed through as a stream. Decoding them as text is
+    // how an image gets silently corrupted on the way out.
+    const body = route.binary ? res.body : await res.text();
+
+    // A request carrying ?v= is for one specific build of that asset, so it can
+    // be cached forever. Without the version it has to stay revalidatable - the
+    // filename alone does not tell a browser whether its copy is still current,
+    // and serving a stale stylesheet against fresh HTML is a broken page.
+    const versioned = url.searchParams.has('v');
+    const cacheControl = versioned
+      ? 'public, max-age=31536000, immutable'
+      : `public, max-age=${route.cache}`;
+
+    return new Response(body, {
+      headers: harden({
+        'content-type': route.type,
+        'cache-control': cacheControl,
+      }),
+    });
   },
 };
 
@@ -139,26 +181,33 @@ export default {
  * and checked like any other page.
  */
 async function landing(env) {
-  const html = await readAsset(env, '/index.html');
+  const html = await readText(env, '/index.html');
   if (html === null) {
     return '<!doctype html><meta charset="utf-8"><title>Trim</title>'
-         + '<body style="background:#070A09;color:#E9F1EE;font-family:monospace;padding:3rem">'
+         + '<body style="background:#080B0C;color:#ECF2F0;font-family:monospace;padding:3rem">'
          + '<h1>Trim</h1><p>The site is not built. The script is still at '
-         + '<a style="color:#5BE9B9" href="/go">/go</a>.</p>';
+         + '<a style="color:#4FE0B0" href="/go">/go</a>.</p>';
   }
 
   let hash = 'not published yet';
   try {
-    const raw = await readAsset(env, '/trim.ps1.sha256');
+    const raw = await readText(env, '/trim.ps1.sha256');
     if (raw) hash = raw.trim().split(/\s+/)[0];
   } catch { /* the page is still useful without it */ }
 
   // The hash is 64 hex characters from our own build. Escaped anyway: a
   // substitution into HTML that is merely "known safe" is how the exceptions
   // start.
-  const safe = hash.replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  const safe = hash.replace(/[&<>"']/g, (ch) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
   ));
 
-  return html.split('{{SHA256}}').join(safe);
+  // {{V}} - the asset cache-busting version - is substituted at publish time
+  // from a hash of the asset bytes, not here: the Worker cannot see whether the
+  // stylesheet changed, and a version derived from anything else goes stale
+  // exactly when it matters. This fallback only fires when the page is served
+  // straight from source, which is local development.
+  return html
+    .split('{{SHA256}}').join(safe)
+    .split('{{V}}').join('dev');
 }

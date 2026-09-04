@@ -1,605 +1,796 @@
 /* ===========================================================================
    trimbloat.com
 
-   The page is built to read like the thing it is selling: an audit document.
-   Two typefaces, no sans-serif at all - an editorial serif for the human voice
-   and a monospace for everything the machine says. The accent palette is not
-   decorative, it is the product's own SAFE / CAUTION / RISKY tiers, so the
-   colours on this page mean the same thing they mean in the app.
+   Type has three jobs and three faces, which is the whole system:
+     Bricolage Grotesque  headlines. Optical-size aware, slightly odd, and not
+                          one of the four grotesques every dev-tool site uses.
+     IBM Plex Sans        prose. Engineered rather than neutral; it was drawn
+                          for technical documentation and reads like it.
+     IBM Plex Mono        anything the machine says - commands, values, hashes.
+
+   Colour is not decorative. Mint, amber and coral are the app's own SAFE /
+   CAUTION / RISKY labels, so a colour means the same thing on this page as it
+   does inside the window.
    =========================================================================== */
 
 :root {
-  --void:    #070A09;
-  --panel:   #0C1110;
-  --raise:   #111917;
-  --rule:    #1C2624;
-  --rule-lit:#2A3835;
+  --void:    #080B0C;
+  --panel:   #0D1213;
+  --raise:   #121A1B;
+  --lift:    #17201F;
+  --rule:    #1D2726;
+  --rule-lit:#2B3937;
 
-  --ink:     #E9F1EE;
-  --soft:    #94A39F;   /* 7.6:1 on --void */
-  /* 4.6:1 on --void. It was #5C6A66, which measured 3.5:1 - under AA for the
-     small text this is used on, including the administrator-rights line
-     directly under the install command. Dim is a style; unreadable is a bug. */
-  --faint:   #6E7C78;
+  --ink:     #ECF2F0;
+  --soft:    #9AA8A4;   /* 7.4:1 on --void */
+  --faint:   #71807C;   /* 4.6:1 on --void - the floor for any text */
 
-  /* the app's tiers, used as the site's whole accent system */
-  --safe:    #5BE9B9;
-  --caution: #F2B441;
-  --risky:   #FF6F5E;
+  --mint:    #4FE0B0;
+  --mint-dim:#2A6B58;
+  --amber:   #F2B441;
+  --coral:   #FF6F5E;
 
-  --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
-  --mono:  "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --display: "Bricolage Grotesque", "Arial Black", system-ui, sans-serif;
+  --sans:    "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:    "IBM Plex Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
 
-  --gutter: clamp(1.15rem, 4vw, 2.5rem);
-  --measure: 60ch;
+  --gutter:  clamp(1.15rem, 4vw, 3rem);
+  --maxw:    1180px;
+  --radius:  10px;
+
+  /* One motion vocabulary, used everywhere. */
+  --ease:    cubic-bezier(0.16, 1, 0.3, 1);
+  --quick:   180ms;
 
   color-scheme: dark;
 }
 
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  /* Anchors land below the sticky bar instead of underneath it. */
+  scroll-padding-top: 5.5rem;
+  -webkit-text-size-adjust: 100%;
+}
 
 body {
   margin: 0;
   background: var(--void);
   color: var(--ink);
-  font-family: var(--mono);
-  font-size: clamp(0.875rem, 0.83rem + 0.2vw, 0.95rem);
-  font-weight: 400;
-  line-height: 1.72;
+  font-family: var(--sans);
+  font-size: 1rem;
+  line-height: 1.65;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   overflow-x: hidden;
 }
 
-/* --- atmosphere ---------------------------------------------------------- */
+img { max-width: 100%; height: auto; display: block; }
 
-/* A faint film so the flat black has some tooth to it. */
+::selection { background: var(--mint); color: var(--void); }
+
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--mint);
+  color: var(--void);
+  padding: 0.7rem 1.1rem;
+  font: 600 0.85rem/1 var(--mono);
+  border-radius: 0 0 6px 0;
+}
+.skip:focus { left: 0; }
+
 .grain {
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.028;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* One cold light source behind the headline. No gradient meshes. */
-.glow {
-  position: fixed;
-  top: -30vh;
-  left: 50%;
-  width: min(1100px, 130vw);
-  height: 80vh;
-  z-index: 0;
-  pointer-events: none;
-  transform: translateX(-52%);
-  background: radial-gradient(ellipse at 50% 50%,
-              rgba(91, 233, 185, 0.10) 0%,
-              rgba(91, 233, 185, 0.035) 38%,
-              transparent 70%);
-}
+/* --- top bar -------------------------------------------------------------- */
 
-/* Hairline grid, only behind the hero, fading out downward. */
-.hero::before {
-  content: "";
-  position: absolute;
-  inset: -8rem var(--gutter) auto;
-  height: 130%;
-  z-index: -1;
-  pointer-events: none;
-  background-image:
-    linear-gradient(to right, rgba(148, 163, 159, 0.055) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(148, 163, 159, 0.055) 1px, transparent 1px);
-  background-size: 68px 68px;
-  mask-image: linear-gradient(to bottom, #000 0%, transparent 78%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 78%);
-}
-
-main, header.bar, footer { position: relative; z-index: 1; }
-
-/* --- top bar ------------------------------------------------------------- */
-
-.bar {
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1.5rem;
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 1.6rem var(--gutter) 0;
+  padding: 0.85rem var(--gutter);
+  background: color-mix(in srgb, var(--void) 82%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--quick) ease, background var(--quick) ease;
 }
+.topbar.stuck { border-bottom-color: var(--rule); }
 
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.55rem;
   color: var(--ink);
   text-decoration: none;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font: 600 1rem/1 var(--mono);
+  letter-spacing: -0.01em;
 }
-.brand .mark { width: 21px; height: 21px; flex: none; fill: var(--safe); }
-.brand span  { font-size: 0.95rem; }
+.brand { min-height: 44px; }
+.brand .mark { width: 20px; height: 20px; fill: var(--mint); flex: none; }
 
-.bar-links {
-  display: flex;
-  gap: clamp(0.85rem, 2.5vw, 1.6rem);
-  font-size: 0.78rem;
-}
-.bar-links a {
-  color: var(--faint);
+.topnav { display: flex; align-items: center; gap: 0.35rem; }
+.topnav-scroll { display: flex; align-items: center; gap: 0.35rem; min-width: 0; }
+.topnav a {
+  color: var(--soft);
   text-decoration: none;
-  transition: color 0.18s ease;
+  font-size: 0.86rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
+  transition: color var(--quick) ease, background var(--quick) ease;
 }
-.bar-links a:hover { color: var(--safe); }
+.topnav a:hover { color: var(--ink); background: var(--raise); }
+.topnav .ghost {
+  color: var(--ink);
+  border: 1px solid var(--rule-lit);
+  margin-left: 0.4rem;
+}
+.topnav .ghost:hover { border-color: var(--mint); color: var(--mint); background: transparent; }
 
-@media (max-width: 560px) {
-  .bar { flex-direction: column; align-items: flex-start; gap: 0.9rem; }
+/* Below the breakpoint the links move to their own scrollable row rather than
+   disappearing. Hiding them was simpler and left a phone with no way to reach
+   any section of the page except by scrolling the whole thing.
+
+   The fade sits on .topnav-scroll, not on .topnav: a mask on the parent also
+   fades the GitHub button pinned to the corner, which is how that button spent
+   a while rendering as an empty outline. */
+@media (max-width: 900px) {
+  .topbar { position: relative; flex-wrap: wrap; row-gap: 0.15rem; padding-bottom: 0.35rem; }
+  .brand { order: 1; }
+  .topnav { order: 3; width: 100%; gap: 0; }
+  .topnav-scroll {
+    width: 100%;
+    gap: 0.1rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  }
+  .topnav-scroll::-webkit-scrollbar { display: none; }
+  .topnav a {
+    white-space: nowrap;
+    font-size: 0.82rem;
+    /* 44px minimum: these were 36px tall, under the floor for a tap target. */
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 0.6rem;
+  }
+  .topnav .ghost { min-height: 44px; padding: 0 0.8rem; }
+  .topnav .ghost {
+    position: absolute;
+    top: 0.7rem;
+    right: var(--gutter);
+    margin: 0;
+  }
 }
 
-/* --- layout -------------------------------------------------------------- */
+/* --- shared layout -------------------------------------------------------- */
 
-main { max-width: 1080px; margin: 0 auto; padding: 0 var(--gutter); }
-
-.hero {
-  position: relative;
-  padding: clamp(4rem, 12vh, 8rem) 0 clamp(3.5rem, 9vh, 6rem);
-}
+main { position: relative; z-index: 1; }
 
 .band {
-  padding: clamp(3.5rem, 9vh, 6.5rem) 0;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: clamp(4rem, 11vh, 7.5rem) var(--gutter);
   border-top: 1px solid var(--rule);
 }
 
-.head { max-width: var(--measure); margin-bottom: clamp(2rem, 5vh, 3rem); }
-.head p { color: var(--soft); margin: 0.85rem 0 0; }
-
-/* --- type ---------------------------------------------------------------- */
+.band-head { max-width: 46rem; margin-bottom: clamp(2.5rem, 6vh, 4rem); }
+.band-sub { color: var(--soft); margin: 1rem 0 0; max-width: 40rem; }
 
 .eyebrow {
-  font-size: 0.72rem;
-  letter-spacing: 0.24em;
+  font: 500 0.72rem/1 var(--mono);
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--faint);
-  margin: 0 0 1.6rem;
+  color: var(--mint);
+  margin: 0 0 1.1rem;
 }
 
+h1, h2, h3 { font-family: var(--display); font-weight: 800; letter-spacing: -0.025em; }
+
 h1 {
-  font-family: var(--serif);
-  font-weight: 400;
-  font-size: clamp(2.9rem, 9.5vw, 6.2rem);
-  line-height: 0.96;
-  letter-spacing: -0.02em;
+  /* The floor is what matters on a phone. The headline carries an authored
+     <br>, so the second line cannot reflow to fit - at 2.6rem it was wider
+     than a 375px screen. 2.3rem fits with the break intact, which is better
+     than dropping the break: the two halves have no whitespace between them
+     in the markup, so hiding the <br> renders "Windowswithout". */
+  font-size: clamp(2.3rem, 7.2vw, 5rem);
+  line-height: 1;
   margin: 0;
   text-wrap: balance;
 }
-h1 em {
-  font-style: italic;
-  color: var(--safe);
-  /* the cut, rendered as a rule drawn under the emphasis */
-  position: relative;
-  display: inline-block;
-}
-h1 em::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0.12em;
-  height: 2px;
-  background: var(--safe);
-  opacity: 0.35;
-  transform-origin: left;
-  animation: draw 900ms 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-@keyframes draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 
 h2 {
-  font-family: var(--serif);
-  font-weight: 400;
-  font-size: clamp(1.85rem, 4.6vw, 3rem);
-  line-height: 1.06;
-  letter-spacing: -0.015em;
+  font-size: clamp(1.85rem, 4vw, 3rem);
+  line-height: 1.04;
   margin: 0;
   text-wrap: balance;
 }
 
 h3 {
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  margin: 0.7rem 0 0.6rem;
-}
-
-h4 {
-  font-size: 0.85rem;
-  font-weight: 700;
-  margin: 0 0 0.5rem;
-  color: var(--ink);
+  font-size: 1.08rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  margin: 0 0 0.55rem;
 }
 
 p { margin: 0 0 1rem; }
 p:last-child { margin-bottom: 0; }
 
-.lead {
-  font-family: var(--serif);
-  font-size: clamp(1.15rem, 2.3vw, 1.5rem);
-  line-height: 1.45;
-  color: var(--soft);
-  max-width: 46ch;
-  margin: 1.7rem 0 0;
-}
-
-a { color: var(--safe); text-decoration-color: rgba(91, 233, 185, 0.35); text-underline-offset: 3px; }
-a:hover { text-decoration-color: var(--safe); }
-
-strong, b { color: var(--ink); font-weight: 700; }
-em { font-style: italic; }
+a { color: var(--mint); text-underline-offset: 3px; }
 
 code { font-family: var(--mono); font-size: 0.92em; }
 
-/* --- the command --------------------------------------------------------- */
+b, strong { font-weight: 600; color: var(--ink); }
 
-.run { margin-top: clamp(2rem, 5vh, 3rem); }
+.small { font-size: 0.85rem; color: var(--faint); }
 
-.run-cmd {
+.t-safe { color: var(--mint); }
+
+/* --- hero ----------------------------------------------------------------- */
+
+.hero {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: clamp(3rem, 8vh, 6rem) var(--gutter) clamp(3rem, 8vh, 5rem);
+  display: grid;
+  gap: clamp(2.5rem, 6vw, 4rem);
+  position: relative;
+}
+
+/* Measured grid behind the hero only, faded out before it meets the next
+   section so there is no hard edge to explain. */
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: -6rem 0 auto;
+  height: 150%;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(154, 168, 164, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(154, 168, 164, 0.05) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: radial-gradient(ellipse 80% 60% at 30% 20%, #000 0%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 30% 20%, #000 0%, transparent 75%);
+}
+
+@media (min-width: 1000px) {
+  .hero { grid-template-columns: minmax(0, 1fr); }
+}
+
+.kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font: 500 0.76rem/1 var(--mono);
+  letter-spacing: 0.06em;
+  color: var(--soft);
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.42rem 0.85rem;
+  margin: 0 0 1.8rem;
+}
+.dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--mint);
+  box-shadow: 0 0 0 3px rgba(79, 224, 176, 0.16);
+}
+
+.sub {
+  font-size: clamp(1.05rem, 1.7vw, 1.3rem);
+  line-height: 1.55;
+  color: var(--soft);
+  max-width: 40rem;
+  margin: 1.6rem 0 0;
+}
+
+.cta { margin-top: 2.2rem; }
+
+.cmd {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  max-width: 560px;
-  padding: 0.95rem 0.95rem 0.95rem 1.05rem;
-  background: var(--panel);
+  gap: 0.7rem;
+  max-width: 34rem;
+  padding: 0.9rem 0.9rem 0.9rem 1.05rem;
+  background: linear-gradient(180deg, var(--raise), var(--panel));
   border: 1px solid var(--rule-lit);
-  border-left: 2px solid var(--safe);
-  border-radius: 4px;
-  box-shadow: 0 18px 40px -28px rgba(0, 0, 0, 0.95);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 50px -34px rgba(0, 0, 0, 1), inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
-.run-cmd.solo { margin-top: 2rem; }
+.cmd.solo { margin: 2rem auto 0; text-align: left; }
 
-.prompt { color: var(--safe); opacity: 0.6; font-size: 0.82rem; flex: none; }
+.cmd-prompt { font: 500 0.85rem/1 var(--mono); color: var(--mint); opacity: 0.7; flex: none; }
 
 .cmd-text {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: clamp(0.78rem, 2.1vw, 0.92rem);
+  font-family: var(--mono);
+  font-size: clamp(0.8rem, 2vw, 0.95rem);
   color: var(--ink);
-  overflow-x: auto;
   white-space: nowrap;
+  overflow-x: auto;
   scrollbar-width: none;
-  /* Fades the right edge so a command too wide for the box reads as scrollable
-     rather than as a command that simply ends there. */
-  mask-image: linear-gradient(to right, #000 calc(100% - 1.6rem), transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.6rem), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
 }
 .cmd-text::-webkit-scrollbar { display: none; }
 
-/* On a phone the command is the single most important string on the page, so it
-   wraps and is read in full instead of being clipped behind a scroll nobody
-   will discover. */
+.cmd-copy {
+  flex: none;
+  min-height: 44px;
+  min-width: 62px;
+  font: 500 0.74rem/1 var(--mono);
+  letter-spacing: 0.06em;
+  color: var(--void);
+  background: var(--mint);
+  border: 0;
+  border-radius: 6px;
+  padding: 0 0.85rem;
+  cursor: pointer;
+  transition: transform var(--quick) var(--ease), filter var(--quick) ease;
+}
+.cmd-copy:hover { filter: brightness(1.12); }
+.cmd-copy:active { transform: scale(0.96); }
+.cmd-copy.done { background: var(--ink); }
+
+.cmd-note { margin: 0.9rem 0 0; font-size: 0.86rem; color: var(--faint); max-width: 34rem; }
+
+/* On a phone the command is the single most important string on the page, so
+   it wraps and is read in full rather than being clipped behind a horizontal
+   scroll nobody discovers. The button drops to its own row so the text gets the
+   whole width. */
 @media (max-width: 620px) {
-  .run-cmd {
+  .cmd {
     flex-wrap: wrap;
     align-items: flex-start;
-    padding: 0.85rem;
     row-gap: 0.7rem;
+    padding: 0.85rem;
   }
-  .prompt { padding-top: 0.1rem; }
+  .cmd-prompt { padding-top: 0.15rem; }
   .cmd-text {
-    /* Full width of the box: the button moves to its own row below, so the
-       command gets the space instead of wrapping around a control. */
     flex: 1 1 auto;
     white-space: normal;
     overflow-wrap: anywhere;
     overflow-x: visible;
+    line-height: 1.5;
     mask-image: none;
     -webkit-mask-image: none;
-    line-height: 1.5;
   }
-  .copy { margin-left: auto; }
+  .cmd-copy { margin-left: auto; }
 }
 
-.copy {
-  flex: none;
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--faint);
-  background: transparent;
-  border: 1px solid var(--rule-lit);
-  border-radius: 3px;
-  padding: 0.36rem 0.6rem;
-  cursor: pointer;
-  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
-}
-.copy:hover { color: var(--ink); border-color: var(--faint); }
-.copy.done  { color: var(--void); background: var(--safe); border-color: var(--safe); }
-
-.run-note { color: var(--faint); font-size: 0.8rem; margin: 0.85rem 0 0; max-width: 52ch; }
-
-/* --- the cut list: the page's signature device ---------------------------- */
-
-.cutlist {
+.proof {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
-  margin-top: clamp(2.5rem, 6vh, 3.5rem);
-  max-width: 720px;
+  gap: 0 clamp(1.5rem, 4vw, 3rem);
+  list-style: none;
+  padding: 0;
+  margin: 2.6rem 0 0;
 }
+.proof li { display: flex; align-items: baseline; gap: 0.55rem; padding: 0.4rem 0; }
+.proof strong {
+  font-family: var(--display);
+  font-size: 1.7rem;
+  font-weight: 800;
+  color: var(--mint);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.proof span { font-size: 0.85rem; color: var(--faint); max-width: 12rem; line-height: 1.35; }
 
-.cut {
+/* --- the screenshot frame ------------------------------------------------- */
+
+.shot {
   position: relative;
-  font-size: 0.76rem;
-  color: var(--soft);
-  padding: 0.28rem 0.6rem;
-  border: 1px solid var(--rule);
-  border-radius: 999px;
-  white-space: nowrap;
-  animation: dim 500ms calc(700ms + var(--i) * 110ms) ease-out both;
-}
-/* The strike is a drawn rule, not text-decoration, so it can be animated. */
-.cut::after {
-  content: "";
-  position: absolute;
-  left: 0.55rem;
-  right: 0.55rem;
-  top: 50%;
-  height: 1px;
-  background: var(--risky);
-  transform-origin: left;
-  animation: strike 320ms calc(700ms + var(--i) * 110ms) cubic-bezier(0.65, 0, 0.35, 1) both;
-}
-@keyframes strike { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-@keyframes dim {
-  from { color: var(--soft);  border-color: var(--rule-lit); opacity: 1; }
-  /* Dimmed enough to read as removed, not so far that the labels stop being
-     legible - they are the clearest statement on the page of what Trim takes
-     out, so they have to survive being struck through. */
-  to   { color: var(--soft); border-color: var(--rule);      opacity: 0.72; }
-}
-
-/* --- the manifest table --------------------------------------------------- */
-
-.manifest {
-  border: 1px solid var(--rule);
-  border-radius: 5px;
+  border: 1px solid var(--rule-lit);
+  border-radius: 12px;
   overflow: hidden;
   background: var(--panel);
+  box-shadow:
+    0 2px 0 rgba(255, 255, 255, 0.02) inset,
+    0 40px 80px -50px rgba(0, 0, 0, 1),
+    0 0 100px -60px rgba(79, 224, 176, 0.5);
 }
+.shot img { width: 100%; }
 
-.mrow {
-  display: grid;
-  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 1rem;
-  align-items: center;
-  padding: 0.8rem 1.1rem;
-  border-top: 1px solid var(--rule);
-  font-size: 0.8rem;
-  transition: background 0.16s ease;
-}
-.mrow:first-child { border-top: 0; }
-.mrow:not(.mhead):hover { background: var(--raise); }
-
-.mhead {
-  font-size: 0.68rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+.hero-shot { margin: 0; }
+.hero-shot figcaption,
+.shot-cap {
+  margin: 0.9rem 0 0;
+  font-size: 0.84rem;
   color: var(--faint);
-  background: rgba(255, 255, 255, 0.014);
+  max-width: 44rem;
 }
 
-.was     { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--rule-lit); }
-.becomes { color: var(--ink); }
-.becomes::before { content: "→ "; color: var(--faint); }
+/* --- what it does --------------------------------------------------------- */
 
-.chip {
-  font-style: normal;
-  font-size: 0.63rem;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  padding: 0.18rem 0.5rem;
-  border-radius: 3px;
-  border: 1px solid;
-  white-space: nowrap;
-}
-.chip.safe    { color: var(--safe);    border-color: rgba(91, 233, 185, 0.32); background: rgba(91, 233, 185, 0.07); }
-.chip.caution { color: var(--caution); border-color: rgba(242, 180, 65, 0.32);  background: rgba(242, 180, 65, 0.07); }
-.chip.risky   { color: var(--risky);   border-color: rgba(255, 111, 94, 0.32);  background: rgba(255, 111, 94, 0.07); }
-
-@media (max-width: 620px) {
-  .mrow { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.15rem; }
-  .mhead { display: none; }
-  .mrow span:nth-child(2) { grid-column: 1; font-size: 0.74rem; }
-  .mrow span:nth-child(3) { grid-column: 1; font-size: 0.74rem; }
-  .mrow span:nth-child(4) { grid-row: 1; grid-column: 2; }
-}
-
-.tiers { color: var(--soft); max-width: var(--measure); margin-top: 1.5rem; font-size: 0.83rem; }
-.t-safe    { color: var(--safe); }
-.t-caution { color: var(--caution); }
-.t-risky   { color: var(--risky); }
-
-/* --- verification cards --------------------------------------------------- */
-
-.checks {
+.jobs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(255px, 1fr));
   gap: 1px;
   background: var(--rule);
   border: 1px solid var(--rule);
-  border-radius: 5px;
+  border-radius: var(--radius);
   overflow: hidden;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
-.check {
+.job {
   background: var(--panel);
-  padding: 1.6rem 1.4rem;
-  display: flex;
-  flex-direction: column;
+  padding: clamp(1.5rem, 3vw, 2.1rem);
+  transition: background var(--quick) ease;
 }
-.check.accent { background: var(--raise); }
+.job:hover { background: var(--raise); }
 
-.num {
-  font-size: 0.68rem;
-  letter-spacing: 0.2em;
+.job-n {
+  font: 500 0.72rem/1 var(--mono);
+  letter-spacing: 0.12em;
+  color: var(--mint);
+  opacity: 0.75;
+  display: block;
+  margin-bottom: 1.1rem;
+}
+.job p { color: var(--soft); font-size: 0.92rem; margin-bottom: 1.1rem; }
+
+.tags { display: flex; flex-wrap: wrap; gap: 0.35rem; list-style: none; padding: 0; margin: 0; }
+.tags li {
+  font: 400 0.7rem/1 var(--mono);
   color: var(--faint);
+  border: 1px solid var(--rule-lit);
+  border-radius: 999px;
+  padding: 0.28rem 0.6rem;
 }
-.check.accent .num { color: var(--safe); }
 
-.check p { color: var(--soft); font-size: 0.8rem; }
+/* --- product tour --------------------------------------------------------- */
+
+.tourbox {
+  display: grid;
+  gap: clamp(1.5rem, 3vw, 2.5rem);
+}
+@media (min-width: 950px) {
+  .tourbox { grid-template-columns: 20rem minmax(0, 1fr); align-items: start; }
+}
+
+.tabs { display: flex; flex-direction: column; gap: 0.4rem; }
+
+.tabs button {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+  font-family: var(--sans);
+  background: transparent;
+  color: var(--soft);
+  border: 1px solid transparent;
+  border-left: 2px solid var(--rule);
+  border-radius: 0 8px 8px 0;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: background var(--quick) ease, border-color var(--quick) ease, color var(--quick) ease;
+}
+.tabs button:hover { background: var(--panel); color: var(--ink); }
+.tabs button[aria-selected="true"] {
+  background: var(--panel);
+  border-left-color: var(--mint);
+  color: var(--ink);
+}
+.tab-t { display: block; font-size: 0.95rem; font-weight: 600; }
+.tab-d { display: block; font-size: 0.78rem; color: var(--faint); margin-top: 0.15rem; }
+
+/* Horizontal, scrollable tab strip on narrow screens. */
+@media (max-width: 949px) {
+  .tabs {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 0.5rem;
+    padding-bottom: 0.4rem;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button {
+    width: auto;
+    flex: none;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 0.55rem 0.95rem;
+  }
+  .tabs button[aria-selected="true"] { border-color: var(--mint); color: var(--mint); }
+  .tab-d { display: none; }
+}
+
+[role="tabpanel"] { animation: fade 320ms var(--ease) both; }
+@keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* --- steps ---------------------------------------------------------------- */
+
+.stepgrid {
+  display: grid;
+  gap: 1.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  counter-reset: step;
+}
+.stepgrid li { position: relative; padding-top: 2.6rem; border-top: 1px solid var(--rule); }
+.step-n {
+  position: absolute;
+  top: -0.9rem;
+  left: 0;
+  width: 1.8rem; height: 1.8rem;
+  display: grid;
+  place-items: center;
+  font: 600 0.8rem/1 var(--mono);
+  color: var(--void);
+  background: var(--mint);
+  border-radius: 50%;
+}
+.stepgrid p { color: var(--soft); font-size: 0.92rem; }
+.stepgrid code { color: var(--ink); font-size: 0.82rem; word-break: break-all; }
+
+/* --- trust ---------------------------------------------------------------- */
+
+/* Explicit column counts rather than auto-fit. With three cards and an auto-fit
+   track list, the two-column case leaves the third card alone in a row and the
+   empty cell shows through as a lighter panel - so at two columns the last card
+   spans instead. */
+.checks {
+  display: grid;
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 620px) {
+  .checks { grid-template-columns: 1fr 1fr; }
+  .check.hero-check { grid-column: 1 / -1; }
+}
+@media (min-width: 1020px) {
+  .checks { grid-template-columns: repeat(3, 1fr); }
+  .check.hero-check { grid-column: auto; }
+}
+.check { background: var(--panel); padding: clamp(1.4rem, 3vw, 2rem); display: flex; flex-direction: column; }
+.check.hero-check { background: var(--raise); }
+.check p { color: var(--soft); font-size: 0.9rem; }
+.chk-n { font: 500 0.72rem/1 var(--mono); color: var(--mint); margin-right: 0.5rem; opacity: 0.8; }
 
 .check pre {
   background: var(--void);
   border: 1px solid var(--rule);
-  border-radius: 4px;
-  padding: 0.75rem 0.85rem;
-  margin: 0.4rem 0 0.85rem;
+  border-radius: 8px;
+  padding: 0.8rem 0.9rem;
+  margin: 0.5rem 0 0.9rem;
   overflow-x: auto;
-  font-size: 0.72rem;
-  line-height: 1.6;
+  font-size: 0.75rem;
+  line-height: 1.65;
   color: var(--ink);
 }
 
-.hashbox {
+.hash {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  line-height: 1.6;
+  color: var(--mint);
   background: var(--void);
   border: 1px solid var(--rule);
-  border-radius: 4px;
+  border-radius: 8px;
   padding: 0.7rem 0.8rem;
-  margin: 0.3rem 0 0.9rem;
-  font-size: 0.66rem;
-  line-height: 1.55;
-  color: var(--safe);
   word-break: break-all;
 }
 
-.fine { color: var(--faint) !important; font-size: 0.73rem !important; margin-top: auto !important; }
-
-.go {
+.link {
   margin-top: auto;
-  padding-top: 0.6rem;
-  font-size: 0.76rem;
+  display: inline-flex;
+  align-items: flex-end;
+  min-height: 44px;
+  padding-top: 0.9rem;
+  font-size: 0.85rem;
   text-decoration: none;
-  color: var(--safe);
-  transition: opacity 0.16s ease;
 }
-.go:hover { opacity: 0.72; }
+.link::after { content: " →"; }
+.link:hover { text-decoration: underline; }
+
+.never { margin-top: clamp(2.5rem, 5vh, 3.5rem); }
+.never h3 { font-size: 1.25rem; font-weight: 800; margin-bottom: 1.3rem; }
+.never ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 1rem 2.2rem;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+}
+.never li {
+  position: relative;
+  padding-left: 1.6rem;
+  color: var(--soft);
+  font-size: 0.9rem;
+}
+.never li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 0.85rem;
+  height: 1px;
+  background: var(--coral);
+}
 
 /* --- undo ----------------------------------------------------------------- */
+
+.undo-grid { display: grid; gap: clamp(2rem, 5vw, 4rem); }
+@media (min-width: 900px) {
+  .undo-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr); align-items: start; }
+}
+.undo-grid > div > p { color: var(--soft); margin-top: 1.2rem; }
 
 .path {
   background: var(--panel);
   border: 1px solid var(--rule);
-  border-left: 2px solid var(--safe);
-  border-radius: 4px;
-  padding: 0.85rem 1.05rem;
-  margin: 0 0 1.8rem;
+  border-left: 2px solid var(--mint);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  margin: 1.4rem 0;
   overflow-x: auto;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   color: var(--ink);
 }
 
-.facts { list-style: none; padding: 0; margin: 0; max-width: var(--measure); }
-.facts li {
-  position: relative;
-  padding-left: 1.5rem;
-  margin-bottom: 0.8rem;
-  color: var(--soft);
-  font-size: 0.83rem;
+.undo-facts { list-style: none; padding: 0; margin: 0; display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; }
+.undo-facts li { background: var(--panel); padding: 1.3rem 1.4rem; }
+.undo-facts p { color: var(--soft); font-size: 0.88rem; margin: 0; }
+
+/* --- faq ------------------------------------------------------------------ */
+
+.faqlist { border-top: 1px solid var(--rule); max-width: 52rem; }
+
+details { border-bottom: 1px solid var(--rule); }
+
+summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 44px;
+  padding: 1.05rem 0;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  transition: color var(--quick) ease;
 }
-.facts li::before {
+summary::-webkit-details-marker { display: none; }
+summary:hover { color: var(--mint); }
+
+summary::after {
   content: "";
-  position: absolute;
-  left: 0;
-  top: 0.72em;
-  width: 0.7rem;
-  height: 1px;
-  background: var(--safe);
+  flex: none;
+  width: 10px; height: 10px;
+  border-right: 1.5px solid var(--faint);
+  border-bottom: 1.5px solid var(--faint);
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform var(--quick) var(--ease), border-color var(--quick) ease;
+}
+details[open] summary::after {
+  transform: rotate(225deg) translate(-2px, -2px);
+  border-color: var(--mint);
 }
 
-.caveat {
-  margin-top: 2rem;
-  padding: 1.05rem 1.2rem;
-  background: rgba(242, 180, 65, 0.045);
-  border: 1px solid rgba(242, 180, 65, 0.2);
-  border-radius: 4px;
-  color: var(--soft);
-  font-size: 0.8rem;
-  max-width: var(--measure);
-}
-.caveat b { color: var(--caution); }
-
-/* --- refusals ------------------------------------------------------------- */
-
-.refusals {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
-  gap: 1.6rem 2.2rem;
-}
-.ref { border-top: 1px solid var(--rule); padding-top: 1rem; }
-.ref p { color: var(--soft); font-size: 0.79rem; margin: 0; }
+details > div { padding: 0 0 1.3rem; animation: fade 260ms var(--ease) both; }
+details p { color: var(--soft); font-size: 0.93rem; max-width: 46rem; }
 
 /* --- closer --------------------------------------------------------------- */
 
 .closer {
-  padding: clamp(4rem, 11vh, 7rem) 0 clamp(3rem, 8vh, 5rem);
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: clamp(4.5rem, 12vh, 8rem) var(--gutter);
   border-top: 1px solid var(--rule);
   text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
 }
-.closer p { color: var(--soft); margin-top: 0.8rem; }
-.closer .run-cmd { text-align: left; width: 100%; }
+.closer p { color: var(--soft); margin-top: 0.9rem; }
+.closer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 1.6rem;
+  margin-top: 1.4rem !important;
+  font-size: 0.85rem;
+}
+.closer-links a {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+.closer-links a:hover { text-decoration: underline; }
 
 /* --- footer --------------------------------------------------------------- */
 
 footer {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 2.2rem var(--gutter) 4rem;
   border-top: 1px solid var(--rule);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2rem;
-  justify-content: space-between;
-  align-items: flex-start;
+  background: var(--panel);
+  position: relative;
+  z-index: 1;
 }
+.foot-grid {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: clamp(2.5rem, 6vh, 4rem) var(--gutter);
+  display: grid;
+  gap: 2.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+.foot-brand .mark { width: 26px; height: 26px; fill: var(--mint); margin-bottom: 1rem; }
+.foot-brand p { color: var(--faint); font-size: 0.85rem; }
 
-.credit { max-width: 58ch; }
-.credit p { color: var(--faint); font-size: 0.76rem; }
-.credit b { color: var(--soft); }
+.foot-credit h2 { font-size: 1rem; font-weight: 600; margin-bottom: 0.7rem; }
+.foot-credit p { color: var(--faint); font-size: 0.83rem; }
 .go-use { color: var(--soft) !important; }
 
-.meta { display: flex; gap: 1.1rem; font-size: 0.74rem; color: var(--faint); }
-.meta a { color: var(--faint); text-decoration: none; }
-.meta a:hover { color: var(--safe); }
-
-/* --- entrance ------------------------------------------------------------- */
-
-.reveal {
-  animation: rise 720ms var(--d, 0ms) cubic-bezier(0.16, 1, 0.3, 1) both;
+.foot-links { display: flex; flex-direction: column; font-size: 0.85rem; }
+.foot-links a {
+  color: var(--soft);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
 }
-@keyframes rise {
-  from { opacity: 0; transform: translateY(14px); }
-  to   { opacity: 1; transform: none; }
+.foot-links a:hover { color: var(--mint); }
+
+/* --- motion --------------------------------------------------------------- */
+
+/* Hero elements animate on load; everything below animates when scrolled to.
+   Both use the same transform+opacity pair so nothing triggers layout. */
+.r { animation: rise 700ms var(--d, 0ms) var(--ease) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+.reveal { opacity: 0; transform: translateY(20px); }
+.reveal.in {
+  opacity: 1;
+  transform: none;
+  transition: opacity 640ms var(--ease), transform 640ms var(--ease);
+  transition-delay: var(--d, 0ms);
 }
 
-/* Motion here is decoration, not information - every animated element is
-   already legible in its final state, so removing it loses nothing. */
+/* Every animated element is already legible in its final state, so switching
+   the motion off costs nothing but the flourish. */
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
+  .reveal { opacity: 1; transform: none; }
   *, *::before, *::after {
-    animation-duration: 0.001ms !important;
+    animation-duration: 0.01ms !important;
     animation-delay: 0ms !important;
-    transition-duration: 0.001ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
-/* --- focus --------------------------------------------------------------- */
+/* --- focus ---------------------------------------------------------------- */
 
 :focus-visible {
-  outline: 2px solid var(--safe);
+  outline: 2px solid var(--mint);
   outline-offset: 3px;
-  border-radius: 2px;
+  border-radius: 3px;
 }

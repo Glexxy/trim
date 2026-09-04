@@ -1,0 +1,16 @@
+# trimbloat.com
+# Everything here is meant to be read, indexed and quoted. There is no private
+# area to keep anyone out of.
+
+User-agent: *
+Allow: /
+
+# The script itself is served as plain text so people can read it before running
+# it. That is for humans; there is no reason for it to appear in search results
+# as a document, and no reason for a crawler to keep re-fetching 290 KB of
+# PowerShell.
+Disallow: /go
+Disallow: /trim.ps1
+Disallow: /config/
+
+Sitemap: https://trimbloat.com/sitemap.xml

@@ -167,6 +167,7 @@ src/            numbered modules, concatenated in filename order
 config/         winutil selection config
 test/           dry-run harness, undo round-trip, GUI and VM verification
 tools/          Repair-Encoding.ps1 - the build's encoding guard
+docs/           generated: full-size screenshots, coverage report
 hosting/        Cloudflare Worker, the landing page in site/, publish script
 build.ps1       concatenates src/ into trim.ps1
 ```
@@ -275,15 +276,44 @@ anyone can read it in a browser before piping it into an elevated shell, and
 the fingerprint is published at `/sha256`.
 
 The landing page is a static page in `hosting/site/`, not markup inside the
-Worker. The Worker makes exactly one substitution in it - `{{SHA256}}`, filled
-from the sidecar of the script that deployment is actually serving, so the hash
-shown on the page cannot drift from the script sitting next to it.
+Worker. The Worker substitutes one token, `{{SHA256}}`, from the sidecar of the
+script that deployment is actually serving, so the hash shown on the page cannot
+drift from the script sitting next to it. The publish script substitutes the
+other, `{{V}}`, which versions every asset URL.
+
+**That second one matters more than it looks.** Assets are served
+`immutable` for a year, so if a redeploy did not change their URLs, a returning
+visitor would get new HTML against a year-old cached stylesheet. The version is a
+hash of the asset bytes themselves - not of the compiled script, which was the
+first attempt and is wrong in a way that is easy to miss: editing only the CSS
+leaves the script's fingerprint unchanged, so the URL would not move.
 
 It is served under `default-src 'none'` with `script-src 'self'` and no inline
-script, which is why the copy-button handler lives in `site/app.js`. The publish
-script fails the publish if an inline `<script>` or an inline event handler
-reappears in the page - the browser would block it silently, so it is caught
-here instead.
+script, which is why the copy handler lives in `site/app.js`. JSON-LD is exempt
+and has to be - a script block with a non-executable type is never run. The
+publish script fails if an executable inline `<script>` or an inline event
+handler reappears, if a referenced asset is missing or unrouted, or if a
+placeholder is left unsubstituted.
+
+### Screenshots
+
+The site's screenshots are rendered from the real window, not mocked up:
+
+```powershell
+.	est\Export-GuiScreenshots.ps1     # docs\screenshots\*.png, 2320px
+.\hosting\Build-SiteAssets.ps1       # -> hosting\site\img\*.webp, 1x and 2x
+.\hosting\Build-OgImage.ps1          # -> og.png and the touch icon
+```
+
+`Export-GuiScreenshots.ps1` builds the genuine window from a real dry-run
+manifest and renders each pane with `RenderTargetBitmap`, so a screenshot cannot
+quietly stop matching the product. It defaults to a **representative demo
+machine** rather than the one it is running on: the Overview pane prints the
+motherboard, BIOS version, disk models and volume labels of whoever generated
+it, and the phase panes list the full path of every installed game. Pass `-Real`
+to render your own. `Build-SiteAssets.ps1` needs `cwebp` or `ffmpeg` on PATH and
+does nothing without them - the encoded files are committed, so publishing never
+depends on either being installed.
 
 `$script:SelfUrl` is how the script re-fetches itself when elevating from a
 piped invocation — there is no file on disk to re-invoke in that case. Get it

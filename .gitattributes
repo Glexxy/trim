@@ -7,8 +7,15 @@
 # CRLF, which is what Windows PowerShell sources use anyway.
 * text=auto eol=crlf
 
-# Genuinely binary, never touched.
-*.png binary
-*.ico binary
-*.zip binary
-*.nip binary
+# Genuinely binary, never touched. Listed explicitly rather than left to
+# text=auto's detection: an image that gets line-ending conversion applied to it
+# is corrupt, and it is corrupt in the clone rather than here, which is the
+# worst place to find out.
+*.png  binary
+*.webp binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.zip  binary
+*.nip  binary

@@ -1,0 +1,56 @@
+# Trim
+
+> A free, open-source tool that debloats Windows 10 and 11. It removes
+> advertising, telemetry and preinstalled apps, tunes what is left for games,
+> shows every change before making it, and writes a script that undoes them all.
+
+Run it with one line in PowerShell:
+
+    irm https://trimbloat.com/go | iex
+
+## What it does
+
+- Removes advertising ID, telemetry, suggested content, Copilot, Widgets, Bing
+  in search, Start menu recommendations, and preinstalled apps.
+- Tunes for gaming: Game Bar and background capture off, windowed-game
+  optimisations on, CPU priority favouring the foreground, and installed games
+  pointed at the high-performance GPU.
+- Disk cleanup across every drive: 14 categories, each itemised with its size
+  and location before anything is deleted.
+- Deep uninstall: runs an app's own uninstaller, then finds and offers the
+  folders, registry keys, services and scheduled tasks it left behind.
+
+## What makes it different
+
+- Nothing is changed until the user clicks Apply. A dry run needs no
+  administrator rights and prints the entire plan.
+- Every change is labelled SAFE, CAUTION or RISKY. Only SAFE is selected by
+  default.
+- Every registry write is recorded before it is made, and the run emits a
+  standalone rollback script at C:\ProgramData\Trim\undo. A System Restore
+  point is taken first.
+- Hardware is detected, so laptop/desktop and NVIDIA/AMD/Intel differences are
+  respected rather than guessed at.
+- The build is reproducible: cloning the source and compiling it produces
+  byte-identical output to the published script, whose SHA256 is at /sha256.
+
+## What it deliberately will not do
+
+- Touch the camera, microphone, screenshots or screen recording.
+- Change fan curves, BIOS settings, or apply any overclock.
+- Configure AutoLogon, which writes the account password to the registry.
+- Remove load-bearing components: shared frameworks, winget, Xbox sign-in.
+
+## Attribution
+
+The debloat and tweak engine is WinUtil by Chris Titus Tech
+(https://github.com/ChrisTitusTech/winutil), invoked by Trim rather than
+reimplemented. Trim adds the reversible wrapper around it.
+
+## Links
+
+- Site: https://trimbloat.com/
+- Source: https://github.com/Glexxy/trim
+- Script (plain text): https://trimbloat.com/go
+- Fingerprint: https://trimbloat.com/sha256
+- Licence: MIT
