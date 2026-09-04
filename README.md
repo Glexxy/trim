@@ -167,7 +167,7 @@ src/            numbered modules, concatenated in filename order
 config/         winutil selection config
 test/           dry-run harness, undo round-trip, GUI and VM verification
 tools/          Repair-Encoding.ps1 - the build's encoding guard
-hosting/        Cloudflare Worker and the publish script
+hosting/        Cloudflare Worker, the landing page in site/, publish script
 build.ps1       concatenates src/ into trim.ps1
 ```
 
@@ -273,6 +273,17 @@ Live at **https://trimbloat.com**, served by a Cloudflare Worker in
 `hosting/worker.js`. The script is deliberately served as `text/plain` so that
 anyone can read it in a browser before piping it into an elevated shell, and
 the fingerprint is published at `/sha256`.
+
+The landing page is a static page in `hosting/site/`, not markup inside the
+Worker. The Worker makes exactly one substitution in it - `{{SHA256}}`, filled
+from the sidecar of the script that deployment is actually serving, so the hash
+shown on the page cannot drift from the script sitting next to it.
+
+It is served under `default-src 'none'` with `script-src 'self'` and no inline
+script, which is why the copy-button handler lives in `site/app.js`. The publish
+script fails the publish if an inline `<script>` or an inline event handler
+reappears in the page - the browser would block it silently, so it is caught
+here instead.
 
 `$script:SelfUrl` is how the script re-fetches itself when elevating from a
 piped invocation — there is no file on disk to re-invoke in that case. Get it
