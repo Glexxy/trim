@@ -1,0 +1,197 @@
+# ---------------------------------------------------------------------------
+# Phase: More options
+#
+# Everything here is deliberately NOT part of Recommended.
+#
+# The three presets only mean something if there is real ground between them.
+# Before this file, Safe and Caution together were the entire catalogue, so
+# Recommended ticked every box and the tiers did no work at all. These are the
+# changes worth offering and wrong to assume: real trade-offs, hardware-specific
+# wins, and preferences people genuinely disagree about.
+#
+# Several are gated on the machine actually being able to benefit. Turning off
+# SysMain is defensible on an SSD and a serious regression on a hard disk, so it
+# is only offered when the system drive is solid state. Turning off the print
+# spooler is sensible with no printer attached and infuriating with one.
+# ---------------------------------------------------------------------------
+
+function Invoke-ExtrasPhase {
+    param([Parameter(Mandatory)]$Facts)
+    Write-Phase 'More options'
+
+    Set-ExplorerPreferences
+    Set-ShellExtras
+    Set-PrivacyExtras
+    Set-ServiceExtras     -Facts $Facts
+    Set-NetworkExtras
+    Set-UpdateBehaviour
+}
+
+<#
+.SYNOPSIS
+    File Explorer preferences people actually have opinions about.
+#>
+function Set-ExplorerPreferences {
+    $adv = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+
+    # The one genuinely safe item here, and a security improvement: hiding
+    # extensions is how "invoice.pdf.exe" gets opened.
+    Set-Reg $adv 'HideFileExt' 0 -Because 'Explorer: always show file extensions'
+
+    Set-Reg $adv 'Hidden' 1 -Because 'Explorer: show hidden files' -Tier op
+    Set-Reg $adv 'ShowSuperHidden' 0 -Because 'Explorer: keep protected system files hidden' -Tier op
+
+    # 1 = This PC, 2 = Home, 3 = Downloads.
+    Set-Reg $adv 'LaunchTo' 1 -Because 'Explorer: open on This PC rather than Home' -Tier op
+    Set-Reg $adv 'UseCompactMode' 1 -Because 'Explorer: compact spacing' -Tier op
+
+    Set-Reg $adv 'Start_TrackDocs' 1 -Because 'Explorer: keep recent files in Quick access'
+
+    # The Gallery and Home entries in the navigation pane.
+    Set-Reg 'HKCU:\Software\Classes\CLSID\{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}' `
+        'System.IsPinnedToNameSpaceTree' 0 -Because 'Explorer: hide Gallery from the sidebar' -Tier op
+}
+
+<#
+.SYNOPSIS
+    Shell behaviour: snapping, suggested actions, transparency, the Copilot key.
+#>
+function Set-ShellExtras {
+    $adv = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+
+    Set-Reg $adv 'SnapAssist' 0 -Because 'no Snap Assist suggestions after snapping a window' -Tier op
+    Set-Reg $adv 'EnableSnapAssistFlyout' 0 -Because 'no snap layouts flyout on the maximise button' -Tier op
+
+    # The pop-up offering to call a number or convert a date after a copy.
+    Set-Reg 'HKCU:\Software\Microsoft\Windows\Shell\SuggestedActions' 'Enabled' 0 `
+        -Because 'no suggested actions after copying text' -Tier op
+
+    Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' `
+        'EnableTransparency' 0 -Because 'no transparency effects' -Tier op
+
+    # Local clipboard history and its cloud sync are separate decisions. History
+    # is a genuinely useful feature; syncing it to an account is not the same
+    # thing, and most debloat scripts kill both without saying so.
+    Set-Reg 'HKCU:\Software\Microsoft\Clipboard' 'EnableClipboardHistory' 1 `
+        -Because 'keep local clipboard history (Win+V)'
+    Set-Reg 'HKCU:\Software\Microsoft\Clipboard' 'CloudClipboardAutomaticUpload' 0 `
+        -Because 'do not sync the clipboard to your Microsoft account' -Tier op
+}
+
+function Set-PrivacyExtras {
+    # Windows Recall, belt and braces alongside winutil's AI tweak.
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 1 `
+        -Because 'Recall: no screen snapshot analysis'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'AllowRecallEnablement' 0 `
+        -Because 'Recall: cannot be switched on later'
+
+    # Reporting the results of a malware scan back to Microsoft.
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\MRT' 'DontReportInfectionInformation' 1 `
+        -Because 'do not report malware removal results'
+
+    # Activity history / Timeline.
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'PublishUserActivities' 0 `
+        -Because 'no activity history' -Tier op
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'UploadUserActivities' 0 `
+        -Because 'do not upload activity history' -Tier op
+
+    # Error reporting. Real cost: the diagnostic trail disappears too.
+    Set-Reg 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' 'Disabled' 1 `
+        -Because 'Windows Error Reporting off - also removes your own crash trail' -Tier op
+}
+
+<#
+.SYNOPSIS
+    Services worth turning off, each gated on the machine not needing it.
+
+.DESCRIPTION
+    None of these are blanket recommendations. Every one asks the machine a
+    question first: is there a printer, is there a Bluetooth radio, is the
+    system drive solid state. A tweak that is correct on one PC and destructive
+    on another has no business being applied without checking which it is.
+#>
+function Set-ServiceExtras {
+    param([Parameter(Mandatory)]$Facts)
+
+    # SysMain. Roughly neutral on an SSD, a serious regression on a hard disk -
+    # so it is only offered when the system drive is solid state.
+    if ($Facts.SystemDriveSSD) {
+        Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Services\SysMain' 'Start' 4 `
+            -Because 'SysMain off (system drive is an SSD, where it buys little)' -Tier op
+    } else {
+        Write-Log 'System drive is not an SSD. Leaving SysMain alone - disabling it on a hard disk is a real regression.'
+    }
+
+    # Print Spooler, only when nothing is installed to print to. It is also a
+    # long-running source of remote code execution advisories.
+    $printers = @()
+    try { $printers = @(Get-Printer -ErrorAction Stop | Where-Object { $_.Type -eq 'Local' -and $_.Name -notmatch 'Microsoft|OneNote|Fax|PDF|XPS' }) } catch { }
+    if ($printers.Count -eq 0) {
+        Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Services\Spooler' 'Start' 4 `
+            -Because 'Print Spooler off (no physical printer is installed)' -Tier op
+    } else {
+        Write-Log "Printer found ($($printers[0].Name)). Leaving the Print Spooler running."
+    }
+
+    # Bluetooth, only when the machine has no radio.
+    $bt = @()
+    try { $bt = @(Get-PnpDevice -Class Bluetooth -Status OK -ErrorAction Stop) } catch { }
+    if ($bt.Count -eq 0) {
+        Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Services\bthserv' 'Start' 4 `
+            -Because 'Bluetooth support off (no Bluetooth radio present)' -Tier op
+    } else {
+        Write-Log "Bluetooth radio present. Leaving the service alone."
+    }
+
+    # Fax. There is no gate worth writing for this one.
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Services\Fax' 'Start' 4 -Because 'Fax service off' -Tier op
+
+    # Windows Search indexing. A real trade: search across documents gets much
+    # slower, and on a fast SSD the index buys less than it used to.
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Services\WSearch' 'Start' 4 `
+        -Because 'Windows Search indexing off - file content search becomes much slower' -Tier trade
+
+    # Memory compression. Trades RAM for CPU; on a machine with plenty of RAM
+    # some people prefer the CPU back. On a machine without, this hurts.
+    if ($Facts.RamGB -ge 32) {
+        Add-PlannedAction -Kind 'command' -Target 'Disable memory compression' `
+            -Detail "trades RAM for CPU; offered because this machine has $($Facts.RamGB) GB" `
+            -Reversible 'yes - Enable-MMAgent -mc' -Tier trade
+        if ((Test-SelectedChange 'act|command|Disable memory compression') -and -not $DryRun) {
+            try { Disable-MMAgent -MemoryCompression -ErrorAction Stop; Write-Log -Level OK -Message 'Memory compression off.' }
+            catch { Write-Log -Level WARN -Message "could not disable memory compression: $($_.Exception.Message.Trim())" }
+        }
+    }
+}
+
+function Set-NetworkExtras {
+    # Teredo: IPv6 tunnelling almost nothing uses any more.
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' 'DisabledComponents' 1 `
+        -Because 'Teredo IPv6 tunnelling off (native IPv6 still works)' -Tier op
+
+    # NetBIOS over TCP/IP: a 1990s name resolution protocol and a standing
+    # credential-relay risk on any shared network.
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters' 'NodeType' 2 `
+        -Because 'NetBIOS: peer-to-peer node type, no broadcast name resolution' -Tier op
+
+    # LLMNR, same family, same reason.
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'EnableMulticast' 0 `
+        -Because 'LLMNR off - a well-known credential relay vector' -Tier op
+}
+
+<#
+.SYNOPSIS
+    Stop Windows Update rebooting the machine out from under someone.
+#>
+function Set-UpdateBehaviour {
+    $wu = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
+    Set-Reg $wu 'NoAutoRebootWithLoggedOnUsers' 1 `
+        -Because 'never restart automatically while someone is signed in' -Tier op
+    Set-Reg 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' 'IsExpedited' 0 `
+        -Because 'no expedited update installs' -Tier op
+
+    # Automatic Store app updates. Convenient, and also how a working setup
+    # changes without anybody asking for it.
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsStore' 'AutoDownload' 2 `
+        -Because 'Store apps do not update themselves' -Tier trade
+}

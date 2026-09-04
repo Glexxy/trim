@@ -1,0 +1,14 @@
+# Line endings are pinned, not left to each clone's core.autocrlf.
+#
+# This project publishes a SHA256 of the compiled script and tells people to
+# check it. That promise only holds if building from a fresh clone reproduces
+# the same bytes - and it does not if one machine checks out LF and another
+# CRLF, because build.ps1 concatenates these files verbatim. Every clone gets
+# CRLF, which is what Windows PowerShell sources use anyway.
+* text=auto eol=crlf
+
+# Genuinely binary, never touched.
+*.png binary
+*.ico binary
+*.zip binary
+*.nip binary

@@ -1,0 +1,107 @@
+# ---------------------------------------------------------------------------
+# Phase: WinUtil
+#
+# Chris Titus' winutil accepts -Config with a local path OR an https URL. When
+# given one it imports the selections, calls Invoke-WinUtilAutoRun, and exits.
+# No GUI, no interaction. Verified against winutil v26.08.19.
+#
+# Two things that version does NOT do, which is why the next phase exists:
+#   * Invoke-WinUtilAutoRun processes Tweaks / Features / Apps / AppX only.
+#     Any WPFToggle* key in a config is imported and then silently ignored.
+#   * The Fixes panel entries (AutoLogon, System Corruption Scan, CTT PowerShell
+#     Profile) are Buttons, not checkboxes. Update-WinUtilSelections throws
+#     "Unsupported selection key" if one appears in a config.
+# ---------------------------------------------------------------------------
+
+$script:WinUtilSource = 'https://christitus.com/win'
+
+<#
+.SYNOPSIS
+    Read a winutil selection config from a URL or a local path.
+
+.DESCRIPTION
+    winutil itself accepts either, so the preflight check has to as well -
+    otherwise running from a cloned repo with a local config fails validation
+    for a config winutil would have loaded happily.
+#>
+function Read-WinUtilConfig {
+    param([Parameter(Mandatory)][string]$Source)
+
+    if ($Source -match '^https?://') {
+        return (Invoke-RestMethod -Uri $Source -UseBasicParsing -ErrorAction Stop)
+    }
+    if (-not (Test-Path -LiteralPath $Source)) {
+        throw "no such file: $Source"
+    }
+    return (Get-Content -Raw -LiteralPath $Source | ConvertFrom-Json)
+}
+
+function Invoke-WinUtilPhase {
+    param([Parameter(Mandatory)][string]$ConfigUrl)
+
+    Write-Phase 'WinUtil tweaks'
+
+    # Fail fast on an unreachable config rather than letting winutil launch its
+    # GUI, which is what happens when the import silently produces no selections.
+    try {
+        $selections = Read-WinUtilConfig -Source $ConfigUrl
+        if (-not $selections -or @($selections).Count -eq 0) { throw 'config is empty' }
+        Write-Log "Config resolved: $(@($selections).Count) selection(s) from $ConfigUrl"
+    } catch {
+        Write-Log -Level FAIL -Message "WinUtil config unreadable ($ConfigUrl): $($_.Exception.Message)"
+        Write-Log -Level FAIL -Message 'Skipping the WinUtil phase. Everything else still runs.'
+        return
+    }
+
+    $bad = @($selections | Where-Object { $_ -notmatch '^WPF(Install|Tweaks|Toggle|Feature|Appx)' })
+    if ($bad.Count -gt 0) {
+        Write-Log -Level FAIL -Message "Config contains keys winutil will reject: $($bad -join ', ')"
+        Write-Log -Level FAIL -Message 'Remove them from config/winutil-tweaks.json. Skipping this phase.'
+        return
+    }
+
+    $toggles = @($selections | Where-Object { $_ -match '^WPFToggle' })
+    if ($toggles.Count -gt 0) {
+        Write-Log -Level WARN -Message "Config contains $($toggles.Count) toggle(s). WinUtil ignores toggles in headless mode; this script sets them directly instead."
+    }
+
+    foreach ($s in $selections) {
+        # Service changes and browser debloat are the two winutil selections
+        # someone might reasonably want left alone.
+        $t = if ($s -match 'Services|EdgeDebloat|BraveDebloat') { 'op' } else { 'safe' }
+        Add-PlannedAction -Kind 'external' -Target "winutil:$s" `
+            -Detail 'applied by ChrisTitusTech/winutil' -Reversible 'restore point only' -Tier $t
+    }
+
+    # Drop anything the user unticked, then hand winutil a config of what is
+    # left rather than the one on disk.
+    $selections = @($selections | Where-Object { Test-SelectedChange "act|external|winutil:$_" })
+    if (@($selections).Count -eq 0) {
+        Write-Log 'No winutil selections remain after filtering. Skipping this phase.'
+        return
+    }
+
+    if ($DryRun) {
+        Write-Log -Level DRY -Message "would run: winutil -Config '$ConfigUrl'"
+        foreach ($s in $selections) { Write-Log -Level DRY -Message "  $s" }
+        return
+    }
+
+    if ($null -ne $script:SelectionFilter) {
+        $tmp = Join-Path $script:RunRoot "winutil-selection_$($script:RunStamp).json"
+        @($selections) | ConvertTo-Json | Set-Content -LiteralPath $tmp -Encoding UTF8
+        Write-Log "Filtered winutil config: $tmp ($(@($selections).Count) of the original)"
+        $ConfigUrl = $tmp
+    }
+
+    Write-Log 'Handing off to winutil. This takes several minutes and is noisy.'
+    try {
+        $block = [ScriptBlock]::Create((Invoke-RestMethod -Uri $script:WinUtilSource -UseBasicParsing))
+        & $block -Config $ConfigUrl
+        Write-Log -Level OK -Message 'WinUtil phase complete.'
+    } catch {
+        Write-Log -Level FAIL -Message "WinUtil failed: $($_.Exception.Message)"
+    }
+
+    Write-Log -Level WARN -Message 'WinUtil changes are NOT covered by this run''s undo script. Use its own restore point or the one made at the start of this run.'
+}
