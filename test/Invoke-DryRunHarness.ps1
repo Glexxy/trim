@@ -557,7 +557,14 @@ Test-Phase 'Portability guard' {
                 $problems.Add("$where hardcodes a drive path") | Out-Null
             }
             # WOW6432Node written by hand does not exist on 32-bit Windows.
-            if ($line -match 'WOW6432Node' -and $line -notmatch 'Get-SoftwareHivePaths|Is64BitOperatingSystem') {
+            #
+            # Building a path with it is the fault. Testing whether a path you
+            # were handed happens to be the 32-bit one is not, so a bare quoted
+            # token in a comparison is allowed - the previous rule flagged that
+            # too, which is a false positive that pushes people towards worse
+            # code to appease the test.
+            $buildsPath = $line -match '\\WOW6432Node' -or $line -match 'WOW6432Node\\'
+            if ($buildsPath -and $line -notmatch 'Get-SoftwareHivePaths|Is64BitOperatingSystem') {
                 $problems.Add("$where hardcodes WOW6432Node instead of using Get-SoftwareHivePaths") | Out-Null
             }
             # ProgramFiles(x86) is undefined on 32-bit Windows.
@@ -575,6 +582,76 @@ Test-Phase 'Portability guard' {
 
 # The camera/mic/screen-capture carve-out is the promise most likely to be broken
 # by a careless edit to the deny list.
+Test-Phase 'Windows 10 gating' {
+    # The site tells Windows 10 users that Trim "skips whatever does not apply
+    # to your build". For a long time nothing gated on the OS at all - it warned
+    # and then wrote Windows 11 keys anyway. This asserts the claim is true.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    # 1. The fact exists and agrees with the build number.
+    $f = Get-MachineFacts
+    if ($null -eq $f.PSObject.Properties['IsWindows11']) {
+        $problems.Add('Get-MachineFacts does not report IsWindows11') | Out-Null
+    } elseif ($f.IsWindows11 -ne ($f.OSBuild -ge 22000)) {
+        $problems.Add("IsWindows11=$($f.IsWindows11) disagrees with build $($f.OSBuild)") | Out-Null
+    }
+
+    # 2. Every setting known to be Windows 11 only carries a gate.
+    $needsGate = @(
+        'Start_IrisRecommendations', 'TaskbarDa', 'AllowNewsAndInterests',
+        'BackgroundType', 'EnableSnapAssistFlyout'
+    )
+    $srcText = @{}
+    foreach ($file in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1')) {
+        $srcText[$file.Name] = Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName
+    }
+    foreach ($key in $needsGate) {
+        $found = $false
+        foreach ($name in $srcText.Keys) {
+            foreach ($line in ($srcText[$name] -split "`r?`n")) {
+                if ($line -match [regex]::Escape($key) -and $line -match 'Set-Reg|Remove-Reg') {
+                    $found = $true
+                    # The gate may sit on the continuation line, so test the
+                    # whole statement rather than just the line the key is on.
+                    $stmt = $line
+                    if ($line.TrimEnd().EndsWith('`')) {
+                        $idx = ($srcText[$name] -split "`r?`n").IndexOf($line)
+                        $stmt += ' ' + ($srcText[$name] -split "`r?`n")[$idx + 1]
+                    }
+                    if ($stmt -notmatch 'MinBuild|MaxBuild') {
+                        $problems.Add("$key is written with no build gate ($name)") | Out-Null
+                    }
+                }
+            }
+        }
+        if (-not $found) { $problems.Add("$key is no longer written anywhere - update this test") | Out-Null }
+    }
+
+    # 3. The gate actually refuses. Drive it directly rather than trusting that
+    #    passing the parameter is the same as it being honoured.
+    $saved = $script:MachineFacts
+    try {
+        $script:MachineFacts = [pscustomobject]@{ OSBuild = 19045 }   # Windows 10 22H2
+        if (Test-BuildApplies -MinBuild 22000 -What 'test') {
+            $problems.Add('Test-BuildApplies allowed a Windows 11-only change on build 19045') | Out-Null
+        }
+        if (-not (Test-BuildApplies -MaxBuild 21999 -What 'test')) {
+            $problems.Add('Test-BuildApplies refused a Windows 10-only change on build 19045') | Out-Null
+        }
+        $script:MachineFacts = [pscustomobject]@{ OSBuild = 26100 }   # Windows 11 24H2
+        if (-not (Test-BuildApplies -MinBuild 22000 -What 'test')) {
+            $problems.Add('Test-BuildApplies refused a Windows 11 change on build 26100') | Out-Null
+        }
+        if (Test-BuildApplies -MaxBuild 21999 -What 'test') {
+            $problems.Add('Test-BuildApplies allowed a Windows 10-only change on build 26100') | Out-Null
+        }
+    } finally {
+        $script:MachineFacts = $saved
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'Privacy carve-out guard' {
     foreach ($c in @('webcam','microphone','graphicsCaptureProgrammatic','graphicsCaptureWithoutBorder')) {
         if ($script:ConsentDeny -contains $c)        { throw "'$c' must never be in the deny list" }

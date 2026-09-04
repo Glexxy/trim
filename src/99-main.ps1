@@ -1,4 +1,4 @@
-# ---------------------------------------------------------------------------
+﻿# ---------------------------------------------------------------------------
 # Main
 #
 # Three ways in, one code path:
@@ -205,7 +205,7 @@ function Invoke-Main {
     Show-MachineFacts -Facts $facts
 
     if ($facts.OSBuild -lt 22000) {
-        Write-Log -Level WARN -Message 'Windows 10 or older detected. Personalisation and Gaming phases target Windows 11 and may partially no-op.'
+        Write-Log -Level WARN -Message 'Windows 10 or older detected. Windows 11-only settings are skipped rather than written where nothing reads them.'
     }
     Test-SingleUserAssumption
 

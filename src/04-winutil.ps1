@@ -1,4 +1,4 @@
-# ---------------------------------------------------------------------------
+﻿# ---------------------------------------------------------------------------
 # Phase: WinUtil
 #
 # Chris Titus' winutil accepts -Config with a local path OR an https URL. When
@@ -63,6 +63,26 @@ function Invoke-WinUtilPhase {
     $toggles = @($selections | Where-Object { $_ -match '^WPFToggle' })
     if ($toggles.Count -gt 0) {
         Write-Log -Level WARN -Message "Config contains $($toggles.Count) toggle(s). WinUtil ignores toggles in headless mode; this script sets them directly instead."
+    }
+
+    # Some selections only mean anything on Windows 11, and one of them is
+    # actively misleading on Windows 10: "restore the previous right-click menu"
+    # offers to give a Windows 10 user the menu they already have. Dropped here
+    # rather than at apply time so they never appear in the plan either.
+    $winOnly = @{
+        'WPFTweaksRightClickMenu'   = @{ Min = 22000; Why = 'Windows 10 already has the classic context menu' }
+        'WPFTweaksWindowsAI'        = @{ Min = 22000; Why = 'Windows AI and Recall do not exist on Windows 10' }
+        'WPFTweaksEndTaskOnTaskbar' = @{ Min = 22631; Why = 'End Task on the taskbar arrived in Windows 11 23H2' }
+    }
+    $build = if ($script:MachineFacts) { [int]$script:MachineFacts.OSBuild } else { 0 }
+    if ($build -gt 0) {
+        $dropped = @($selections | Where-Object { $winOnly.ContainsKey($_) -and $build -lt $winOnly[$_].Min })
+        foreach ($d in $dropped) {
+            Write-Log -Level INFO -Message "skipped winutil:$d - $($winOnly[$d].Why) (build $build)"
+        }
+        if ($dropped.Count -gt 0) {
+            $selections = @($selections | Where-Object { $dropped -notcontains $_ })
+        }
     }
 
     foreach ($s in $selections) {

@@ -17,11 +17,15 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$OutFile = (Join-Path $PSScriptRoot 'trim.ps1')
+    # Resolved below, not here: $PSScriptRoot is not reliably populated while a
+    # param block's defaults are being evaluated, which makes `powershell -File
+    # .uild.ps1` fail on a line that looks perfectly correct.
+    [string]$OutFile
 )
 
 $ErrorActionPreference = 'Stop'
 
+if (-not $OutFile) { $OutFile = Join-Path $PSScriptRoot 'trim.ps1' }
 $srcDir = Join-Path $PSScriptRoot 'src'
 $files  = Get-ChildItem -LiteralPath $srcDir -Filter '*.ps1' | Sort-Object Name
 

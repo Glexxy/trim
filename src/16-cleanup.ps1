@@ -1,4 +1,4 @@
-# ---------------------------------------------------------------------------
+﻿# ---------------------------------------------------------------------------
 # System cleanup
 #
 # Deliberately NOT part of Invoke-AllPhases. Deleting files is a different kind
@@ -304,6 +304,136 @@ function Get-DuplicateScan {
     handle on a file Windows currently has open is how a machine ends up in a
     state nobody can explain.
 #>
+<#
+.SYNOPSIS
+    The biggest files on the machine, so somebody can see what is actually
+    using the disk.
+
+.DESCRIPTION
+    Report only. Nothing here is ever selected, batched or deleted by Trim: a
+    large file is not a junk file, and the difference between the two is a
+    judgement only the owner can make. A 40 GB game, a 40 GB video project and
+    a 40 GB forgotten ISO look identical from here.
+
+    Windows, Program Files and WinSxS are skipped outright. Not because they are
+    small - WinSxS in particular is enormous - but because listing them invites
+    somebody to delete one, and the honest answer for that space is Disk Cleanup
+    and component-store servicing, not a file manager.
+#>
+function Get-LargeFileScan {
+    param(
+        [string[]]$Roots = @(),
+        [int]$MinimumMB = 256,
+        [int]$Top = 60,
+        [int]$TimeoutSeconds = 90
+    )
+
+    if (-not $Roots -or $Roots.Count -eq 0) {
+        $Roots = @(Get-StorageInventory | ForEach-Object { "$($_.Letter):\" })
+    }
+
+    $min = [int64]$MinimumMB * 1MB
+
+    # Pruned while walking, not filtered afterwards. The first version of this
+    # recursed through all of C:\Windows and then threw the results away, which
+    # cost two minutes to return nothing.
+    $skip = @(
+        $env:WinDir,
+        (Join-Path $env:SystemDrive 'System Volume Information'),
+        (Join-Path $env:SystemDrive '$Recycle.Bin')
+    ) + @(Get-ProgramFilesRoots) |
+        Where-Object { $_ } | ForEach-Object { $_.TrimEnd('\') }
+
+    Write-Log "Looking for files over $(Format-Bytes $min) in: $($Roots -join ', ')"
+
+    # .NET enumeration rather than Get-ChildItem -Recurse: same walk, without
+    # building a full FileInfo for every file on the drive, and with control
+    # over which directories are entered at all.
+    $found = [System.Collections.Generic.List[object]]::new()
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    $now = Get-Date
+    $pruned = 0
+    $timedOut = $false
+
+    foreach ($root in $Roots) {
+        try { if (-not [System.IO.Directory]::Exists($root)) { continue } } catch { continue }
+
+        $stack = [System.Collections.Generic.Stack[string]]::new()
+        $stack.Push($root)
+
+        while ($stack.Count -gt 0) {
+            if ($clock.Elapsed.TotalSeconds -gt $TimeoutSeconds) { $timedOut = $true; break }
+            $dir = $stack.Pop()
+
+            $skipThis = $false
+            foreach ($sk in $skip) {
+                if ($dir.StartsWith($sk, [StringComparison]::OrdinalIgnoreCase)) { $skipThis = $true; break }
+            }
+            if ($skipThis) { $pruned++; continue }
+
+            $di = $null
+            try { $di = New-Object System.IO.DirectoryInfo $dir } catch { continue }
+
+            try {
+                foreach ($sub in $di.EnumerateDirectories()) {
+                    # A junction or symlink is another path into somewhere already
+                    # being walked. Following them turns this into a loop.
+                    if ($sub.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
+                    $stack.Push($sub.FullName)
+                }
+            } catch { }
+
+            try {
+                # EnumerateFiles on a DirectoryInfo yields FileInfo objects whose
+                # length and timestamps come from the directory entry. Building a
+                # FileInfo from a path string instead costs an extra stat per
+                # file, which on a user profile is tens of thousands of them.
+                foreach ($info in $di.EnumerateFiles()) {
+                    if ($info.Length -lt $min) { continue }
+                    $found.Add([pscustomobject]@{
+                        Path     = $info.FullName
+                        Name     = $info.Name
+                        Bytes    = $info.Length
+                        Size     = Format-Bytes $info.Length
+                        Modified = $info.LastWriteTime
+                        Age      = [int]($now - $info.LastWriteTime).TotalDays
+                        Kind     = Get-FileKind -Extension $info.Extension
+                    }) | Out-Null
+                }
+            } catch { }
+        }
+        if ($timedOut) { break }
+    }
+
+    $ranked = @($found | Sort-Object Bytes -Descending | Select-Object -First $Top)
+    $took = [Math]::Round($clock.Elapsed.TotalSeconds, 1)
+    if ($timedOut) {
+        Write-Log -Level WARN -Message "Large-file scan stopped at $TimeoutSeconds s. Showing the largest $($ranked.Count) of $($found.Count) found so far."
+    } else {
+        Write-Log "Found $($found.Count) file(s) over $(Format-Bytes $min) in ${took}s; showing the largest $($ranked.Count)."
+    }
+    return $ranked
+}
+
+<#
+.SYNOPSIS
+    A rough label for what a large file is, so a list of paths is readable.
+#>
+function Get-FileKind {
+    param([string]$Extension)
+    switch -Regex ($Extension) {
+        '\.(iso|img|vhdx?|wim|esd)$'            { 'Disk image' ; break }
+        '\.(mp4|mkv|avi|mov|wmv|webm)$'          { 'Video' ; break }
+        '\.(zip|7z|rar|tar|gz|xz)$'              { 'Archive' ; break }
+        '\.(exe|msi|msix|appx)$'                 { 'Installer' ; break }
+        '\.(pak|vpk|bsa|ba2|pck|assets|bundle)$' { 'Game data' ; break }
+        '\.(psd|ai|prproj|aep|blend|fbx)$'       { 'Project file' ; break }
+        '\.(dmp|etl|log)$'                       { 'Diagnostic' ; break }
+        '\.(bak|old|tmp)$'                       { 'Backup or temp' ; break }
+        default                                  { 'File' }
+    }
+}
+
 function Invoke-Cleanup {
     param(
         [Parameter(Mandatory)]$Items,

@@ -1,4 +1,4 @@
-# ---------------------------------------------------------------------------
+﻿# ---------------------------------------------------------------------------
 # Hardware and OS detection.
 #
 # This script goes on machines we have never seen. Every phase asks this module
@@ -147,7 +147,7 @@ function Get-MachineFacts {
         }
     } catch { }
 
-    return [pscustomobject]@{
+    $facts = [pscustomobject]@{
         IsManaged      = $managed
         Manufacturer   = $cs.Manufacturer
         Model          = $cs.Model
@@ -155,6 +155,9 @@ function Get-MachineFacts {
         RamGB          = [Math]::Round($cs.TotalPhysicalMemory / 1GB, 0)
         OSCaption      = $os.Caption
         OSBuild        = [int]$os.BuildNumber
+        # 22000 is the first Windows 11 build. Everything below it is Windows 10
+        # or older, where a good number of these settings simply do not exist.
+        IsWindows11    = ([int]$os.BuildNumber -ge 22000)
         DisplayVersion = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue).DisplayVersion
         GpuNames       = @($gpu | Select-Object -ExpandProperty Name)
         GpuVendors     = @($vendors | Select-Object -Unique)
@@ -162,6 +165,12 @@ function Get-MachineFacts {
         RefreshRate    = $refresh
         SystemDriveSSD = Test-SystemDriveIsSSD
     }
+
+    # Published here rather than only by the caller, so the OS gate in Set-Reg
+    # works for anything that reads facts - the test harness and the screenshot
+    # exporter call the phases directly and never go through 99-main.
+    $script:MachineFacts = $facts
+    return $facts
 }
 
 function Test-SystemDriveIsSSD {
@@ -185,7 +194,7 @@ function Show-MachineFacts {
     Write-Log "Refresh rate : $(if ($Facts.RefreshRate) { "$($Facts.RefreshRate) Hz" } else { 'unknown' })"
 
     if ($Facts.OSBuild -lt 22000) {
-        Write-Log -Level WARN -Message 'This is not Windows 11. Several phases will be skipped or behave differently.'
+        Write-Log -Level WARN -Message 'Windows 10 detected. Settings that only exist on Windows 11 are skipped, and the Windows 10 equivalents are used where there is one.'
     }
     if ($Facts.IsLaptop) {
         Write-Log -Level WARN -Message 'Laptop detected. Power-hungry settings (max performance GPU mode, disabled NIC power saving) will be skipped.'

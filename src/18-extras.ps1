@@ -1,4 +1,4 @@
-# ---------------------------------------------------------------------------
+﻿# ---------------------------------------------------------------------------
 # Phase: More options
 #
 # Everything here is deliberately NOT part of Recommended.
@@ -60,7 +60,10 @@ function Set-ShellExtras {
     $adv = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
 
     Set-Reg $adv 'SnapAssist' 0 -Because 'no Snap Assist suggestions after snapping a window' -Tier op
-    Set-Reg $adv 'EnableSnapAssistFlyout' 0 -Because 'no snap layouts flyout on the maximise button' -Tier op
+    # The flyout on the maximise button arrived with Windows 11; Snap Assist
+    # itself goes back to Windows 10 and stays ungated.
+    Set-Reg $adv 'EnableSnapAssistFlyout' 0 -MinBuild 22000 `
+        -Because 'no snap layouts flyout on the maximise button' -Tier op
 
     # The pop-up offering to call a number or convert a date after a copy.
     Set-Reg 'HKCU:\Software\Microsoft\Windows\Shell\SuggestedActions' 'Enabled' 0 `

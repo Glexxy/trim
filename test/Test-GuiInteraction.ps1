@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Drives the window without a human: presets, navigation, and checkbox clicks.
@@ -120,7 +120,7 @@ Check 'Apply button disables when nothing is selected' {
 }
 
 Check 'navigating to every phase renders' {
-    foreach ($p in (@('Overview') + $script:GuiPhases + @('Disk cleanup','Uninstall apps'))) {
+    foreach ($p in (@('Overview') + $script:GuiPhases + @('Disk cleanup','Startup apps','Uninstall apps'))) {
         Set-GuiPhase $p
         if ($script:GuiCurrent -ne $p) { throw "phase did not change to '$p'" }
         if ($script:GuiUi.PanelItems.Children.Count -eq 0) { throw "'$p' rendered no rows" }
@@ -166,7 +166,7 @@ Check 'sidebar counts track the selection' {
     foreach ($child in $script:GuiUi.PanelPhases.Children) {
         # Overview and Disk cleanup are not part of the preset flow, so they
         # correctly carry no selected/total count.
-        if (-not $child.Tag -or $child.Tag -in @('Overview','Disk cleanup','Uninstall apps')) { continue }
+        if (-not $child.Tag -or $child.Tag -in @('Overview','Disk cleanup','Startup apps','Uninstall apps')) { continue }
         $txt = $child.Content.Children[1].Text
         if ($txt -notmatch '^0/\d+$') { throw "'$($child.Tag)' shows '$txt' after Clear" }
     }
@@ -259,6 +259,45 @@ Check 'uninstall pane opens without listing anything' {
     if ($script:GuiAppsLoaded) { throw 'the pane enumerated applications on its own; it must wait to be asked' }
     if ($script:GuiUninstallStage -ne 'list') { throw "the pane opened in stage '$($script:GuiUninstallStage)'" }
     if ($script:GuiUi.PanelItems.Children.Count -eq 0) { throw 'the uninstall pane rendered nothing' }
+}
+
+Check 'startup pane opens without reading anything' {
+    Set-GuiPhase 'Startup apps'
+    if ($script:GuiStartupLoaded) { throw 'the pane enumerated startup items on its own; it must wait to be asked' }
+    if ($script:GuiUi.PanelItems.Children.Count -eq 0) { throw 'the startup pane rendered nothing' }
+}
+
+Check 'startup pane renders a row per item once asked' {
+    # Drive the real render with a known list rather than whatever this machine
+    # happens to run at logon, so the assertion means the same thing anywhere.
+    $script:GuiStartupItems = @(
+        [pscustomobject]@{ Name='Enabled thing'; Command='C:\a.exe'; Publisher='Contoso'
+                           Source='Registry'; Scope='You'; Location='HKCU:\x'; Approved='HKCU:\y'
+                           State='Enabled'; CanChange=$true },
+        [pscustomobject]@{ Name='Disabled thing'; Command='C:\b.exe'; Publisher=''
+                           Source='Startup folder'; Scope='You'; Location='C:\s'; Approved=''
+                           State='Disabled'; CanChange=$true },
+        [pscustomobject]@{ Name='A task'; Command='C:\c.exe'; Publisher=''
+                           Source='Scheduled task'; Scope='All users'; Location='\T'; Approved=''
+                           State='Enabled'; CanChange=$false }
+    )
+    $script:GuiStartupLoaded = $true
+    Set-GuiPhase 'Startup apps'
+
+    if ($script:GuiUi.PanelItems.Children.Count -ne 3) {
+        throw "expected 3 rows, rendered $($script:GuiUi.PanelItems.Children.Count)"
+    }
+    if ($script:GuiUi.TxtPhaseSub.Text -ne '2 of 3 enabled') {
+        throw "counter reads '$($script:GuiUi.TxtPhaseSub.Text)'"
+    }
+
+    # The scheduled task must not offer a button that cannot work.
+    $rows = @($script:GuiUi.PanelItems.Children)
+    $buttons = @($rows | ForEach-Object { @($_.Child.Children | Where-Object { $_ -is [Windows.Controls.Button] }) })
+    if ($buttons.Count -ne 2) { throw "expected 2 toggle buttons, found $($buttons.Count)" }
+
+    $script:GuiStartupLoaded = $false
+    $script:GuiStartupItems  = @()
 }
 
 Check 'presets never reach uninstall or cleanup items' {

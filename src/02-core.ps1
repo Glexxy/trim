@@ -1,4 +1,4 @@
-# ---------------------------------------------------------------------------
+﻿# ---------------------------------------------------------------------------
 # Core: run state, logging, the undo ledger, and the guarded registry writer.
 #
 # Nothing in this script writes to the registry except Set-Reg / Remove-Reg.
@@ -16,6 +16,12 @@ $script:Actions   = [System.Collections.Generic.List[object]]::new()
 # the undo path can never be polluted by a no-op, but recorded so that "what does
 # this script touch" can be answered completely rather than only listing deltas.
 $script:AlreadySet = [System.Collections.Generic.List[object]]::new()
+
+# Reversals that are not a registry write. The ledger proper only knows about
+# registry values, which was fine while that was the only thing being changed;
+# moving a Startup-folder shortcut is a change too, and an undo script that
+# silently ignored it would make the reversibility claim untrue.
+$script:UndoExtra = [System.Collections.Generic.List[string]]::new()
 $script:Warnings  = [System.Collections.Generic.List[string]]::new()
 $script:Applied   = 0
 $script:Skipped   = 0
@@ -207,6 +213,52 @@ function Get-RegValueOrAbsent {
     The only sanctioned way to write a registry value. Records the prior state
     into the undo ledger before touching anything.
 #>
+<#
+.SYNOPSIS
+    Does this change apply to the Windows build we are running on?
+
+.DESCRIPTION
+    A good number of these settings are Windows 11 only. Writing them on Windows
+    10 is not harmless-but-useless: it creates a registry value the OS never
+    reads, it counts towards the change total the interface shows, and the undo
+    ledger then carries an entry for something that never did anything. Worse,
+    the site tells Windows 10 users the tool "skips whatever does not apply",
+    which was not true of anything until this existed.
+
+    Build numbers rather than a version name, because that is what the OS
+    actually reports and 22000 is the exact line between 10 and 11.
+#>
+function Test-BuildApplies {
+    param(
+        [int]$MinBuild = 0,
+        [int]$MaxBuild = 0,
+        [string]$What = ''
+    )
+
+    if ($MinBuild -le 0 -and $MaxBuild -le 0) { return $true }
+
+    $build = 0
+    if ($script:MachineFacts) { $build = [int]$script:MachineFacts.OSBuild }
+
+    # No facts yet means something is calling a phase without detecting the
+    # machine first. Applying the change is the wrong default here - silently
+    # writing Windows 11 keys to an unknown OS is the exact failure this guards
+    # against - but so is silently skipping. Say so, and apply.
+    if ($build -le 0) { return $true }
+
+    if ($MinBuild -gt 0 -and $build -lt $MinBuild) {
+        Write-Log -Level INFO -Message "skipped (needs build $MinBuild+, this is $build): $What"
+        $script:Skipped++
+        return $false
+    }
+    if ($MaxBuild -gt 0 -and $build -gt $MaxBuild) {
+        Write-Log -Level INFO -Message "skipped (only for build $MaxBuild and below, this is $build): $What"
+        $script:Skipped++
+        return $false
+    }
+    return $true
+}
+
 function Set-Reg {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -221,7 +273,12 @@ function Set-Reg {
         #   op    - opinionated; works, but someone may want the opposite
         #   trade - a real cost is being paid for the gain
         [ValidateSet('safe','op','trade')]
-        [string]$Tier = 'safe'
+        [string]$Tier = 'safe',
+
+        # Windows build range this setting exists on. 22000 means "Windows 11
+        # only"; a MaxBuild of 21999 means "Windows 10 and older only".
+        [int]$MinBuild = 0,
+        [int]$MaxBuild = 0
     )
 
     $Path = Resolve-RegPath $Path
@@ -229,6 +286,8 @@ function Set-Reg {
 
     $label = "$Path\$Name = $Value"
     if ($Because) { $label = "$label  ($Because)" }
+
+    if (-not (Test-BuildApplies -MinBuild $MinBuild -MaxBuild $MaxBuild -What $label)) { return }
 
     try {
         $prior = Get-RegValueOrAbsent -Path $Path -Name $Name
@@ -295,10 +354,13 @@ function Remove-Reg {
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][string]$Name,
         [string]$Because = '',
-        [ValidateSet('safe','op','trade')][string]$Tier = 'safe'
+        [ValidateSet('safe','op','trade')][string]$Tier = 'safe',
+        [int]$MinBuild = 0,
+        [int]$MaxBuild = 0
     )
     $Path = Resolve-RegPath $Path
     if (-not (Test-SelectedChange "reg|$Path|$Name")) { return }
+    if (-not (Test-BuildApplies -MinBuild $MinBuild -MaxBuild $MaxBuild -What "$Path\$Name  ($Because)")) { return }
     $prior = Get-RegValueOrAbsent -Path $Path -Name $Name
     if (-not $prior.Exists) { $script:Skipped++; return }
 
@@ -339,9 +401,24 @@ function Remove-Reg {
     Emits a standalone PowerShell script that reverses every ledger entry, newest
     first. Written even on a partial or failed run.
 #>
+<#
+.SYNOPSIS
+    Record a line of PowerShell that reverses a non-registry change.
+
+.DESCRIPTION
+    The caller has already made the change and knows exactly how to put it back.
+    Quoting is the caller's problem for the same reason it is here: only they
+    know which parts are literal.
+#>
+function Add-UndoCommand {
+    param([Parameter(Mandatory)][string]$Line)
+    if ($DryRun) { return }
+    $script:UndoExtra.Add($Line) | Out-Null
+}
+
 function Write-UndoScript {
     if ($DryRun) { return }
-    if ($script:Ledger.Count -eq 0) {
+    if ($script:Ledger.Count -eq 0 -and $script:UndoExtra.Count -eq 0) {
         Write-Log -Level INFO -Message 'No changes recorded; no undo script written.'
         return
     }
@@ -350,7 +427,7 @@ function Write-UndoScript {
     [void]$sb.AppendLine('#Requires -Version 5.1')
     [void]$sb.AppendLine('# Auto-generated undo script for Trim.')
     [void]$sb.AppendLine("# Run:  $($script:RunStamp)")
-    [void]$sb.AppendLine("# Reverses $($script:Ledger.Count) registry change(s), newest first.")
+    [void]$sb.AppendLine("# Reverses $($script:Ledger.Count) registry change(s)$(if ($script:UndoExtra.Count) { " and $($script:UndoExtra.Count) other change(s)" }), newest first.")
     [void]$sb.AppendLine('# It does NOT undo AppX removals, DISM feature changes, or winutil tweaks.')
     [void]$sb.AppendLine('$ErrorActionPreference = ''Continue''')
     [void]$sb.AppendLine('')
@@ -369,6 +446,16 @@ function Write-UndoScript {
             [void]$sb.AppendLine("New-ItemProperty -LiteralPath '$p' -Name '$n' -Value $v -PropertyType '$($e.OldType)' -Force | Out-Null")
         } else {
             [void]$sb.AppendLine("Remove-ItemProperty -LiteralPath '$p' -Name '$n' -Force -ErrorAction SilentlyContinue")
+        }
+    }
+
+    # Newest first here too, so a sequence of moves unwinds in the order it was
+    # made rather than fighting itself.
+    if ($script:UndoExtra.Count) {
+        [void]$sb.AppendLine('')
+        [void]$sb.AppendLine('# Changes that are not registry values.')
+        for ($i = $script:UndoExtra.Count - 1; $i -ge 0; $i--) {
+            [void]$sb.AppendLine($script:UndoExtra[$i])
         }
     }
 

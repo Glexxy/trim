@@ -1,4 +1,4 @@
-# ---------------------------------------------------------------------------
+﻿# ---------------------------------------------------------------------------
 # Phase: Personalisation
 #
 # Settings > Personalisation: Start, Taskbar, Background.
@@ -32,7 +32,9 @@ function Set-StartMenu {
     Set-Reg $script:Advanced 'Start_TrackDocs'  1 -Because 'Start: show recommended and recent files'
     Set-Reg $script:Advanced 'Start_TrackProgs' 1 -Because 'Start: show most used apps (requires launch tracking)' -Tier op
 
-    Set-Reg $script:Advanced 'Start_IrisRecommendations' 0 `
+    # Windows 11 only. Windows 10's Start menu has no recommendation strip, so
+    # this value would sit in the registry doing nothing.
+    Set-Reg $script:Advanced 'Start_IrisRecommendations' 0 -MinBuild 22000 `
         -Because 'Start: no recommendations for tips, shortcuts, new apps'
     Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' `
         'SubscribedContent-338381Enabled' 0 -Because 'Start: no recommendation feed'
@@ -46,12 +48,18 @@ function Set-Taskbar {
         -Because 'taskbar: search hidden'
 
     Set-Reg $script:Advanced 'ShowTaskViewButton' 0 -Because 'taskbar: task view off'
-    Set-Reg $script:Advanced 'TaskbarDa'          0 -Because 'taskbar: widgets off'
 
-    # Widgets has a machine-wide policy too; without it the button can return
-    # after a feature update.
-    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh' 'AllowNewsAndInterests' 0 `
+    # Widgets is the Windows 11 name for what Windows 10 called News and
+    # Interests. Same idea, different key and different policy, so each build
+    # gets the one that actually exists on it.
+    Set-Reg $script:Advanced 'TaskbarDa' 0 -MinBuild 22000 -Because 'taskbar: widgets off'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh' 'AllowNewsAndInterests' 0 -MinBuild 22000 `
         -Because 'taskbar: widgets off, machine-wide'
+
+    Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Feeds' 'ShellFeedsTaskbarViewMode' 2 -MaxBuild 21999 `
+        -Because 'taskbar: News and Interests off'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Feeds' 'EnableFeeds' 0 -MaxBuild 21999 `
+        -Because 'taskbar: News and Interests off, machine-wide'
 }
 
 <#
@@ -66,7 +74,9 @@ function Set-Taskbar {
 #>
 function Set-BackgroundToPicture {
     # 0 = Picture, 1 = Solid colour, 2 = Slideshow, 3 = Spotlight
-    Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Wallpapers' 'BackgroundType' 0 `
+    # The Wallpapers key is a Windows 11 addition. On Windows 10 the Spotlight
+    # removal below is the part that matters, and it works on both.
+    Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Wallpapers' 'BackgroundType' 0 -MinBuild 22000 `
         -Because 'background: picture'
 
     Remove-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NewWallpaper' 'Enabled' `

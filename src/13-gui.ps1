@@ -1,4 +1,4 @@
-# ---------------------------------------------------------------------------
+﻿# ---------------------------------------------------------------------------
 # The window.
 #
 # It is not a second description of what the script does - it renders the
@@ -390,7 +390,7 @@ function Update-GuiCounts {
         $ui.BannerBox.Visibility = 'Collapsed'
     }
 
-    if ($script:GuiCurrent -notin @('Overview','Disk cleanup','Uninstall apps')) {
+    if ($script:GuiCurrent -notin $script:GuiExtraPanes) {
         $c = Get-GuiPhaseCounts -Phase $script:GuiCurrent
         $ui.TxtPhaseSub.Text = "$($c.On) of $($c.Total) selected"
     }
@@ -400,7 +400,7 @@ function Update-GuiCounts {
 # Only the numbers, so ticking a box does not rebuild the sidebar under the mouse.
 function Update-GuiPhaseCounts {
     foreach ($child in $script:GuiUi.PanelPhases.Children) {
-        if (-not $child.Tag -or $child.Tag -in @('Overview','Disk cleanup','Uninstall apps')) { continue }
+        if (-not $child.Tag -or $child.Tag -in $script:GuiExtraPanes) { continue }
         $c = Get-GuiPhaseCounts -Phase $child.Tag
         $grid = $child.Content
         if ($grid -and $grid.Children.Count -ge 2) {
@@ -419,7 +419,7 @@ function Update-GuiPhases {
     $brAccent = Get-GuiBrush '#46C6B0'
     $brNone   = [Windows.Media.Brushes]::Transparent
 
-    foreach ($p in (@('Overview') + $script:GuiPhases + @('Disk cleanup','Uninstall apps'))) {
+    foreach ($p in (@('Overview') + $script:GuiPhases + @('Disk cleanup','Startup apps','Uninstall apps'))) {
         $isCur = ($p -eq $script:GuiCurrent)
 
         $b = New-Object Windows.Controls.Button
@@ -936,6 +936,133 @@ function Invoke-GuiCleanDelete {
     Nothing is deleted that was not on screen first. Registry keys are exported
     to .reg files before removal, so a mistake is recoverable.
 #>
+$script:GuiStartupItems  = @()
+$script:GuiStartupLoaded = $false
+
+function Invoke-GuiLoadStartup {
+    $script:GuiStartupItems = @(Invoke-WithProgress -Title 'Reading startup items' -Work { Get-StartupItems })
+    $script:GuiStartupLoaded = $true
+    Update-GuiItems
+}
+
+function Invoke-GuiToggleStartup {
+    param($Item, $Button)
+
+    $ok = if ($Item.State -eq 'Enabled') { Disable-StartupItem -Item $Item } else { Enable-StartupItem -Item $Item }
+    if (-not $ok) { return }
+
+    # Re-read rather than assuming the write landed. Disabling a machine-wide
+    # entry without administrator rights fails, and a button that lies about it
+    # is worse than one that does nothing.
+    $script:GuiStartupItems = @(Get-StartupItems)
+    Update-GuiItems
+}
+
+<#
+.SYNOPSIS
+    What runs when you log in, and a switch for each of it.
+#>
+function Show-GuiStartup {
+    $ui = $script:GuiUi
+    $ui.TxtPhase.Text = 'Startup apps'
+
+    if (-not $script:GuiStartupLoaded) {
+        $ui.TxtPhaseSub.Text = ''
+        Add-GuiParagraph -Text 'What starts with Windows' -Colour '#E6EDEB' -Size 14.5 -Weight 'SemiBold'
+        Add-GuiParagraph -Text ('Every program that launches when you sign in, from all four places Windows ' +
+            'keeps them: your account, the machine-wide list, the two Startup folders, and scheduled tasks ' +
+            'that trigger at logon.') -Top 6
+        Add-GuiParagraph -Text ('Switching one off here is the same switch Task Manager uses, so it stays off ' +
+            'and you can turn it back on without this tool. Nothing is deleted: shortcuts are moved to a ' +
+            '"Disabled by Trim" folder, and the undo script puts them back.') -Colour '#6C7A77' -Size 12 -Top 10
+
+        $b = New-Object Windows.Controls.Button
+        $b.Style = $script:GuiWin.FindResource('Primary')
+        $b.Content = 'List startup items'
+        $b.HorizontalAlignment = 'Left'
+        $b.Margin = New-Object Windows.Thickness 0,20,0,0
+        $b.Add_Click({ Invoke-GuiLoadStartup })
+        $ui.PanelItems.Children.Add($b) | Out-Null
+        return
+    }
+
+    $on = @($script:GuiStartupItems | Where-Object { $_.State -eq 'Enabled' }).Count
+    $ui.TxtPhaseSub.Text = "$on of $($script:GuiStartupItems.Count) enabled"
+
+    $brInk   = Get-GuiBrush '#E6EDEB'
+    $brFaint = Get-GuiBrush '#6C7A77'
+    $brRule  = Get-GuiBrush '#2E3937'
+    $brMint  = Get-GuiBrush '#46C6B0'
+
+    foreach ($item in $script:GuiStartupItems) {
+        $row = New-Object Windows.Controls.Border
+        $row.BorderBrush = $brRule
+        $row.BorderThickness = New-Object Windows.Thickness 0,0,0,1
+        $row.Padding = New-Object Windows.Thickness 4,7,4,8
+
+        $g = New-Object Windows.Controls.Grid
+        foreach ($w in @('Star','Auto')) {
+            $cd = New-Object Windows.Controls.ColumnDefinition
+            $cd.Width = if ($w -eq 'Star') { New-Object Windows.GridLength 1, 'Star' } else { 'Auto' }
+            $g.ColumnDefinitions.Add($cd)
+        }
+        $g.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition))
+        $g.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition))
+
+        $name = New-Object Windows.Controls.TextBlock
+        $name.Text = $item.Name
+        $name.FontWeight = 'SemiBold'
+        $name.Foreground = if ($item.State -eq 'Enabled') { $brInk } else { $brFaint }
+        $name.TextTrimming = 'CharacterEllipsis'
+        [Windows.Controls.Grid]::SetColumn($name, 0)
+
+        $meta = New-Object Windows.Controls.TextBlock
+        $bits = @()
+        if ($item.Publisher) { $bits += $item.Publisher }
+        $bits += $item.Source
+        $bits += $item.Scope
+        if ($item.State -eq 'Disabled') { $bits += 'already off' }
+        $meta.Text = ($bits -join '  -  ')
+        $meta.FontSize = 11.5
+        $meta.Foreground = $brFaint
+        $meta.TextTrimming = 'CharacterEllipsis'
+        $meta.Margin = New-Object Windows.Thickness 0,2,0,0
+        [Windows.Controls.Grid]::SetColumn($meta, 0)
+        [Windows.Controls.Grid]::SetRow($meta, 1)
+
+        $g.Children.Add($name) | Out-Null
+        $g.Children.Add($meta) | Out-Null
+
+        if ($item.CanChange) {
+            $btn = New-Object Windows.Controls.Button
+            $btn.Style = $script:GuiWin.FindResource('Btn')
+            $btn.Content = if ($item.State -eq 'Enabled') { 'Turn off' } else { 'Turn on' }
+            $btn.VerticalAlignment = 'Center'
+            $btn.Margin = New-Object Windows.Thickness 12,0,0,0
+            # Captured per row deliberately: the handler must act on this item,
+            # not on whatever the loop variable happens to be afterwards.
+            $captured = $item
+            $btn.Add_Click({ Invoke-GuiToggleStartup -Item $captured }.GetNewClosure())
+            [Windows.Controls.Grid]::SetColumn($btn, 1)
+            [Windows.Controls.Grid]::SetRowSpan($btn, 2)
+            $g.Children.Add($btn) | Out-Null
+        } else {
+            $note = New-Object Windows.Controls.TextBlock
+            $note.Text = 'scheduled task'
+            $note.FontSize = 11
+            $note.Foreground = $brFaint
+            $note.VerticalAlignment = 'Center'
+            $note.Margin = New-Object Windows.Thickness 12,0,0,0
+            [Windows.Controls.Grid]::SetColumn($note, 1)
+            [Windows.Controls.Grid]::SetRowSpan($note, 2)
+            $g.Children.Add($note) | Out-Null
+        }
+
+        $row.Child = $g
+        $ui.PanelItems.Children.Add($row) | Out-Null
+    }
+}
+
 function Show-GuiUninstall {
     $ui = $script:GuiUi
     $ui.TxtPhase.Text = 'Uninstall apps'
@@ -1189,6 +1316,11 @@ function Invoke-GuiRemoveLeftovers {
     [void][Windows.MessageBox]::Show($msg, 'Trim - leftovers removed', 'OK', 'Information')
 }
 
+# The panes that are not phases of the plan. Declared once: this list was
+# repeated in four places, and adding a pane to three of them produces a tab
+# that renders but never updates its own counter.
+$script:GuiExtraPanes = @('Overview', 'Disk cleanup', 'Startup apps', 'Uninstall apps')
+
 function Update-GuiItems {
     $ui = $script:GuiUi
     $ui.PanelItems.Children.Clear()
@@ -1196,6 +1328,7 @@ function Update-GuiItems {
 
     if ($script:GuiCurrent -eq 'Overview')     { Show-GuiOverview; return }
     if ($script:GuiCurrent -eq 'Disk cleanup')    { Show-GuiCleanup;   return }
+    if ($script:GuiCurrent -eq 'Startup apps')   { Show-GuiStartup;   return }
     if ($script:GuiCurrent -eq 'Uninstall apps') { Show-GuiUninstall; return }
 
     $inPhase = @($script:GuiItems | Where-Object { $_.Phase -eq $script:GuiCurrent })
