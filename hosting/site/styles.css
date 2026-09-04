@@ -1,0 +1,605 @@
+/* ===========================================================================
+   trimbloat.com
+
+   The page is built to read like the thing it is selling: an audit document.
+   Two typefaces, no sans-serif at all - an editorial serif for the human voice
+   and a monospace for everything the machine says. The accent palette is not
+   decorative, it is the product's own SAFE / CAUTION / RISKY tiers, so the
+   colours on this page mean the same thing they mean in the app.
+   =========================================================================== */
+
+:root {
+  --void:    #070A09;
+  --panel:   #0C1110;
+  --raise:   #111917;
+  --rule:    #1C2624;
+  --rule-lit:#2A3835;
+
+  --ink:     #E9F1EE;
+  --soft:    #94A39F;   /* 7.6:1 on --void */
+  /* 4.6:1 on --void. It was #5C6A66, which measured 3.5:1 - under AA for the
+     small text this is used on, including the administrator-rights line
+     directly under the install command. Dim is a style; unreadable is a bug. */
+  --faint:   #6E7C78;
+
+  /* the app's tiers, used as the site's whole accent system */
+  --safe:    #5BE9B9;
+  --caution: #F2B441;
+  --risky:   #FF6F5E;
+
+  --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --mono:  "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+
+  --gutter: clamp(1.15rem, 4vw, 2.5rem);
+  --measure: 60ch;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--void);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: clamp(0.875rem, 0.83rem + 0.2vw, 0.95rem);
+  font-weight: 400;
+  line-height: 1.72;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* --- atmosphere ---------------------------------------------------------- */
+
+/* A faint film so the flat black has some tooth to it. */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.028;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* One cold light source behind the headline. No gradient meshes. */
+.glow {
+  position: fixed;
+  top: -30vh;
+  left: 50%;
+  width: min(1100px, 130vw);
+  height: 80vh;
+  z-index: 0;
+  pointer-events: none;
+  transform: translateX(-52%);
+  background: radial-gradient(ellipse at 50% 50%,
+              rgba(91, 233, 185, 0.10) 0%,
+              rgba(91, 233, 185, 0.035) 38%,
+              transparent 70%);
+}
+
+/* Hairline grid, only behind the hero, fading out downward. */
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: -8rem var(--gutter) auto;
+  height: 130%;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 159, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 159, 0.055) 1px, transparent 1px);
+  background-size: 68px 68px;
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 78%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 78%);
+}
+
+main, header.bar, footer { position: relative; z-index: 1; }
+
+/* --- top bar ------------------------------------------------------------- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 1.6rem var(--gutter) 0;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.brand .mark { width: 21px; height: 21px; flex: none; fill: var(--safe); }
+.brand span  { font-size: 0.95rem; }
+
+.bar-links {
+  display: flex;
+  gap: clamp(0.85rem, 2.5vw, 1.6rem);
+  font-size: 0.78rem;
+}
+.bar-links a {
+  color: var(--faint);
+  text-decoration: none;
+  transition: color 0.18s ease;
+}
+.bar-links a:hover { color: var(--safe); }
+
+@media (max-width: 560px) {
+  .bar { flex-direction: column; align-items: flex-start; gap: 0.9rem; }
+}
+
+/* --- layout -------------------------------------------------------------- */
+
+main { max-width: 1080px; margin: 0 auto; padding: 0 var(--gutter); }
+
+.hero {
+  position: relative;
+  padding: clamp(4rem, 12vh, 8rem) 0 clamp(3.5rem, 9vh, 6rem);
+}
+
+.band {
+  padding: clamp(3.5rem, 9vh, 6.5rem) 0;
+  border-top: 1px solid var(--rule);
+}
+
+.head { max-width: var(--measure); margin-bottom: clamp(2rem, 5vh, 3rem); }
+.head p { color: var(--soft); margin: 0.85rem 0 0; }
+
+/* --- type ---------------------------------------------------------------- */
+
+.eyebrow {
+  font-size: 0.72rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 0 0 1.6rem;
+}
+
+h1 {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(2.9rem, 9.5vw, 6.2rem);
+  line-height: 0.96;
+  letter-spacing: -0.02em;
+  margin: 0;
+  text-wrap: balance;
+}
+h1 em {
+  font-style: italic;
+  color: var(--safe);
+  /* the cut, rendered as a rule drawn under the emphasis */
+  position: relative;
+  display: inline-block;
+}
+h1 em::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.12em;
+  height: 2px;
+  background: var(--safe);
+  opacity: 0.35;
+  transform-origin: left;
+  animation: draw 900ms 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+h2 {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(1.85rem, 4.6vw, 3rem);
+  line-height: 1.06;
+  letter-spacing: -0.015em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  margin: 0.7rem 0 0.6rem;
+}
+
+h4 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+  color: var(--ink);
+}
+
+p { margin: 0 0 1rem; }
+p:last-child { margin-bottom: 0; }
+
+.lead {
+  font-family: var(--serif);
+  font-size: clamp(1.15rem, 2.3vw, 1.5rem);
+  line-height: 1.45;
+  color: var(--soft);
+  max-width: 46ch;
+  margin: 1.7rem 0 0;
+}
+
+a { color: var(--safe); text-decoration-color: rgba(91, 233, 185, 0.35); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--safe); }
+
+strong, b { color: var(--ink); font-weight: 700; }
+em { font-style: italic; }
+
+code { font-family: var(--mono); font-size: 0.92em; }
+
+/* --- the command --------------------------------------------------------- */
+
+.run { margin-top: clamp(2rem, 5vh, 3rem); }
+
+.run-cmd {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 560px;
+  padding: 0.95rem 0.95rem 0.95rem 1.05rem;
+  background: var(--panel);
+  border: 1px solid var(--rule-lit);
+  border-left: 2px solid var(--safe);
+  border-radius: 4px;
+  box-shadow: 0 18px 40px -28px rgba(0, 0, 0, 0.95);
+}
+.run-cmd.solo { margin-top: 2rem; }
+
+.prompt { color: var(--safe); opacity: 0.6; font-size: 0.82rem; flex: none; }
+
+.cmd-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: clamp(0.78rem, 2.1vw, 0.92rem);
+  color: var(--ink);
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+  /* Fades the right edge so a command too wide for the box reads as scrollable
+     rather than as a command that simply ends there. */
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.6rem), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.6rem), transparent 100%);
+}
+.cmd-text::-webkit-scrollbar { display: none; }
+
+/* On a phone the command is the single most important string on the page, so it
+   wraps and is read in full instead of being clipped behind a scroll nobody
+   will discover. */
+@media (max-width: 620px) {
+  .run-cmd {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding: 0.85rem;
+    row-gap: 0.7rem;
+  }
+  .prompt { padding-top: 0.1rem; }
+  .cmd-text {
+    /* Full width of the box: the button moves to its own row below, so the
+       command gets the space instead of wrapping around a control. */
+    flex: 1 1 auto;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    overflow-x: visible;
+    mask-image: none;
+    -webkit-mask-image: none;
+    line-height: 1.5;
+  }
+  .copy { margin-left: auto; }
+}
+
+.copy {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  background: transparent;
+  border: 1px solid var(--rule-lit);
+  border-radius: 3px;
+  padding: 0.36rem 0.6rem;
+  cursor: pointer;
+  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+.copy:hover { color: var(--ink); border-color: var(--faint); }
+.copy.done  { color: var(--void); background: var(--safe); border-color: var(--safe); }
+
+.run-note { color: var(--faint); font-size: 0.8rem; margin: 0.85rem 0 0; max-width: 52ch; }
+
+/* --- the cut list: the page's signature device ---------------------------- */
+
+.cutlist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: clamp(2.5rem, 6vh, 3.5rem);
+  max-width: 720px;
+}
+
+.cut {
+  position: relative;
+  font-size: 0.76rem;
+  color: var(--soft);
+  padding: 0.28rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  white-space: nowrap;
+  animation: dim 500ms calc(700ms + var(--i) * 110ms) ease-out both;
+}
+/* The strike is a drawn rule, not text-decoration, so it can be animated. */
+.cut::after {
+  content: "";
+  position: absolute;
+  left: 0.55rem;
+  right: 0.55rem;
+  top: 50%;
+  height: 1px;
+  background: var(--risky);
+  transform-origin: left;
+  animation: strike 320ms calc(700ms + var(--i) * 110ms) cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+@keyframes strike { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes dim {
+  from { color: var(--soft);  border-color: var(--rule-lit); opacity: 1; }
+  /* Dimmed enough to read as removed, not so far that the labels stop being
+     legible - they are the clearest statement on the page of what Trim takes
+     out, so they have to survive being struck through. */
+  to   { color: var(--soft); border-color: var(--rule);      opacity: 0.72; }
+}
+
+/* --- the manifest table --------------------------------------------------- */
+
+.manifest {
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.mrow {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.8rem 1.1rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.8rem;
+  transition: background 0.16s ease;
+}
+.mrow:first-child { border-top: 0; }
+.mrow:not(.mhead):hover { background: var(--raise); }
+
+.mhead {
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+  background: rgba(255, 255, 255, 0.014);
+}
+
+.was     { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--rule-lit); }
+.becomes { color: var(--ink); }
+.becomes::before { content: "→ "; color: var(--faint); }
+
+.chip {
+  font-style: normal;
+  font-size: 0.63rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  padding: 0.18rem 0.5rem;
+  border-radius: 3px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.chip.safe    { color: var(--safe);    border-color: rgba(91, 233, 185, 0.32); background: rgba(91, 233, 185, 0.07); }
+.chip.caution { color: var(--caution); border-color: rgba(242, 180, 65, 0.32);  background: rgba(242, 180, 65, 0.07); }
+.chip.risky   { color: var(--risky);   border-color: rgba(255, 111, 94, 0.32);  background: rgba(255, 111, 94, 0.07); }
+
+@media (max-width: 620px) {
+  .mrow { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.15rem; }
+  .mhead { display: none; }
+  .mrow span:nth-child(2) { grid-column: 1; font-size: 0.74rem; }
+  .mrow span:nth-child(3) { grid-column: 1; font-size: 0.74rem; }
+  .mrow span:nth-child(4) { grid-row: 1; grid-column: 2; }
+}
+
+.tiers { color: var(--soft); max-width: var(--measure); margin-top: 1.5rem; font-size: 0.83rem; }
+.t-safe    { color: var(--safe); }
+.t-caution { color: var(--caution); }
+.t-risky   { color: var(--risky); }
+
+/* --- verification cards --------------------------------------------------- */
+
+.checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(255px, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.check {
+  background: var(--panel);
+  padding: 1.6rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+}
+.check.accent { background: var(--raise); }
+
+.num {
+  font-size: 0.68rem;
+  letter-spacing: 0.2em;
+  color: var(--faint);
+}
+.check.accent .num { color: var(--safe); }
+
+.check p { color: var(--soft); font-size: 0.8rem; }
+
+.check pre {
+  background: var(--void);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.75rem 0.85rem;
+  margin: 0.4rem 0 0.85rem;
+  overflow-x: auto;
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.hashbox {
+  background: var(--void);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.7rem 0.8rem;
+  margin: 0.3rem 0 0.9rem;
+  font-size: 0.66rem;
+  line-height: 1.55;
+  color: var(--safe);
+  word-break: break-all;
+}
+
+.fine { color: var(--faint) !important; font-size: 0.73rem !important; margin-top: auto !important; }
+
+.go {
+  margin-top: auto;
+  padding-top: 0.6rem;
+  font-size: 0.76rem;
+  text-decoration: none;
+  color: var(--safe);
+  transition: opacity 0.16s ease;
+}
+.go:hover { opacity: 0.72; }
+
+/* --- undo ----------------------------------------------------------------- */
+
+.path {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--safe);
+  border-radius: 4px;
+  padding: 0.85rem 1.05rem;
+  margin: 0 0 1.8rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.facts { list-style: none; padding: 0; margin: 0; max-width: var(--measure); }
+.facts li {
+  position: relative;
+  padding-left: 1.5rem;
+  margin-bottom: 0.8rem;
+  color: var(--soft);
+  font-size: 0.83rem;
+}
+.facts li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.72em;
+  width: 0.7rem;
+  height: 1px;
+  background: var(--safe);
+}
+
+.caveat {
+  margin-top: 2rem;
+  padding: 1.05rem 1.2rem;
+  background: rgba(242, 180, 65, 0.045);
+  border: 1px solid rgba(242, 180, 65, 0.2);
+  border-radius: 4px;
+  color: var(--soft);
+  font-size: 0.8rem;
+  max-width: var(--measure);
+}
+.caveat b { color: var(--caution); }
+
+/* --- refusals ------------------------------------------------------------- */
+
+.refusals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+  gap: 1.6rem 2.2rem;
+}
+.ref { border-top: 1px solid var(--rule); padding-top: 1rem; }
+.ref p { color: var(--soft); font-size: 0.79rem; margin: 0; }
+
+/* --- closer --------------------------------------------------------------- */
+
+.closer {
+  padding: clamp(4rem, 11vh, 7rem) 0 clamp(3rem, 8vh, 5rem);
+  border-top: 1px solid var(--rule);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.closer p { color: var(--soft); margin-top: 0.8rem; }
+.closer .run-cmd { text-align: left; width: 100%; }
+
+/* --- footer --------------------------------------------------------------- */
+
+footer {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 2.2rem var(--gutter) 4rem;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.credit { max-width: 58ch; }
+.credit p { color: var(--faint); font-size: 0.76rem; }
+.credit b { color: var(--soft); }
+.go-use { color: var(--soft) !important; }
+
+.meta { display: flex; gap: 1.1rem; font-size: 0.74rem; color: var(--faint); }
+.meta a { color: var(--faint); text-decoration: none; }
+.meta a:hover { color: var(--safe); }
+
+/* --- entrance ------------------------------------------------------------- */
+
+.reveal {
+  animation: rise 720ms var(--d, 0ms) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Motion here is decoration, not information - every animated element is
+   already legible in its final state, so removing it loses nothing. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* --- focus --------------------------------------------------------------- */
+
+:focus-visible {
+  outline: 2px solid var(--safe);
+  outline-offset: 3px;
+  border-radius: 2px;
+}

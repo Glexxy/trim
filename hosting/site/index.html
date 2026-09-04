@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trim — reversible Windows tuning</title>
+<meta name="description" content="Strips advertising, telemetry and preinstalled clutter out of Windows and tunes what is left for games. Every change is written down before it is made, and can be put back.">
+<meta name="theme-color" content="#070A09">
+<meta property="og:title" content="Trim — reversible Windows tuning">
+<meta property="og:description" content="Every change written down before it is made. One line to run, one script to undo it.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://trimbloat.com">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<div class="grain" aria-hidden="true"></div>
+<div class="glow" aria-hidden="true"></div>
+
+<header class="bar">
+  <a class="brand" href="/">
+    <svg class="mark" viewBox="0 0 26 26" aria-hidden="true">
+      <rect x="1" y="3" width="24" height="4.5" rx="2.25"/>
+      <rect x="1" y="10.5" width="15" height="4.5" rx="2.25" opacity=".6"/>
+      <rect x="1" y="18" width="8" height="4.5" rx="2.25" opacity=".3"/>
+    </svg>
+    <span>trim</span>
+  </a>
+  <nav class="bar-links">
+    <a href="/go">read the script</a>
+    <a href="/sha256">fingerprint</a>
+    <a href="https://github.com/Glexxy/trim" rel="noopener">source</a>
+  </nav>
+</header>
+
+<main>
+
+  <section class="hero">
+    <p class="eyebrow reveal" style="--d:0ms">Windows 10 &amp; 11 · free · open source</p>
+
+    <h1 class="reveal" style="--d:60ms">
+      Every change,<br>
+      <em>written down</em><br>
+      before it&rsquo;s made.
+    </h1>
+
+    <p class="lead reveal" style="--d:140ms">
+      Trim strips advertising, telemetry and preinstalled clutter out of Windows,
+      tunes what&rsquo;s left for games, and hands you a script that puts every
+      last bit of it back.
+    </p>
+
+    <div class="run reveal" style="--d:220ms">
+      <div class="run-cmd">
+        <span class="prompt" aria-hidden="true">PS&gt;</span>
+        <code class="cmd-text">irm https://trimbloat.com/go | iex</code>
+        <button class="copy" type="button" aria-label="Copy the command">copy</button>
+      </div>
+      <p class="run-note">
+        It asks for administrator rights, because it needs them.
+        <strong>Nothing changes until you press Apply.</strong>
+      </p>
+    </div>
+
+    <div class="cutlist reveal" style="--d:300ms" aria-label="Examples of what Trim removes">
+      <span class="cut" style="--i:1">Advertising ID</span>
+      <span class="cut" style="--i:2">Copilot</span>
+      <span class="cut" style="--i:3">Widgets</span>
+      <span class="cut" style="--i:4">Bing in Search</span>
+      <span class="cut" style="--i:5">Telemetry</span>
+      <span class="cut" style="--i:6">Game Bar</span>
+      <span class="cut" style="--i:7">Suggested content</span>
+      <span class="cut" style="--i:8">Delivery Optimization</span>
+      <span class="cut" style="--i:9">Start recommendations</span>
+      <span class="cut" style="--i:10">Inking &amp; typing data</span>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="head">
+      <h2>It shows you the diff first</h2>
+      <p>A dry run needs no administrator rights at all. It reads your machine,
+         prints exactly what it would change, and touches nothing.</p>
+    </div>
+
+    <div class="manifest">
+      <div class="mrow mhead">
+        <span>setting</span>
+        <span>now</span>
+        <span>after</span>
+        <span>tier</span>
+      </div>
+      <div class="mrow">
+        <span>Advertising ID</span>
+        <span class="was">enabled</span>
+        <span class="becomes">off</span>
+        <span><i class="chip safe">safe</i></span>
+      </div>
+      <div class="mrow">
+        <span>Xbox Game Bar</span>
+        <span class="was">enabled</span>
+        <span class="becomes">off</span>
+        <span><i class="chip safe">safe</i></span>
+      </div>
+      <div class="mrow">
+        <span>Win32PrioritySeparation</span>
+        <span class="was">0x02</span>
+        <span class="becomes">0x26</span>
+        <span><i class="chip caution">caution</i></span>
+      </div>
+      <div class="mrow">
+        <span>Hardware GPU scheduling</span>
+        <span class="was">off</span>
+        <span class="becomes">on</span>
+        <span><i class="chip caution">caution</i></span>
+      </div>
+      <div class="mrow">
+        <span>Memory Integrity</span>
+        <span class="was">on</span>
+        <span class="becomes">off</span>
+        <span><i class="chip risky">risky</i></span>
+      </div>
+    </div>
+
+    <p class="tiers">
+      <b class="t-safe">Safe</b> runs on any machine, and is the only tier ticked by default.
+      <b class="t-caution">Caution</b> works for most people. <b class="t-risky">Risky</b> is
+      for people who already know why they want it. Nothing is hidden behind a
+      &ldquo;recommended&rdquo; button that quietly does all three.
+    </p>
+  </section>
+
+  <section class="band">
+    <div class="head">
+      <h2>You&rsquo;re piping a script into an elevated shell</h2>
+      <p>That deserves scepticism &mdash; including of this page. So here are three
+         ways to check us, in increasing order of how little you have to trust us.</p>
+    </div>
+
+    <div class="checks">
+      <article class="check">
+        <span class="num">01</span>
+        <h3>Read it</h3>
+        <p>The script is served as plain text, not as a download. Open it in a
+           browser tab and read every line before you run a thing.</p>
+        <a class="go" href="/go">open the script &rarr;</a>
+      </article>
+
+      <article class="check">
+        <span class="num">02</span>
+        <h3>Match it</h3>
+        <p>Every build publishes its SHA256. <code>-Version</code> prints the
+           fingerprint of the file actually running on your machine.</p>
+        <div class="hashbox">{{SHA256}}</div>
+        <a class="go" href="/sha256">/sha256 &rarr;</a>
+      </article>
+
+      <article class="check accent">
+        <span class="num">03</span>
+        <h3>Rebuild it</h3>
+        <p>A hash we publish only proves nobody changed the file in transit. So
+           the build is <strong>reproducible</strong> &mdash; clone the source, compile it,
+           and get identical bytes.</p>
+        <pre><code>git clone https://github.com/Glexxy/trim
+cd trim
+.\build.ps1</code></pre>
+        <p class="fine">Same commit, same fingerprint. If it doesn&rsquo;t match, the
+           published script contains something the source doesn&rsquo;t &mdash; and you
+           should not run it.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="band undo">
+    <div class="head">
+      <h2>The undo isn&rsquo;t a promise. It&rsquo;s a file.</h2>
+      <p>Every registry write goes through one function that records the previous
+         value <em>first</em>. At the end of the run &mdash; including after a crash &mdash;
+         that ledger is written out as a standalone rollback script.</p>
+    </div>
+
+    <pre class="path"><code>C:\ProgramData\Trim\undo\undo_&lt;timestamp&gt;.ps1</code></pre>
+
+    <ul class="facts">
+      <li>A value that <em>didn&rsquo;t exist</em> before is <b>removed</b> on undo, not
+          overwritten with a zero &mdash; the mistake that makes most &ldquo;restore&rdquo;
+          scripts quietly lie to you.</li>
+      <li>A restore point is taken before anything runs.</li>
+      <li>The round trip is tested: apply, roll back, then assert every value
+          returned to its exact prior state <em>and</em> type.</li>
+    </ul>
+
+    <p class="caveat">
+      <b>Three things it can&rsquo;t reverse</b>, said plainly rather than buried:
+      removed Store apps (reinstall them from the Store), WinUtil&rsquo;s own changes
+      (use the restore point), and <code>netsh</code> TCP settings (one command, printed
+      in the log).
+    </p>
+  </section>
+
+  <section class="band">
+    <div class="head">
+      <h2>What it refuses to do</h2>
+      <p>The restraint is the product. A tweak that wins a frame and costs you a
+         working machine isn&rsquo;t a trade worth offering.</p>
+    </div>
+
+    <div class="refusals">
+      <div class="ref">
+        <h4>Touch your camera or microphone</h4>
+        <p>Those, plus screenshots and screen recording, are on a never-touch list
+           checked at runtime. A typo cannot switch off your webcam.</p>
+      </div>
+      <div class="ref">
+        <h4>Fan curves, BIOS, overclocking</h4>
+        <p>Out of scope by design. Nothing here can cook hardware.</p>
+      </div>
+      <div class="ref">
+        <h4>Set up AutoLogon</h4>
+        <p>It writes your account password where anything on the box can read it
+           back. WinUtil offers it; Trim deliberately doesn&rsquo;t.</p>
+      </div>
+      <div class="ref">
+        <h4>Rip out load-bearing packages</h4>
+        <p>Frameworks other apps link against, winget itself, and the Xbox sign-in
+           component are protected and unit-tested.</p>
+      </div>
+      <div class="ref">
+        <h4>Remove Edge</h4>
+        <p>Debloat only. Removal breaks WebView2 dependents, and Windows Update
+           puts it back on most builds anyway.</p>
+      </div>
+      <div class="ref">
+        <h4>Guess about your hardware</h4>
+        <p>Laptop, desktop, NVIDIA, AMD, Intel, SSD, spinning disk &mdash; every phase
+           checks before it writes, and skips what doesn&rsquo;t apply.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="closer">
+    <h2>Run the dry run first.</h2>
+    <p>It costs nothing, needs no admin rights, and prints the whole plan.</p>
+    <div class="run-cmd solo">
+      <span class="prompt" aria-hidden="true">PS&gt;</span>
+      <code class="cmd-text">irm https://trimbloat.com/go | iex</code>
+      <button class="copy" type="button" aria-label="Copy the command">copy</button>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="credit">
+    <p><b>The debloat and tweak engine is not ours.</b> Trim invokes
+       <a href="https://christitus.com/win" rel="noopener">WinUtil by Chris Titus Tech</a>
+       and lets it do that work. What Trim adds is the wrapper around it: a recorded
+       undo path, a dry-run manifest, and hardware gating.</p>
+    <p class="go-use">If you want a Windows utility, go use WinUtil. It is more capable
+       and better maintained than this.</p>
+  </div>
+  <div class="meta">
+    <a href="https://github.com/Glexxy/trim" rel="noopener">github</a>
+    <a href="/go">script</a>
+    <a href="/sha256">sha256</a>
+    <span>MIT</span>
+  </div>
+</footer>
+
+<script src="/app.js" defer></script>
+</body>
+</html>

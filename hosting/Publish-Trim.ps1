@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Build Trim, stage it, and publish it to trimbloat.com.
@@ -82,7 +82,17 @@ Copy-Item -LiteralPath $script                     -Destination (Join-Path $publ
 Copy-Item -LiteralPath "$script.sha256"            -Destination (Join-Path $public 'trim.ps1.sha256')
 Copy-Item -LiteralPath (Join-Path $root 'config\winutil-tweaks.json') `
                                                    -Destination (Join-Path $public 'config\winutil-tweaks.json')
-Good "staged $([Math]::Round((Get-Item (Join-Path $public 'trim.ps1')).Length / 1KB, 1)) KB"
+
+# The landing page and its two assets. Copied rather than generated: the worker
+# serves index.html verbatim apart from one substitution, so what is in site\ is
+# what ships.
+$site = Join-Path $PSScriptRoot 'site'
+foreach ($f in @('index.html', 'styles.css', 'app.js', 'favicon.svg')) {
+    $from = Join-Path $site $f
+    if (-not (Test-Path -LiteralPath $from)) { Fail "Missing site file: $from" }
+    Copy-Item -LiteralPath $from -Destination (Join-Path $public $f)
+}
+Good "staged $([Math]::Round((Get-Item (Join-Path $public 'trim.ps1')).Length / 1KB, 1)) KB + landing page"
 
 # ---- 4. verify ------------------------------------------------------------
 Step 'Verifying what is about to ship'
@@ -104,6 +114,26 @@ foreach ($needed in @('https://trimbloat.com/go', 'https://trimbloat.com/config/
     if ($text -notmatch [regex]::Escape($needed)) { Fail "The script does not carry the canonical URL: $needed" }
 }
 Good 'canonical URLs present'
+
+# The page promises a fingerprint and a reproducible build. If the placeholder
+# were ever renamed or dropped, the worker would serve the literal token to
+# every visitor and the central claim of the page would read as broken.
+$page = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $public 'index.html')
+if ($page -notmatch '\{\{SHA256\}\}') {
+    Fail 'index.html no longer contains the {{SHA256}} placeholder the worker substitutes.'
+}
+foreach ($ref in @('/styles.css', '/app.js')) {
+    if ($page -notmatch [regex]::Escape($ref)) { Fail "index.html does not reference $ref" }
+}
+# An inline <script> would be blocked by the Content-Security-Policy the worker
+# sets, and would fail silently in the browser rather than loudly here.
+if ($page -match '(?s)<script(?![^>]*\ssrc=)[^>]*>\s*\S') {
+    Fail 'index.html contains an inline <script>, which the CSP blocks. Move it into app.js.'
+}
+if ($page -match '\son[a-z]+\s*=\s*"') {
+    Fail 'index.html contains an inline event handler, which the CSP blocks.'
+}
+Good 'landing page intact (placeholder, assets, no inline script)'
 
 # ---- 5. deploy ------------------------------------------------------------
 if ($DryRun) {

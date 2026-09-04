@@ -1,5 +1,8 @@
 ﻿# Third-party software and attribution
 
+Trim itself is MIT licensed - see [LICENSE](LICENSE). The same licence its
+largest dependency uses, so nothing downstream has to reason about two.
+
 This tool orchestrates other people's work. It does not replace it, and it does not
 try to hide it. This file exists so that anyone who finds this project can find the
 projects it depends on and go use them directly.

@@ -1,9 +1,9 @@
 /**
  * trimbloat.com
  *
- * Serves the one-liner, the script, and its fingerprint.
+ * Serves the one-liner, the script, its fingerprint, and the landing page.
  *
- * Two things this exists to get right that a plain static host does not:
+ * Three things this exists to get right that a plain static host does not:
  *
  *   1. The script is served as text/plain, so a browser DISPLAYS it. Anyone
  *      about to pipe it into an elevated shell should be able to read it first
@@ -13,25 +13,53 @@
  *      scheme is fetched over plaintext HTTP by PowerShell. Cloudflare's
  *      Always Use HTTPS handles the redirect; HSTS stops the second visit
  *      making the request at all.
+ *
+ *   3. The landing page's fingerprint is read from the artefact that is
+ *      actually being served, not pasted into the HTML at authoring time. A
+ *      published hash that disagrees with the published script would be worse
+ *      than publishing no hash at all.
  */
 
 const CANONICAL = 'https://trimbloat.com';
 
-/** Applied to every response. */
+/**
+ * Applied to every response.
+ *
+ * The CSP is deliberately tight for a page whose whole argument is that you
+ * should be suspicious of code you did not write: no inline script, no inline
+ * event handlers, nothing executable from anywhere but this origin. Styles need
+ * 'unsafe-inline' only because Google Fonts serves an @import-able stylesheet
+ * and the markup carries a handful of animation-delay custom properties.
+ */
 function harden(headers = {}) {
   return {
     'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
     'x-frame-options': 'DENY',
+    'content-security-policy': [
+      "default-src 'none'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src https://fonts.gstatic.com",
+      "img-src 'self' data:",
+      "connect-src 'none'",
+      "base-uri 'none'",
+      "form-action 'none'",
+      "frame-ancestors 'none'",
+    ].join('; '),
     ...headers,
   };
 }
 
-async function asset(env, path, contentType, cacheSeconds) {
+async function readAsset(env, path) {
   const res = await env.ASSETS.fetch(new Request(`${CANONICAL}${path}`));
-  if (!res.ok) return null;
-  const body = await res.text();
+  return res.ok ? res.text() : null;
+}
+
+async function asset(env, path, contentType, cacheSeconds) {
+  const body = await readAsset(env, path);
+  if (body === null) return null;
   return new Response(body, {
     headers: harden({
       'content-type': contentType,
@@ -75,9 +103,27 @@ export default {
         return r ?? new Response('Not built', { status: 503, headers: harden() });
       }
 
+      case '/styles.css': {
+        const r = await asset(env, '/styles.css', 'text/css; charset=utf-8', 3600);
+        return r ?? new Response('', { status: 404, headers: harden() });
+      }
+
+      case '/app.js': {
+        const r = await asset(env, '/app.js', 'text/javascript; charset=utf-8', 3600);
+        return r ?? new Response('', { status: 404, headers: harden() });
+      }
+
+      case '/favicon.svg': {
+        const r = await asset(env, '/favicon.svg', 'image/svg+xml', 86400);
+        return r ?? new Response('', { status: 404, headers: harden() });
+      }
+
       case '/':
         return new Response(await landing(env), {
-          headers: harden({ 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }),
+          headers: harden({
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'public, max-age=300',
+          }),
         });
 
       default:
@@ -86,110 +132,33 @@ export default {
   },
 };
 
+/**
+ * The page is a static asset with one substitution: the fingerprint, taken from
+ * the sidecar of the script this deployment is serving. Authoring it as a real
+ * .html file rather than a template literal is what lets it be opened, styled
+ * and checked like any other page.
+ */
 async function landing(env) {
+  const html = await readAsset(env, '/index.html');
+  if (html === null) {
+    return '<!doctype html><meta charset="utf-8"><title>Trim</title>'
+         + '<body style="background:#070A09;color:#E9F1EE;font-family:monospace;padding:3rem">'
+         + '<h1>Trim</h1><p>The site is not built. The script is still at '
+         + '<a style="color:#5BE9B9" href="/go">/go</a>.</p>';
+  }
+
   let hash = 'not published yet';
   try {
-    const r = await env.ASSETS.fetch(new Request(`${CANONICAL}/trim.ps1.sha256`));
-    if (r.ok) hash = (await r.text()).trim().split(/\s+/)[0];
-  } catch { /* the page still works without it */ }
+    const raw = await readAsset(env, '/trim.ps1.sha256');
+    if (raw) hash = raw.trim().split(/\s+/)[0];
+  } catch { /* the page is still useful without it */ }
 
-  return `<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Trim</title>
-<meta name="description" content="Reversible Windows tuning. Removes advertising, telemetry and preinstalled clutter, and tunes what is left for games.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&display=swap">
-<style>
-  :root{
-    --bg:#0E1312; --panel:#151B1A; --raise:#1E2524; --rule:#262F2D;
-    --ink:#E4EBE9; --soft:#A8B5B2; --faint:#798683; --accent:#46C6B0;
-    color-scheme:dark;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-    font-family:Archivo,system-ui,-apple-system,sans-serif;line-height:1.6;
-    -webkit-font-smoothing:antialiased}
-  .wrap{max-width:760px;margin:0 auto;padding:clamp(2.5rem,8vw,5rem) 1.25rem 5rem}
-  header{display:flex;align-items:center;gap:.9rem;margin-bottom:2.5rem}
-  .mark{width:34px;height:34px;flex:none}
-  h1{font-size:clamp(2.1rem,6vw,2.9rem);font-weight:800;letter-spacing:-.035em;margin:0;line-height:1}
-  .tag{color:var(--soft);font-size:1.05rem;margin:.9rem 0 0;max-width:52ch}
-  h2{font-size:1rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--faint);margin:3rem 0 .9rem}
-  p{color:var(--soft);max-width:62ch}
-  code,pre{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace}
-  pre{background:var(--panel);border:1px solid var(--rule);border-radius:6px;
-    padding:1rem 1.15rem;overflow-x:auto;font-size:.92rem;color:var(--ink);margin:0}
-  .cmd{border-left:3px solid var(--accent)}
-  .note{color:var(--faint);font-size:.86rem;margin-top:.6rem}
-  .hash{background:var(--panel);border:1px solid var(--rule);border-radius:6px;
-    padding:.85rem 1.05rem;font-family:"Cascadia Mono",Consolas,monospace;
-    font-size:.78rem;word-break:break-all;color:var(--soft)}
-  ul{color:var(--soft);max-width:62ch;padding-left:1.15rem}
-  li{margin-bottom:.45rem}
-  li::marker{color:var(--accent)}
-  a{color:var(--accent)}
-  footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--rule);
-    color:var(--faint);font-size:.82rem}
-  strong{color:var(--ink);font-weight:600}
-</style>
-</head><body><div class="wrap">
+  // The hash is 64 hex characters from our own build. Escaped anyway: a
+  // substitution into HTML that is merely "known safe" is how the exceptions
+  // start.
+  const safe = hash.replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
 
-<header>
-  <svg class="mark" viewBox="0 0 26 26" aria-hidden="true">
-    <rect x="1" y="3" width="24" height="4.5" rx="2.25" fill="#46C6B0"/>
-    <rect x="1" y="10.5" width="16" height="4.5" rx="2.25" fill="#46C6B0" opacity=".72"/>
-    <rect x="1" y="18" width="9" height="4.5" rx="2.25" fill="#46C6B0" opacity=".45"/>
-  </svg>
-  <h1>Trim</h1>
-</header>
-
-<p class="tag">Removes advertising, telemetry and preinstalled clutter from Windows,
-and tunes what is left for games. Every change is written down first and can be undone.</p>
-
-<h2>Run it</h2>
-<pre class="cmd">irm https://trimbloat.com/go | iex</pre>
-<p class="note">Windows 10 and 11. It will ask for administrator rights, because it needs them.
-Nothing is changed until you press Apply.</p>
-
-<h2>Read it first</h2>
-<p>You are about to pipe a script into an elevated shell. That deserves scepticism, including
-of this page. <a href="/go">Open the script in your browser</a> &mdash; it is served as plain
-text so you can read every line before running it.</p>
-
-<h2>Verify it</h2>
-<pre>irm https://trimbloat.com/go -OutFile trim.ps1
-Get-FileHash .\trim.ps1 -Algorithm SHA256
-.\trim.ps1 -Version</pre>
-<p class="note">The published fingerprint of the current build:</p>
-<div class="hash">${hash}</div>
-<p class="note">Also at <a href="/sha256">trimbloat.com/sha256</a>.
-If what you downloaded does not match, do not run it.</p>
-
-<h2>What it does</h2>
-<ul>
-  <li><strong>Shows you everything first.</strong> Every row names the setting, what it is now,
-      and what it would become.</li>
-  <li><strong>Takes a restore point</strong> before it touches anything, and writes down every
-      change so it can hand you a script that puts them all back.</li>
-  <li><strong>Labels every change</strong> Safe, Caution or Risky. Only Safe is ticked by default.</li>
-  <li><strong>Skips what does not apply.</strong> Laptop, desktop, NVIDIA, AMD, Intel, SSD or
-      hard disk &mdash; it checks before it writes.</li>
-  <li><strong>Cleans up and uninstalls properly</strong>, in their own screens, never as part of
-      a preset.</li>
-</ul>
-
-<h2>The honest part</h2>
-<p><code>irm | iex</code> runs whatever this host returns, as administrator. If this host were
-compromised you would run the attacker's code. That is true of every tool distributed this way.
-It is why the fingerprint above exists, and why the script is readable in your browser.</p>
-
-<footer>
-  Debloat and tweak engine: <a href="https://christitus.com/win">WinUtil by Chris Titus Tech</a>.
-  Trim orchestrates it, it does not replace it.
-</footer>
-
-</div></body></html>`;
+  return html.split('{{SHA256}}').join(safe);
 }
