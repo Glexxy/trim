@@ -117,7 +117,21 @@ function Invoke-WinUtilPhase {
     Write-Log 'Handing off to winutil. This takes several minutes and is noisy.'
     try {
         $block = [ScriptBlock]::Create((Invoke-RestMethod -Uri $script:WinUtilSource -UseBasicParsing))
-        & $block -Config $ConfigUrl
+
+        # This script runs under Set-StrictMode -Version 2.0, and anything it
+        # invokes inherits that. WinUtil is not written for it: it reads
+        # $sync.runspace on a hashtable that does not always have the key,
+        # which is $null normally and a terminating error under strict mode.
+        # The phase died on its first statement with
+        #   The property 'runspace' cannot be found on this object.
+        # every time it ran, so the tweak set never actually applied.
+        #
+        # Strict mode is scoped to here and downwards, so turning it off for
+        # the handoff leaves the rest of the script under it.
+        Set-StrictMode -Off
+        try     { & $block -Config $ConfigUrl }
+        finally { Set-StrictMode -Version 2.0 }
+
         Write-Log -Level OK -Message 'WinUtil phase complete.'
     } catch {
         Write-Log -Level FAIL -Message "WinUtil failed: $($_.Exception.Message)"

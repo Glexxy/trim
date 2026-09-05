@@ -98,6 +98,25 @@ against the removal list so the two can never overlap.
 
 ---
 
+## WinUtil cannot run under our strict mode
+
+This script sets `Set-StrictMode -Version 2.0`, and anything it invokes
+inherits it. WinUtil reads `$sync.runspace` on a hashtable that does not always
+carry the key — `$null` under normal rules, a terminating error under strict
+mode. The phase died on its first statement every time it ran:
+
+```
+WinUtil failed: The property 'runspace' cannot be found on this object.
+```
+
+It read like WinUtil breaking. It was us. The handoff turns strict mode off and
+turns it back on afterwards, so the rest of the run keeps the protection. A
+harness guard asserts both halves, and checks on the host that strict mode
+still throws there at all — if it ever stops, the guard says so rather than
+passing quietly.
+
+Anything else invoked from a third party needs the same treatment.
+
 ## Two WinUtil behaviours worth knowing
 
 Verified against WinUtil v26.08.19 by reading the source rather than the docs.

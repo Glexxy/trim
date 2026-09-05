@@ -838,6 +838,45 @@ Test-Phase 'A run with no arguments never applies anything' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+Test-Phase 'The winutil handoff survives our own strict mode' {
+    # The phase failed on its first statement, every time it ran, with
+    #   The property 'runspace' cannot be found on this object.
+    # That is not a winutil bug. This script sets Set-StrictMode -Version 2.0
+    # and everything it invokes inherits it; winutil reads $sync.runspace on a
+    # hashtable that does not always carry the key, which is $null normally and
+    # a terminating error under strict mode. The tweak set never applied, and
+    # the failure was reported as winutil's.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    # 1. The mechanism, confirmed on this host rather than assumed. If a future
+    #    PowerShell stops throwing here, this guard has nothing left to protect
+    #    and should say so instead of passing quietly.
+    $reader = [scriptblock]::Create('$h = @{}; $h.runspace')
+    $threw = $false
+    Set-StrictMode -Version 2.0
+    try { $null = & $reader } catch { $threw = $true }
+    if (-not $threw) {
+        $problems.Add('strict mode no longer throws on a missing hashtable key - this guard is obsolete') | Out-Null
+    }
+    # And that turning it off is genuinely the remedy.
+    Set-StrictMode -Off
+    try { $null = & $reader } catch { $problems.Add('Set-StrictMode -Off does not stop the error the winutil phase hit') | Out-Null }
+    Set-StrictMode -Version 2.0
+
+    # 2. The handoff still does it. Everything between creating the script
+    #    block and invoking it has to leave strict mode off.
+    $wu = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '04-winutil.ps1')
+    if ($wu -notmatch '(?s)ScriptBlock\]::Create.+?Set-StrictMode -Off.+?& \$block -Config') {
+        $problems.Add('the winutil handoff invokes winutil under strict mode, which it cannot survive') | Out-Null
+    }
+    # 3. And puts it back, so the rest of the run keeps the protection.
+    if ($wu -notmatch '(?s)& \$block -Config.+?Set-StrictMode -Version 2\.0') {
+        $problems.Add('the winutil handoff leaves strict mode off for the rest of the run') | Out-Null
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'Every feature is reachable' {
     # Get-LargeFileScan shipped as dead code: written, unit-checked in isolation,
     # wired to nothing, and reported as delivered. This asserts that anything
