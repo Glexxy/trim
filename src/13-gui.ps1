@@ -31,12 +31,14 @@ $script:GuiXaml = @'
     <SolidColorBrush x:Key="Rule"   Color="#2E3937"/>
     <SolidColorBrush x:Key="Ink"    Color="#E6EDEB"/>
     <SolidColorBrush x:Key="Soft"   Color="#98A6A3"/>
-    <!-- Was #6C7A77, which measured 3.9:1 on the window and 3.0:1 on a raised
+    <!-- Was #6C7A77, which measured 3.85:1 on the window and 3.0:1 on a raised
          panel - under AA, on the secondary line of every single row. Dim is a
-         style; unreadable is a defect. #8C9A97 clears 4.5:1 everywhere. -->
+         style; unreadable is a defect. #8C9A97 clears 4.5:1 everywhere.
+         The panes kept their own hardcoded copies of the old value long after
+         this was fixed here, because the guard only ever checked the palette.
+         There is one grey now, and the guard checks every use of it. -->
     <SolidColorBrush x:Key="Faint"  Color="#8C9A97"/>
-    <!-- Kept for the places dimness is decorative rather than informational. -->
-    <SolidColorBrush x:Key="Ghost"  Color="#6C7A77"/>
+
     <SolidColorBrush x:Key="Accent" Color="#46C6B0"/>
 
     <Style TargetType="TextBlock">
@@ -578,7 +580,7 @@ function Update-GuiPhases {
     $ui.PanelPhases.Children.Clear()
 
     $brInk    = Get-GuiBrush '#E6EDEB'
-    $brFaint  = Get-GuiBrush '#6C7A77'
+    $brFaint  = Get-GuiBrush '#8C9A97'
     $brRaise  = Get-GuiBrush '#263130'
     $brAccent = Get-GuiBrush '#46C6B0'
     $brNone   = [Windows.Media.Brushes]::Transparent
@@ -784,13 +786,13 @@ function Show-GuiOverview {
 
     Add-GuiParagraph -Text 'This machine' -Colour '#E6EDEB' -Size 13 -Weight 'SemiBold' -Top 24
     Add-GuiParagraph -Text 'Anything that does not apply to this hardware was skipped rather than guessed at.' `
-        -Colour '#6C7A77' -Size 12 -Top 4
+        -Colour '#8C9A97' -Size 12 -Top 4
     Add-GuiSpecGrid -Facts $f
 
     # Readable, and no more prominent than that. It belongs here once, not on
     # every screen and not in front of someone launching the thing.
     Add-GuiParagraph -Text 'Debloat and tweak engine: WinUtil by Chris Titus Tech - christitus.com/win' `
-        -Colour '#5A6B68' -Size 11 -Top 26
+        -Colour '#8C9A97' -Size 11 -Top 26
 }
 
 <#
@@ -869,7 +871,7 @@ function Add-GuiSpecGrid {
     $c2 = New-Object Windows.Controls.ColumnDefinition; $c2.Width = New-Object Windows.GridLength 1, 'Star'
     $grid.ColumnDefinitions.Add($c1); $grid.ColumnDefinitions.Add($c2)
 
-    $brFaint = Get-GuiBrush '#6C7A77'
+    $brFaint = Get-GuiBrush '#8C9A97'
     $brInk   = Get-GuiBrush '#E6EDEB'
     $r = 0
     foreach ($k in $rows.Keys) {
@@ -956,7 +958,7 @@ function Show-GuiCleanup {
             'and shows you every location it finds separately - which folder, on which disk, and how much. ' +
             'Nothing is deleted until you tick it and press Delete.') -Top 6
         Add-GuiParagraph -Text ('It is kept apart from the rest of Trim deliberately. Settings can be undone; ' +
-            'deleted files cannot, so no preset will ever do this to you in passing.') -Colour '#6C7A77' -Size 12 -Top 10
+            'deleted files cannot, so no preset will ever do this to you in passing.') -Colour '#8C9A97' -Size 12 -Top 10
 
         $btns = New-Object Windows.Controls.StackPanel
         $btns.Orientation = 'Horizontal'
@@ -999,7 +1001,7 @@ function Show-GuiCleanup {
     }
 
     $brInk   = Get-GuiBrush '#E6EDEB'
-    $brFaint = Get-GuiBrush '#6C7A77'
+    $brFaint = Get-GuiBrush '#8C9A97'
     $brSoft  = Get-GuiBrush '#98A6A3'
     $brRule  = Get-GuiBrush '#2E3937'
     $tierBrush = @{ safe = Get-GuiBrush '#4FBFA4'; op = Get-GuiBrush '#D4A23E'; trade = Get-GuiBrush '#E4785C' }
@@ -1144,7 +1146,7 @@ function Show-GuiLargeFiles {
 
     $ui      = $script:GuiUi
     $brInk   = Get-GuiBrush '#E6EDEB'
-    $brFaint = Get-GuiBrush '#6C7A77'
+    $brFaint = Get-GuiBrush '#8C9A97'
     $brRule  = Get-GuiBrush '#2E3937'
 
     Add-GuiParagraph -Text "Largest files  -  $($script:GuiLargeFiles.Count) found" `
@@ -1152,7 +1154,7 @@ function Show-GuiLargeFiles {
     Add-GuiParagraph -Text ('Shown so you can see what is using the space. Nothing here is selected ' +
         'or deleted by Trim - a large file is not the same thing as a junk file, and only you can ' +
         'tell which is which. Windows and Program Files are left out.') `
-        -Colour '#6C7A77' -Size 12 -Top 4
+        -Colour '#8C9A97' -Size 12 -Top 4
 
     foreach ($f in $script:GuiLargeFiles) {
         $row = New-Object Windows.Controls.Border
@@ -1416,7 +1418,7 @@ function Show-GuiStartup {
             'that trigger at logon.') -Top 6
         Add-GuiParagraph -Text ('Switching one off here is the same switch Task Manager uses, so it stays off ' +
             'and you can turn it back on without this tool. Nothing is deleted: shortcuts are moved to a ' +
-            '"Disabled by Trim" folder, and the undo script puts them back.') -Colour '#6C7A77' -Size 12 -Top 10
+            '"Disabled by Trim" folder, and the undo script puts them back.') -Colour '#8C9A97' -Size 12 -Top 10
 
         $b = New-Object Windows.Controls.Button
         $b.Style = $script:GuiWin.FindResource('Primary')
@@ -1432,7 +1434,7 @@ function Show-GuiStartup {
     $ui.TxtPhaseSub.Text = "$on of $($script:GuiStartupItems.Count) enabled"
 
     $brInk   = Get-GuiBrush '#E6EDEB'
-    $brFaint = Get-GuiBrush '#6C7A77'
+    $brFaint = Get-GuiBrush '#8C9A97'
     $brRule  = Get-GuiBrush '#2E3937'
     $brMint  = Get-GuiBrush '#46C6B0'
 
@@ -1520,7 +1522,7 @@ function Show-GuiUninstall {
             'and every registry key, with its full path - and removes only what you tick.') -Top 6
         Add-GuiParagraph -Text ('Registry keys are exported to a .reg file before they are deleted, and ' +
             'anything that does not clearly belong to the app you removed is left alone and reported.') `
-            -Colour '#6C7A77' -Size 12 -Top 10
+            -Colour '#8C9A97' -Size 12 -Top 10
 
         $b = New-Object Windows.Controls.Button
         $b.Style = $script:GuiWin.FindResource('Primary')
@@ -1535,7 +1537,7 @@ function Show-GuiUninstall {
     $ui.TxtPhaseSub.Text = "$($script:GuiApps.Count) installed"
 
     $brInk   = Get-GuiBrush '#E6EDEB'
-    $brFaint = Get-GuiBrush '#6C7A77'
+    $brFaint = Get-GuiBrush '#8C9A97'
     $brRule  = Get-GuiBrush '#2E3937'
 
     foreach ($app in $script:GuiApps) {
@@ -1674,7 +1676,7 @@ function Show-GuiLeftovers {
     Add-GuiParagraph -Text ' ' -Size 4
 
     $brInk   = Get-GuiBrush '#E6EDEB'
-    $brFaint = Get-GuiBrush '#6C7A77'
+    $brFaint = Get-GuiBrush '#8C9A97'
     $brRule  = Get-GuiBrush '#2E3937'
 
     foreach ($l in $script:GuiLeftovers) {
@@ -1781,7 +1783,7 @@ function Update-GuiItems {
     $ui.TxtPhase.Text = $script:GuiCurrent
 
     $brInk   = Get-GuiBrush '#E6EDEB'
-    $brFaint = Get-GuiBrush '#6C7A77'
+    $brFaint = Get-GuiBrush '#8C9A97'
     $brRule  = Get-GuiBrush '#2E3937'
     $tierBrush = @{
         safe  = Get-GuiBrush '#4FBFA4'
@@ -1979,7 +1981,7 @@ $script:ProgXaml = @'
       <StackPanel VerticalAlignment="Center">
         <TextBlock x:Name="ProgTitle" Text="Applying changes" FontSize="17" FontWeight="SemiBold"
                    Foreground="#E6EDEB" FontFamily="Segoe UI Variable Text, Segoe UI"/>
-        <TextBlock x:Name="ProgSub" Text="Do not turn off your PC." FontSize="12" Foreground="#6C7A77"
+        <TextBlock x:Name="ProgSub" Text="Do not turn off your PC." FontSize="12" Foreground="#8C9A97"
                    Margin="0,2,0,0" FontFamily="Segoe UI Variable Text, Segoe UI"/>
       </StackPanel>
     </StackPanel>
@@ -1990,7 +1992,7 @@ $script:ProgXaml = @'
     <StackPanel Grid.Row="2" Margin="0,14,0,0">
       <TextBlock x:Name="ProgStatus" Text="Starting..." FontSize="13" Foreground="#E6EDEB"
                  TextTrimming="CharacterEllipsis" FontFamily="Segoe UI Variable Text, Segoe UI"/>
-      <TextBlock x:Name="ProgCount" Text="" FontSize="11.5" Foreground="#6C7A77" Margin="0,5,0,0"
+      <TextBlock x:Name="ProgCount" Text="" FontSize="11.5" Foreground="#8C9A97" Margin="0,5,0,0"
                  FontFamily="Segoe UI Variable Text, Segoe UI"/>
     </StackPanel>
 

@@ -718,6 +718,52 @@ Test-Phase 'Window is legible and keyboard-navigable' {
         }
     }
 
+    # Checking only the palette was not enough. The palette's dim grey was
+    # fixed once and the panes kept their own hardcoded copies of the old
+    # value, so publisher, version and size - the lines somebody reads before
+    # pressing Remove - stayed at 3:1 while this guard reported everything
+    # fine. Every colour the code actually paints text with is checked now,
+    # wherever it is written.
+    $srcGui = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '13-gui.ps1')
+
+    # A disabled control is exempt: WCAG 1.4.3 excludes text that is part of an
+    # inactive component, and dimming is how "you cannot press this" is said.
+    # Nothing else is exempt.
+    $srcGui = [regex]::Replace($srcGui,
+        '(?s)<Trigger Property="IsEnabled" Value="False">.*?</Trigger>', '')
+
+    $textColours = @{}
+    $patterns = @(
+        # XAML: an explicit foreground on a TextBlock or a template part.
+        @{ Rx = 'Foreground="(#[0-9A-Fa-f]{6})"';            What = 'a XAML Foreground' }
+        # Add-GuiParagraph paints its text with whatever -Colour it is given.
+        @{ Rx = "-Colour\s+'(#[0-9A-Fa-f]{6})'";             What = 'an Add-GuiParagraph -Colour' }
+        # Assigned straight onto a control's Foreground.
+        @{ Rx = "\.Foreground\s*=\s*Get-GuiBrush\s+'(#[0-9A-Fa-f]{6})'"; What = 'a .Foreground assignment' }
+        # The file's convention: $brInk / $brFaint / $brSoft are text brushes.
+        # $brRule and friends are borders and are deliberately not included.
+        @{ Rx = "\`$br(?:Ink|Faint|Soft|Text)\w*\s*=\s*Get-GuiBrush\s+'(#[0-9A-Fa-f]{6})'"; What = 'a text brush' }
+    )
+    foreach ($p in $patterns) {
+        foreach ($m in [regex]::Matches($srcGui, $p.Rx)) {
+            $textColours[$m.Groups[1].Value.ToUpper()] = $p.What
+        }
+    }
+    if ($textColours.Count -lt 4) {
+        $problems.Add("only $($textColours.Count) text colour(s) found in the window - this guard has stopped finding them") | Out-Null
+    }
+    foreach ($hex in $textColours.Keys) {
+        # The accent is a fill behind dark text, not a text colour on the
+        # panels, and the near-black that sits on top of it is its partner.
+        if ($hex -in @('#46C6B0', '#06211D', '#5AD6C0')) { continue }
+        foreach ($bg in @('#171C1B', '#1E2524', '#263130')) {
+            $r = [Math]::Round((Get-Contrast $hex $bg), 2)
+            if ($r -lt 4.5) {
+                $problems.Add("$hex ($($textColours[$hex])) is $r`:1 on $bg - under AA for body text") | Out-Null
+            }
+        }
+    }
+
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
