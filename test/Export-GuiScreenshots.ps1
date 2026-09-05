@@ -291,12 +291,14 @@ try {
 # -Real renders this machine's own data and is never what gets committed, so
 # it must not claim the committed images are current.
 if (-not $Real) {
+    . (Join-Path $PSScriptRoot 'Get-GuiFingerprint.ps1')
     $guiSrc = Join-Path (Split-Path $PSScriptRoot -Parent) 'src\13-gui.ps1'
     $stamp  = Join-Path $OutDir 'generated-from.txt'
     Set-Content -LiteralPath $stamp -Encoding UTF8 -Value @(
         '# The window these screenshots were taken of.',
         '# Regenerate them with test\Export-GuiScreenshots.ps1 when this stops matching.',
-        "13-gui.ps1 $((Get-FileHash -LiteralPath $guiSrc -Algorithm SHA256).Hash)"
+        '# Line-ending normalised, so a fresh clone and a working copy agree.',
+        "13-gui.ps1 $(Get-GuiFingerprint -Path $guiSrc)"
     )
     Write-Host "  stamped generated-from.txt" -ForegroundColor DarkGray
 }

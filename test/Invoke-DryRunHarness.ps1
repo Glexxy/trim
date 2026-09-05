@@ -1445,7 +1445,8 @@ Test-Phase 'The screenshots are of the window that exists now' {
     }
     if (-not $recorded) { $problems.Add('generated-from.txt records no hash for 13-gui.ps1') | Out-Null }
 
-    $actual = (Get-FileHash -LiteralPath (Join-Path (Join-Path $root 'src') '13-gui.ps1') -Algorithm SHA256).Hash.ToUpper()
+    . (Join-Path $root 'test\Get-GuiFingerprint.ps1')
+    $actual = (Get-GuiFingerprint -Path (Join-Path (Join-Path $root 'src') '13-gui.ps1')).ToUpper()
     if ($recorded -and $recorded -ne $actual) {
         $problems.Add("the window has changed since the screenshots were taken - run test\Export-GuiScreenshots.ps1 (screenshots: $($recorded.Substring(0,12)), source now: $($actual.Substring(0,12)))") | Out-Null
     }
