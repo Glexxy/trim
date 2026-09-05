@@ -731,6 +731,113 @@ Test-Phase 'The one-liner actually works' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+Test-Phase 'A run with no arguments never applies anything' {
+    # This shipped, and it stripped the machine of the person who ran it.
+    # `irm https://trimbloat.com/go | iex` passes no parameters, so -Gui was
+    # $false, -DryRun was $false, and Invoke-Main fell past the window branch
+    # into the plain command-line branch: restore point, then every phase
+    # applied, with no window and nothing asked. The site and the README both
+    # promise the opposite - "nothing on your PC changes until you click
+    # Apply" - so this is the guard for the claim, not just for the code.
+    $artefact = Join-Path $root 'trim.ps1'
+    if (-not (Test-Path -LiteralPath $artefact)) { throw 'trim.ps1 has not been built' }
+
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($artefact, [ref]$null, [ref]$errors)
+    if ($errors) { throw "the artefact does not parse: $($errors[0].Message)" }
+
+    $mainFn = $ast.Find({
+        param($a)
+        $a -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq 'Invoke-Main'
+    }, $true)
+    if (-not $mainFn) { throw 'Invoke-Main is not in the artefact' }
+
+    # ---- 1. The decision itself, executed rather than pattern-matched. -----
+    # Find the statement that forces the window on, and run its real condition
+    # against every way of invoking the script. A hard-coded $true or $false
+    # cannot satisfy both halves of this matrix.
+    $decision = $mainFn.Find({
+        param($a)
+        $a -is [System.Management.Automation.Language.IfStatementAst] -and
+        $a.Clauses[0].Item1.Extent.Text -match '\$Apply'
+    }, $true)
+
+    if (-not $decision) {
+        $problems.Add('Invoke-Main no longer decides whether to open the window; a bare run may apply changes') | Out-Null
+    }
+    else {
+        $condition = [scriptblock]::Create($decision.Clauses[0].Item1.Extent.Text)
+
+        # Each case: the switches that are set, and whether the window should
+        # be forced on. Everything that is not an explicit instruction to do
+        # something else has to land on the window.
+        $cases = @(
+            @{ Set = @();                   Window = $true;  Why = 'no arguments at all - this is `irm | iex`' }
+            @{ Set = @('Apply');            Window = $false; Why = '-Apply' }
+            @{ Set = @('DryRun');           Window = $false; Why = '-DryRun' }
+            @{ Set = @('Gui');              Window = $false; Why = '-Gui (already the window)' }
+            @{ Set = @('Cleanup');          Window = $false; Why = '-Cleanup' }
+            @{ Set = @('LargeFiles');       Window = $false; Why = '-LargeFiles' }
+            @{ Set = @('ApplySelection');   Window = $false; Why = 'an elevated apply of a saved selection' }
+            @{ Set = @('CleanupSelection'); Window = $false; Why = 'an elevated cleanup of a saved selection' }
+        )
+
+        foreach ($case in $cases) {
+            # Switches default to $false, the two internal ones to ''; a set
+            # string parameter carries a path.
+            $Gui = $false; $Apply = $false; $DryRun = $false
+            $Cleanup = $false; $LargeFiles = $false
+            $ApplySelection = ''; $CleanupSelection = ''
+            foreach ($name in $case.Set) {
+                if ($name -match 'Selection$') { Set-Variable -Name $name -Value 'C:\some\file.json' }
+                else                           { Set-Variable -Name $name -Value $true }
+            }
+
+            $forcesWindow = [bool](& $condition)
+            if ($forcesWindow -ne $case.Window) {
+                $expected = if ($case.Window) { 'open the window' } else { 'be left alone' }
+                $problems.Add("with $($case.Why) the run should $expected, and does not") | Out-Null
+            }
+        }
+
+        # And the body of that decision has to actually turn the window on.
+        if ($decision.Clauses[0].Item2.Extent.Text -notmatch '(?s)Set-Variable.+-Name\s+Gui.+\$true') {
+            $problems.Add('the no-arguments branch no longer switches the window on') | Out-Null
+        }
+    }
+
+    # ---- 2. The second line of defence, at the apply branch itself. --------
+    # The check above is one edit away from being wrong. The branch that does
+    # the applying refuses to run without an explicit instruction, so removing
+    # or breaking the check above cannot on its own resurrect the fault.
+    $text  = $mainFn.Extent.Text
+    $plain = $text.Substring($text.IndexOf('# Plain command line'))
+    if ($plain -notmatch '(?s)if \(-not \(\$Apply -or \$DryRun\)\).+?return') {
+        $problems.Add('the plain command-line branch applies changes without requiring -Apply or -DryRun') | Out-Null
+    }
+    if ($plain.IndexOf('Invoke-AllPhases') -lt $plain.IndexOf('$Apply -or $DryRun')) {
+        $problems.Add('the plain command-line branch reaches Invoke-AllPhases before checking for -Apply') | Out-Null
+    }
+
+    # ---- 3. A host with no window must not become an unattended apply. -----
+    if ($text -notmatch '(?s)Test-CanShowGui.+?Set-Variable -Name DryRun -Value \$true') {
+        $problems.Add('a host that cannot show a window falls through to applying changes instead of printing the plan') | Out-Null
+    }
+
+    # ---- 4. Nothing happens to the machine before the window appears. ------
+    # Including the restore point, which is the slowest thing in the script:
+    # two minutes of a progress bar, before a window that has not appeared.
+    $guiBranch = $text.Substring($text.IndexOf('if ($Gui) {'))
+    $upToWindow = $guiBranch.Substring(0, $guiBranch.IndexOf('Show-TrimWindow'))
+    if ($upToWindow -match 'New-SafetyRestorePoint') {
+        $problems.Add('a restore point is created before the window is shown') | Out-Null
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'Every feature is reachable' {
     # Get-LargeFileScan shipped as dead code: written, unit-checked in isolation,
     # wired to nothing, and reported as delivered. This asserts that anything

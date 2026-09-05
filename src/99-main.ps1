@@ -218,6 +218,16 @@ function Invoke-Main {
         }
     }
 
+    # No arguments means the window. `irm https://.../go | iex` passes none,
+    # so without this the run falls through to the plain command-line branch at
+    # the bottom and applies every change to a stranger's machine with nothing
+    # shown and nothing asked. Applying headlessly is still possible - it is
+    # what -Apply is for - but it has to be requested.
+    if (-not ($Gui -or $Apply -or $DryRun -or $Cleanup -or $LargeFiles -or
+              $ApplySelection -or $CleanupSelection)) {
+        Set-Variable -Name Gui -Value $true -Scope Script
+    }
+
     Show-TrimBanner
 
     # With a window in play the console is not the interface. Everything still
@@ -318,9 +328,15 @@ function Invoke-Main {
     # -------------------------------------------------------------------
     # Window: dry run to build the manifest, then apply what survives it.
     # -------------------------------------------------------------------
-    if ($Gui) {
-        if (-not (Test-CanShowGui)) { return }
+    # A host that cannot show a window must not silently become an unattended
+    # apply. Print the plan instead and let the user decide what to do with it.
+    if ($Gui -and -not (Test-CanShowGui)) {
+        Write-Log -Level WARN -Message 'Printing the plan instead. Nothing will be changed.'
+        Set-Variable -Name Gui    -Value $false -Scope Script
+        Set-Variable -Name DryRun -Value $true  -Scope Script
+    }
 
+    if ($Gui) {
         Set-Variable -Name DryRun -Value $true -Scope Script
 
         # The window opens first and calls this to fill itself in, so the few
@@ -362,8 +378,16 @@ function Invoke-Main {
     }
 
     # -------------------------------------------------------------------
-    # Plain command line.
+    # Plain command line. Only -Apply or -DryRun reach here; the check at the
+    # top of this function sends everything else to the window. This second
+    # check is not redundant with it - it is what stops a future edit up there
+    # from quietly turning a bare run back into an unattended apply.
     # -------------------------------------------------------------------
+    if (-not ($Apply -or $DryRun)) {
+        Write-Log -Level FAIL -Message 'Refusing to change anything without either the window or -Apply.'
+        return
+    }
+
     if ($DryRun) {
         Write-Log -Level DRY -Message 'DRY RUN. Nothing will be changed. Re-run without -DryRun to apply.'
     }

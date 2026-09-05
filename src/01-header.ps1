@@ -48,9 +48,17 @@ param(
     [ValidateSet('WinUtil','Fixes','Performance','Gaming','Graphics','Privacy','Background','Appx','Network','Security','Personalisation','Extras')]
     [string[]]$Only = @(),
 
-    # Show the window instead of running straight through. Builds the plan
-    # unelevated, then asks for administrator rights only at Apply.
+    # Show the window. This is what happens by default, including for
+    # `irm | iex`, so the flag is only needed to be explicit about it.
+    # Builds the plan unelevated, then asks for administrator rights at Apply.
     [switch]$Gui,
+
+    # Apply from the command line, with no window and no confirmation. Has to
+    # be asked for by name: a run with no arguments opens the window instead.
+    # Piping this script into a shell passes no arguments, and a stranger who
+    # runs a one-liner has not consented to an unattended sweep of their
+    # machine - they have consented to being shown one.
+    [switch]$Apply,
 
     # Internal: apply a selection saved by an earlier, unelevated window.
     [string]$ApplySelection = '',
@@ -340,26 +348,10 @@ elseif (-not $isAdmin) {
     Write-Host '  Administrator rights are needed. Approve the prompt to continue.' -ForegroundColor Yellow
     Write-Host ''
 
-    # Parameter names are our own, from the param block, so they need no
-    # escaping. Every VALUE does: it crosses into an elevated process.
-    $argList = @()
-    foreach ($kv in $PSBoundParameters.GetEnumerator()) {
-        if ($kv.Key -notmatch '^[A-Za-z][A-Za-z0-9]*$') { continue }   # cannot happen; cheap to assert
-
-        if ($kv.Value -is [switch]) {
-            if ($kv.Value.IsPresent) { $argList += "-$($kv.Key)" }
-        }
-        elseif ($kv.Value -is [array]) {
-            # ValidateSet already constrains these, and they are joined into one
-            # quoted token rather than spliced in bare.
-            $joined = ConvertTo-SafeArgument (($kv.Value | ForEach-Object { "$_" }) -join ',')
-            $argList += "-$($kv.Key) '$joined'"
-        }
-        elseif ($null -ne $kv.Value -and "$($kv.Value)" -ne '') {
-            $argList += "-$($kv.Key) '$(ConvertTo-SafeArgument "$($kv.Value)")'"
-        }
-    }
-
+    # Both branches below elevate with -File, which takes the script and each
+    # argument as separate array elements. Nothing is parsed out of a composed
+    # string, so no value crossing into the elevated process needs quoting.
+    # (ConvertTo-SafeArgument remains for the places that do compose one.)
     $shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell' }
 
     if ($PSCommandPath) {
@@ -377,7 +369,16 @@ elseif (-not $isAdmin) {
                 $fileArgs += @("-$($kv.Key)", "$($kv.Value)")
             }
         }
-        Start-Process $shell -Verb RunAs -ArgumentList $fileArgs
+        # Declining the UAC prompt throws, and an unhandled one surfaces a raw
+        # "Start-Process : ... Access is denied" at somebody who simply chose
+        # not to continue. That is not an error on their part.
+        try { Start-Process $shell -Verb RunAs -ArgumentList $fileArgs }
+        catch {
+            Write-Host ''
+            Write-Host '  Administrator rights were declined. Nothing has been changed.' -ForegroundColor Yellow
+            Write-Host '  Trim needs them to write machine-wide settings.' -ForegroundColor DarkGray
+            Write-Host ''
+        }
     } else {
         # No file on disk to point at, so stage one and pin it by hash rather
         # than building a command line that downloads and executes.
@@ -397,7 +398,16 @@ elseif (-not $isAdmin) {
                 $fileArgs += @("-$($kv.Key)", "$($kv.Value)")
             }
         }
-        Start-Process $shell -Verb RunAs -ArgumentList $fileArgs
+        # Declining the UAC prompt throws, and an unhandled one surfaces a raw
+        # "Start-Process : ... Access is denied" at somebody who simply chose
+        # not to continue. That is not an error on their part.
+        try { Start-Process $shell -Verb RunAs -ArgumentList $fileArgs }
+        catch {
+            Write-Host ''
+            Write-Host '  Administrator rights were declined. Nothing has been changed.' -ForegroundColor Yellow
+            Write-Host '  Trim needs them to write machine-wide settings.' -ForegroundColor DarkGray
+            Write-Host ''
+        }
     }
     return
 }

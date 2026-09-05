@@ -99,7 +99,10 @@ the restore point), and `netsh` TCP settings — one command, printed in the log
 
 ## Safety
 
-- Nothing changes until you click Apply. The scan needs no admin rights.
+- Nothing changes until you click Apply. A run with no arguments always opens
+  the window; applying without it takes an explicit `-Apply`.
+- Admin is asked for once, at the start, because several of the values being
+  read need it. `-DryRun` is the exception and grants nothing.
 - Only SAFE is ticked by default. CAUTION and RISKY are opt-in.
 - Camera, microphone, screenshots and screen recording are never touched —
   enforced at runtime and asserted by the tests.
@@ -135,14 +138,18 @@ PowerShell 7+. Admin rights to apply changes; the dry run needs none.
 
 ## Usage
 
+With no arguments it opens the window — which is what the one-liner does, and
+nothing changes until you click Apply.
+
 ```powershell
-.\trim.ps1 -DryRun
+.\trim.ps1
 ```
 
 | Flag | |
 |---|---|
+| `-Apply` | Apply from the command line: no window, no prompt |
 | `-DryRun` | Print the plan, change nothing |
-| `-Gui` | Open the window |
+| `-Gui` | Open the window (this is the default) |
 | `-Skip Appx,Network` | Leave phases out |
 | `-Only Gaming,Nvidia` | Run only those phases |
 | `-Cleanup` | Include the disk cleanup scan |
