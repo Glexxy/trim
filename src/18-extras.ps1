@@ -25,6 +25,7 @@ function Invoke-ExtrasPhase {
     Set-ServiceExtras     -Facts $Facts
     Set-NetworkExtras
     Set-UpdateBehaviour
+    Remove-EdgeBrowser
 }
 
 <#
@@ -197,4 +198,75 @@ function Set-UpdateBehaviour {
     # changes without anybody asking for it.
     Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsStore' 'AutoDownload' 2 `
         -Because 'Store apps do not update themselves' -Tier trade
+}
+
+<#
+.SYNOPSIS
+    Uninstall Microsoft Edge, keeping WebView2.
+
+.DESCRIPTION
+    Risky tier, never selected by default.
+
+    The usual objection to removing Edge is that WebView2 goes with it, and
+    WebView2 is what Widgets, parts of Teams and Office, and a long tail of
+    desktop applications render their interfaces with. That is avoidable: Edge
+    and the WebView2 runtime are separate products that share an installer, and
+    `--msedge` tells it to remove the browser only.
+
+    What remains true regardless: on most builds Windows Update reinstates Edge
+    at some later point, and outside the EEA Windows refuses the uninstall
+    outright. Both are Microsoft's behaviour, and both are reported rather than
+    worked around.
+#>
+function Remove-EdgeBrowser {
+    # Two layouts, because Edge moved. Current builds keep the browser under
+    # Microsoft\EdgeCore\<version>\; Microsoft\Edge\Application\<version>\ holds
+    # only a manifest and pwahelper.exe. Older builds are the other way round.
+    # Looking in one place found nothing on a machine that plainly had Edge.
+    $setups = @()
+    foreach ($pfRoot in (Get-ProgramFilesRoots)) {
+        foreach ($layout in @('Microsoft\EdgeCore', 'Microsoft\Edge\Application')) {
+            $base = Join-Path $pfRoot $layout
+            try { if (-not (Test-Path -LiteralPath $base -ErrorAction Stop)) { continue } } catch { continue }
+            foreach ($dir in (Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue)) {
+                $candidate = Join-Path $dir.FullName 'Installer\setup.exe'
+                if (Test-Path -LiteralPath $candidate) {
+                    $setups += [pscustomobject]@{ Path = $candidate; Version = $dir.Name }
+                }
+            }
+        }
+    }
+
+    if (-not $setups.Count) {
+        Write-Log 'Edge: no installer found, nothing to remove.'
+        return
+    }
+
+    # Newest first, in case several versions are staged side by side.
+    $setup = @($setups | Sort-Object { try { [version]$_.Version } catch { [version]'0.0' } } -Descending)[0]
+
+    Add-PlannedAction -Kind 'command' -Target 'Uninstall Microsoft Edge' `
+        -Detail 'removes the browser only - WebView2 stays, so apps that render with it keep working. Windows Update may reinstall Edge later.' `
+        -Reversible 'no - reinstall from microsoft.com/edge' -Tier trade
+
+    if (-not (Test-SelectedChange 'act|command|Uninstall Microsoft Edge')) { return }
+
+    if ($DryRun) {
+        Write-Log -Level DRY -Message "would uninstall Edge $($setup.Version) using $($setup.Path)"
+        return
+    }
+
+    Write-Log -Level WARN -Message "Uninstalling Edge $($setup.Version). WebView2 is deliberately left in place."
+    try {
+        $proc = Start-Process -FilePath $setup.Path -PassThru -Wait -WindowStyle Hidden `
+            -ArgumentList '--uninstall', '--msedge', '--system-level', '--verbose-logging', '--force-uninstall'
+        if ($proc.ExitCode -eq 0) {
+            Write-Log -Level OK -Message 'Edge uninstalled. WebView2 left installed.'
+        } else {
+            Write-Log -Level WARN -Message "Edge uninstaller returned $($proc.ExitCode); nothing was changed."
+            Write-Log -Level WARN -Message '  Windows blocks removal on builds outside the EEA. That is Microsoft policy, not a fault here.'
+        }
+    } catch {
+        Write-Log -Level FAIL -Message "Could not run the Edge uninstaller: $($_.Exception.Message)"
+    }
 }

@@ -322,17 +322,16 @@
   <section class="band trust" id="trust" aria-labelledby="trust-h">
     <div class="band-head">
       <p class="eyebrow">Is it safe?</p>
-      <h2 id="trust-h">Should you trust this?</h2>
-      <p class="band-sub">You are about to pipe a stranger&rsquo;s script into an admin
-         shell. No, you should not &mdash; and that includes trusting this page. Here are
-         three ways to check, from easiest to most convincing.</p>
+      <h2 id="trust-h">Check it yourself.</h2>
+      <p class="band-sub">You do not have to take our word for any of this. Three ways
+         to verify what you are about to run, in about a minute.</p>
     </div>
 
     <div class="checks">
       <article class="check">
         <h3><span class="chk-n">01</span> Read it</h3>
-        <p>The script comes back as plain text, not a download. Open it in a tab and
-           read the whole thing first. It is long, but it is all there.</p>
+        <p>It is served as plain text, not a download. Open it in a tab and read the
+           whole thing &mdash; nothing is minified, obfuscated or fetched later.</p>
         <a class="link" href="/go">Open the script</a>
       </article>
 
@@ -346,15 +345,14 @@
 
       <article class="check hero-check">
         <h3><span class="chk-n">03</span> Build it yourself</h3>
-        <p>A hash we publish only proves nobody touched the file on its way to you. It
-           says nothing about whether our script matches our source. So the build is
-           <strong>reproducible</strong>. Clone it, compile it, get identical bytes.</p>
+        <p>A published hash proves the file reached you intact. Reproducibility proves
+           it matches the source. Clone the repository, compile it, and you get
+           <strong>byte-identical output</strong>.</p>
         <pre><code>git clone https://github.com/Glexxy/trim
 cd trim
 .\build.ps1</code></pre>
-        <p class="small">Same commit, same fingerprint. If yours comes out different,
-           the published script has something in it that the source does not, and you
-           should walk away.</p>
+        <p class="small">Same commit, same fingerprint. Very few tools distributed this
+           way can be checked that far.</p>
       </article>
     </div>
 

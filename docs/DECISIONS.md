@@ -1,4 +1,4 @@
-# Design decisions and their trade-offs
+﻿# Design decisions and their trade-offs
 
 Notes for anyone reading or changing the source. Every entry here is a judgement
 call rather than a fact, written down so you can change it deliberately instead
@@ -53,6 +53,20 @@ nothing else. If it looks thin next to the registry-key lists people paste
 around, that is the point — most of those keys have not done anything since
 Windows 7, and several were never read by any version of Windows.
 
+## Removing Edge is available, but off by default
+
+It used to be refused outright, on the grounds that removal takes WebView2 with
+it and breaks Widgets, parts of Teams and Office, and any desktop app that
+renders with it.
+
+That objection turns out to be avoidable. Edge and the WebView2 runtime are
+separate products sharing one installer, and `setup.exe --uninstall --msedge`
+removes the browser while leaving the runtime in place.
+
+What stays true: on most builds Windows Update reinstates Edge later, and
+outside the EEA Windows refuses the uninstall outright. Both are reported rather
+than worked around. It is Risky tier and never selected by default.
+
 ## Memory Integrity ships on
 
 Turning HVCI off measurably helps some CPU-bound games and measurably weakens
@@ -66,10 +80,6 @@ stated at the point of decision rather than buried.
 **AutoLogon.** WinUtil offers it. It writes the account password to
 `HKLM\...\Winlogon\DefaultPassword` in a form anything running on the box can
 read back, and leaves the machine booting straight to an unlocked desktop.
-
-**Removing Edge.** Debloat only. Removal breaks WebView2 dependents — Widgets,
-some Teams and Office panes, third-party apps that embed it — and Windows Update
-reinstates it on most builds anyway.
 
 **Fan curves, BIOS, undervolting, overclocking.** Out of scope. Nothing here
 should be able to damage hardware or leave a machine unbootable.

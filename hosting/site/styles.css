@@ -447,6 +447,11 @@ b, strong { font-weight: 600; color: var(--ink); }
 
 /* --- what it does --------------------------------------------------------- */
 
+/* Five cards, so the column count is chosen rather than left to auto-fit.
+   Four columns leaves the fifth card alone on its own row beside three empty
+   cells, which read as a large grey hole because the grid's own background is
+   what shows through the 1px gaps. Only counts that divide five cleanly with a
+   spanning last card are used: 1, 2, then 4. */
 .jobs {
   display: grid;
   gap: 1px;
@@ -454,7 +459,28 @@ b, strong { font-weight: 600; color: var(--ink); }
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   overflow: hidden;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: 1fr;
+}
+@media (min-width: 700px) {
+  .jobs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .job:last-child { grid-column: 1 / -1; }
+}
+@media (min-width: 1200px) {
+  .jobs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* The full-width card gets its content laid out across the width rather than
+   left in one narrow column with a lot of empty space to its right. */
+@media (min-width: 700px) {
+  .job:last-child {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+    gap: 0 clamp(1.5rem, 3vw, 3rem);
+    align-items: start;
+  }
+  .job:last-child .job-n { grid-column: 1 / -1; }
+  .job:last-child p { margin-bottom: 0; }
+  .job:last-child .tags { align-self: center; }
 }
 
 .job {

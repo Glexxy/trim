@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 # Trim
 
@@ -36,6 +36,9 @@ Widgets, Bing wedged into your Start menu, inking and typing data collection,
 speech harvesting, feedback prompts, and the preinstalled apps you have never
 opened. Around **60 changes on a typical PC**, each one listed with its current
 value and its new one.
+
+Edge can go too, if you want it gone — the browser only, leaving WebView2 so the
+apps that render with it keep working.
 
 ### Sets it up for games
 Game Bar and background recording off. Windowed-game optimisations on. CPU
