@@ -20,15 +20,21 @@ binding = "ASSETS"
 # script readable in a browser rather than a download prompt.
 run_worker_first = true
 
-# Serve the apex and www from the same Worker. www is redirected to the apex by
-# the Worker itself so there is exactly one canonical address.
+# Custom domains, not routes. A route (`pattern = "host/*"` with `zone_name`)
+# attaches the Worker to a hostname that must already resolve - it does not
+# create the DNS record, so a zone with no record for the apex simply never
+# answers. A custom domain creates and manages the record itself, which is what
+# a Worker-only site needs.
+#
+# www is redirected to the apex by the Worker, so there is exactly one canonical
+# address to publish and to trust.
 [[routes]]
-pattern = "trimbloat.com/*"
-zone_name = "trimbloat.com"
+pattern = "trimbloat.com"
+custom_domain = true
 
 [[routes]]
-pattern = "www.trimbloat.com/*"
-zone_name = "trimbloat.com"
+pattern = "www.trimbloat.com"
+custom_domain = true
 
 [observability]
 enabled = true

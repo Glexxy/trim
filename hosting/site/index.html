@@ -470,11 +470,13 @@ cd trim
       </details>
       <details>
         <summary>How is this different from WinUtil?</summary>
-        <div><p>It is not competing with WinUtil, it runs WinUtil. Chris Titus Tech
-           built the debloat engine underneath this. What Trim adds is the wrapper: a
-           dry run you can read, a recorded undo path, hardware detection, and a risk
-           label on every single change. If you want a full Windows toolbox, go and use
-           WinUtil directly &mdash; it does far more than this does.</p></div>
+        <div><p>Trim uses WinUtil for one of its twelve phases &mdash; the tweak set
+           Chris Titus Tech already maintains, which there is no sense reimplementing.
+           The rest is Trim's own: the dry run you can read, the recorded undo path,
+           hardware detection, disk cleanup, the deep uninstall, the startup manager,
+           the NVIDIA profile and a risk label on every change. They solve different
+           problems; WinUtil is a broad Windows toolbox, Trim is a reversible clean-up
+           with a plan you approve first.</p></div>
       </details>
     </div>
   </section>
@@ -509,13 +511,14 @@ cd trim
       <p>Reversible Windows tuning.<br>MIT licensed. Free, and staying that way.</p>
     </div>
     <div class="foot-credit">
-      <h2>Built on WinUtil</h2>
-      <p>The debloat engine underneath this is not ours. Trim calls
+      <h2>Credits</h2>
+      <p>Trim's WinUtil phase invokes
          <a href="https://christitus.com/win" rel="noopener">WinUtil by Chris Titus Tech</a>
-         and lets it do that work. What Trim adds is the wrapper around it: a recorded
-         undo path, a dry run you can read, hardware detection and risk labelling.</p>
-      <p class="go-use">If you want a proper Windows toolbox, go use WinUtil. It is more
-         capable and better maintained than this.</p>
+         to apply its tweak set, rather than reimplementing work that already exists and
+         is well maintained. Everything else here is Trim's own.</p>
+      <p class="go-use"><a href="https://github.com/Orbmu2k/nvidiaProfileInspector" rel="noopener">NVIDIA
+         Profile Inspector</a> by Orbmu2k writes the driver profile, pinned by version
+         and SHA256. Both are separately licensed.</p>
     </div>
     <nav class="foot-links" aria-label="Footer">
       <a href="https://github.com/Glexxy/trim" rel="noopener">GitHub</a>
@@ -579,7 +582,7 @@ cd trim
         { "@type": "Question", "name": "Can I undo it weeks later?",
           "acceptedAnswer": { "@type": "Answer", "text": "Yes. The undo script is an ordinary file with a timestamp in its name. It sits there until you delete it and works whenever you run it." } },
         { "@type": "Question", "name": "How is Trim different from WinUtil?",
-          "acceptedAnswer": { "@type": "Answer", "text": "It is not competing with WinUtil, it runs WinUtil. Chris Titus Tech built the debloat engine underneath. Trim adds the wrapper: a dry run you can read, a recorded undo path, hardware detection, and a risk label on every change." } }
+          "acceptedAnswer": { "@type": "Answer", "text": "Trim uses WinUtil for one of its twelve phases, the tweak set Chris Titus Tech already maintains. The rest is Trim's own: the dry run you can read, the recorded undo path, hardware detection, disk cleanup, deep uninstall, the startup manager, the NVIDIA profile and a risk label on every change." } }
       ]
     }
   ]
