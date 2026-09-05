@@ -111,7 +111,19 @@ $wsbXml = @"
 
 Write-Host "Launching Windows Sandbox ($wsb)..." -ForegroundColor Cyan
 Write-Host 'A sandbox window will open and run the test. Leave it alone.' -ForegroundColor DarkGray
-Start-Process -FilePath $wsb
+
+# Launched through the executable, not the .wsb file.
+#
+# Start-Process on a data file needs a registered handler for its extension.
+# .wsb is associated when Windows Sandbox is installed through Settings, and
+# not when the feature is enabled by DISM or by policy - so on a machine where
+# the sandbox is perfectly present and working, this failed with "The system
+# cannot find the file specified", which reads as the .wsb being missing when
+# the .wsb is right there and correct.
+#
+# $sandboxExe was already found and its existence checked at the top of this
+# script, precisely because presence of the executable is the honest test.
+Start-Process -FilePath $sandboxExe -ArgumentList "`"$wsb`""
 
 $exitFile = Join-Path $results 'exitcode.txt'
 $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
