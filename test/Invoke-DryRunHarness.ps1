@@ -1031,6 +1031,76 @@ Test-Phase 'The winutil handoff survives our own strict mode' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+Test-Phase 'Deletion re-checks the list it was handed' {
+    # The folder branch of Remove-AppLeftovers had always re-run its guard
+    # immediately before deleting - "in case anything mutated the list between
+    # the scan and the confirmation". The registry branch deleted whatever it
+    # was given. Same file, same reasoning, applied to one half of it.
+    #
+    # This runs the real deletion, not a dry run, because a guard that only
+    # ever executes in dry mode is not a guard. Everything it is pointed at
+    # belongs to this test: the decoys are scratch locations that do not match
+    # the app, so if the check fails, the only thing lost is the test's own
+    # data - and the test says so.
+    $stamp  = [Guid]::NewGuid().ToString('N').Substring(0, 8)
+    $appName = "TrimDelGuard$stamp"
+    $pubName = "TrimDelGuardVendor$stamp"
+
+    $mineDir   = Join-Path $env:LOCALAPPDATA $appName
+    $victimDir = Join-Path $env:LOCALAPPDATA "TrimVictim$stamp"
+    $mineKey   = "HKCU:\Software\$appName"
+    $victimKey = "HKCU:\Software\TrimVictim$stamp"
+
+    $wasDry = $DryRun
+    try {
+        foreach ($d in @($mineDir, $victimDir)) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
+        Set-Content -LiteralPath (Join-Path $victimDir 'not-yours.txt') -Value 'must survive'
+        foreach ($k in @($mineKey, $victimKey)) { New-Item -Path $k -Force | Out-Null }
+        Set-ItemProperty -LiteralPath $victimKey -Name 'Keep' -Value 1
+
+        # A list where two entries do not belong to this app, every one ticked -
+        # which is what a mutated or faulty list looks like from in here.
+        $list = @(
+            [pscustomobject]@{ Kind='folder';   Path=$mineDir;   Bytes=0; Size='0 B'; Selected=$true; Key="left|folder|$mineDir" },
+            [pscustomobject]@{ Kind='folder';   Path=$victimDir; Bytes=0; Size='0 B'; Selected=$true; Key="left|folder|$victimDir" },
+            [pscustomobject]@{ Kind='registry'; Path=$mineKey;   Bytes=0; Size='';    Selected=$true; Key="left|registry|$mineKey" },
+            [pscustomobject]@{ Kind='registry'; Path=$victimKey; Bytes=0; Size='';    Selected=$true; Key="left|registry|$victimKey" }
+        )
+
+        Set-Variable -Name DryRun -Value $false -Scope Script
+        $result = Remove-AppLeftovers -Leftovers $list -AppName $appName -Publisher $pubName
+        Set-Variable -Name DryRun -Value $wasDry -Scope Script
+
+        $problems = [System.Collections.Generic.List[string]]::new()
+
+        if (Test-Path -LiteralPath $victimDir) {
+            # Good. Prove it is intact rather than merely present.
+            if (-not (Test-Path -LiteralPath (Join-Path $victimDir 'not-yours.txt'))) {
+                $problems.Add('the folder that does not belong to this app was emptied') | Out-Null
+            }
+        } else {
+            $problems.Add("'$victimDir' does not belong to $appName and was deleted anyway") | Out-Null
+        }
+        if (-not (Test-Path -LiteralPath $victimKey)) {
+            $problems.Add("'$victimKey' does not belong to $appName and was deleted anyway") | Out-Null
+        }
+
+        # And the guard must not have become so strict that it refuses
+        # everything - that would "pass" the checks above for the wrong reason.
+        if (Test-Path -LiteralPath $mineDir) { $problems.Add("the app's own folder was not removed") | Out-Null }
+        if (Test-Path -LiteralPath $mineKey) { $problems.Add("the app's own registry key was not removed") | Out-Null }
+        if ($result.Removed -ne 2) { $problems.Add("expected 2 removals, got $($result.Removed)") | Out-Null }
+        if ($result.Skipped -ne 2) { $problems.Add("expected 2 refusals, got $($result.Skipped)") | Out-Null }
+
+        if ($problems.Count) { throw ($problems -join '; ') }
+    }
+    finally {
+        Set-Variable -Name DryRun -Value $wasDry -Scope Script
+        foreach ($d in @($mineDir, $victimDir)) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+        foreach ($k in @($mineKey, $victimKey)) { Remove-Item -LiteralPath $k -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 Test-Phase 'Uninstalling one product never offers another product''s data' {
     # Get-AppLeftovers had unit guards on its two filters and had never been
     # driven end to end. Doing that found this: uninstalling one product from a

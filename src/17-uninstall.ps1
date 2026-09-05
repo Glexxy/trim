@@ -1,4 +1,4 @@
-# ---------------------------------------------------------------------------
+﻿# ---------------------------------------------------------------------------
 # Deep uninstall
 #
 # Run the vendor's own uninstaller, then find and remove what it left behind -
@@ -524,7 +524,15 @@ function Invoke-AppUninstaller {
     Remove confirmed leftovers, exporting every registry key first.
 #>
 function Remove-AppLeftovers {
-    param([Parameter(Mandatory)]$Leftovers, [Parameter(Mandatory)][string]$AppName)
+    param(
+        [Parameter(Mandatory)]$Leftovers,
+        [Parameter(Mandatory)][string]$AppName,
+        # Without this the re-check below is a stricter guard than the one that
+        # built the list, not the same one: anything that qualified because it
+        # matched the publisher gets refused at the last moment, and the user
+        # is told their tick "does not pass the safety check" after the fact.
+        [AllowEmptyString()][string]$Publisher = ''
+    )
 
     $backupDir = Join-Path $script:RunRoot "uninstall\$($script:RunStamp)_$(($AppName -replace '[^A-Za-z0-9]','_'))"
     $freed = 0L; $removed = 0; $skipped = 0
@@ -538,6 +546,16 @@ function Remove-AppLeftovers {
         }
 
         if ($l.Kind -eq 'registry') {
+            # The same belt and braces the folder branch has had all along. A
+            # key was deleted on the strength of a list built earlier, with
+            # nothing re-checking it at the moment it mattered - so any fault
+            # that put a wrong key in the list would have been caught for a
+            # folder and not for a key.
+            if (-not (Test-SafeToRemoveKey -Key $l.Path -AppName $AppName -Publisher $Publisher)) {
+                $skipped++
+                Write-Log -Level WARN -Message "refusing to remove key '$($l.Path)': it does not pass the safety check"
+                continue
+            }
             try {
                 New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
                 $safe = ($l.Path -replace '[^A-Za-z0-9]', '_')
@@ -556,7 +574,7 @@ function Remove-AppLeftovers {
 
         # Belt and braces: the guard runs again immediately before deletion, in
         # case anything mutated the list between the scan and the confirmation.
-        if (-not (Test-SafeToRemovePath -Path $l.Path -AppName $AppName)) {
+        if (-not (Test-SafeToRemovePath -Path $l.Path -AppName $AppName -Publisher $Publisher)) {
             $skipped++
             Write-Log -Level WARN -Message "refusing to remove '$($l.Path)': it does not pass the safety check"
             continue

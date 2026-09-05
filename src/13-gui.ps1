@@ -1759,7 +1759,7 @@ function Invoke-GuiRemoveLeftovers {
         'Trim - confirm removal', 'YesNo', 'Warning', 'No')
     if ($answer -ne 'Yes') { return }
 
-    $result = Remove-AppLeftovers -Leftovers $sel -AppName $app.Name
+    $result = Remove-AppLeftovers -Leftovers $sel -AppName $app.Name -Publisher $app.Publisher
     $script:GuiLeftovers = @(Get-AppLeftovers -App $app)
     Update-GuiItems
 
