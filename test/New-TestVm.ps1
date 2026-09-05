@@ -182,7 +182,7 @@ Say 'Once it is at the desktop, take the clean checkpoint:' Cyan
 Say "    Checkpoint-VM -Name $VmName -SnapshotName 'clean-install'"
 Say ''
 Say 'Then copy the project in and run the verification inside the VM:' Cyan
-Say "    Copy-VMFile -Name $VmName -SourcePath 'D:\Projects\trim' -DestinationPath 'C:\opt' -FileSource Host -CreateFullPath -Recurse"
+Say "    Copy-VMFile -Name $VmName -SourcePath '$(Split-Path $PSScriptRoot -Parent)' -DestinationPath 'C:\opt' -FileSource Host -CreateFullPath -Recurse"
 Say "    # in the VM:  C:\opt\test\Invoke-VmVerification.ps1 -Full"
 Say ''
 Say 'Between passes, revert instead of rebuilding:' Cyan
