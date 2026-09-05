@@ -1254,6 +1254,89 @@ Test-Phase 'Uninstalling one product never offers another product''s data' {
     }
 }
 
+Test-Phase 'The large-file report only reports' {
+    # The last feature never driven end to end. It deletes nothing, which is
+    # the whole design: a large file is not a junk file, and a 40 GB game, a
+    # 40 GB video project and a 40 GB forgotten ISO look identical from here.
+    # So what is being checked is that it stays a report, that it counts each
+    # file once, and that the things nobody should touch are labelled as such.
+    $dir = Join-Path ([IO.Path]::GetTempPath()) "trim-large-$([Guid]::NewGuid().ToString('N'))"
+    $sub = Join-Path $dir 'sub'
+    New-Item -ItemType Directory -Force -Path $sub | Out-Null
+
+    try {
+        $problems = [System.Collections.Generic.List[string]]::new()
+
+        # Distinct sizes, and the LARGEST one deepest. With the biggest file in
+        # the root the walk reaches it first anyway, so an unranked result and
+        # a ranked one look identical and the ordering assertion proves nothing.
+        [IO.File]::WriteAllBytes((Join-Path $dir 'root-medium.bin'), (New-Object byte[] (2MB)))
+        [IO.File]::WriteAllBytes((Join-Path $sub 'deep-largest.bin'), (New-Object byte[] (3MB)))
+        [IO.File]::WriteAllBytes((Join-Path $dir 'too-small.bin'), (New-Object byte[] (64KB)))
+
+        # A junction is a second path into a directory already being walked.
+        # Following one double-counts everything under it, and on a profile
+        # with a loop in it the walk never finishes.
+        $link = Join-Path $dir 'link-to-sub'
+        $madeLink = $false
+        try {
+            New-Item -ItemType Junction -Path $link -Target $sub -ErrorAction Stop | Out-Null
+            $madeLink = $true
+        } catch { }
+
+        $rows = @(Get-LargeFileScan -Roots @($dir) -MinimumMB 1 -Top 50 -TimeoutSeconds 30)
+
+        if ($rows.Count -ne 2) {
+            throw "expected 2 files over the threshold, got $($rows.Count): $(($rows | ForEach-Object { $_.Path }) -join ', ')"
+        }
+        if (@($rows | Where-Object { $_.Path -like '*too-small*' }).Count) {
+            $problems.Add('a file under the threshold was reported') | Out-Null
+        }
+        if ($madeLink -and @($rows | Where-Object { $_.Path -like "$link*" }).Count) {
+            $problems.Add('the scan walked a junction, so files under it are counted twice') | Out-Null
+        }
+        if (@($rows | Where-Object { $_.Bytes -lt 1MB }).Count) {
+            $problems.Add('a row is smaller than the minimum it was asked for') | Out-Null
+        }
+        # Biggest first, or "the largest N" means nothing.
+        if ($rows[0].Path -notlike '*deep-largest*') {
+            $problems.Add("the report is not ordered largest first: '$($rows[0].Path)' came first") | Out-Null
+        }
+
+        # Report only. Nothing here may carry the fields that make a row
+        # selectable or deletable anywhere else in this program.
+        foreach ($r in $rows) {
+            foreach ($f in @('Selected', 'Key')) {
+                if ($r.PSObject.Properties.Name -contains $f) {
+                    $problems.Add("a large-file row carries '$f', which is what makes a row deletable") | Out-Null
+                }
+            }
+            if (-not $r.Kind) { $problems.Add("'$($r.Path)' has no description, so the list is just paths") | Out-Null }
+        }
+
+        # -Top is the difference between a report and a wall of text.
+        $capped = @(Get-LargeFileScan -Roots @($dir) -MinimumMB 1 -Top 1 -TimeoutSeconds 30)
+        if ($capped.Count -ne 1) { $problems.Add("-Top 1 returned $($capped.Count) rows") | Out-Null }
+        elseif ($capped[0].Path -notlike '*deep-largest*') {
+            $problems.Add('-Top 1 kept a smaller file than the largest one') | Out-Null
+        }
+
+        # The files somebody would otherwise try to delete have to say so.
+        foreach ($case in @(
+            @{ Name = 'pagefile.sys';  Ext = '.sys' },
+            @{ Name = 'swapfile.sys';  Ext = '.sys' },
+            @{ Name = 'hiberfil.sys';  Ext = '.sys' })) {
+            $kind = Get-FileKind -Extension $case.Ext -Name $case.Name
+            if ($kind -notmatch 'leave alone|disable hibernation') {
+                $problems.Add("$($case.Name) is described as '$kind', which does not warn anyone off it") | Out-Null
+            }
+        }
+
+        if ($problems.Count) { throw ($problems -join '; ') }
+    }
+    finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
 Test-Phase 'The duplicate finder always keeps one copy' {
     # Deleting every copy of a file is the one mistake in this whole program
     # that no undo script, restore point or .reg export can reverse. The code
