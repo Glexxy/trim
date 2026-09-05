@@ -141,25 +141,63 @@ function ConvertTo-SafeArgument {
     act on. The log file keeps everything.
 #>
 function Show-TrimBanner {
-    # ASCII only, deliberately.
+    # The wordmark is drawn with box-drawing characters, but this file has to
+    # stay pure ASCII: a non-ASCII source means the compiled script needs a
+    # UTF-8 byte order mark, and Invoke-RestMethod passes that mark through as a
+    # literal character that Invoke-Expression cannot parse. It broke
+    # `irm https://trimbloat.com/go | iex` outright.
     #
-    # This used to draw the wordmark in Unicode block characters, which meant
-    # this file could not be pure ASCII, which meant the compiled script had to
-    # carry a UTF-8 byte order mark. Invoke-RestMethod hands that mark through
-    # as a literal U+FEFF, and `iex` cannot parse a string that starts with one:
+    # So the art is written with ASCII stand-ins and translated at runtime. It
+    # is spelled out rather than hidden in a base64 blob, because this script is
+    # served as plain text specifically so people can read it, and an encoded
+    # payload in a script you are asked to trust looks exactly like the thing
+    # you should not trust.
     #
-    #     irm https://trimbloat.com/go | iex
-    #     Invoke-Expression: Unexpected attribute 'CmdletBinding'.
-    #
-    # So the prettier banner broke the one command this project exists to be.
-    # ASCII costs nothing and works in every console, encoding and shell.
-    $mark = @(
-        '  ########  ######   ##  ###    ###',
-        '     ##     ##   ##  ##  ####  ####',
-        '     ##     ######   ##  ## #### ##',
-        '     ##     ##  ##   ##  ##  ##  ##',
-        '     ##     ##   ##  ##  ##      ##'
+    #   F  full block          a  top-left corner       c  bottom-left corner
+    #   H  horizontal line     b  top-right corner      d  bottom-right corner
+    #   V  vertical line
+    $glyph = @{
+        'F' = 0x2588; 'H' = 0x2550; 'V' = 0x2551
+        'a' = 0x2554; 'b' = 0x2557; 'c' = 0x255A; 'd' = 0x255D
+    }
+    $art = @(
+        '  FFFFFFFFb FFFFFFb  FFb FFFb   FFFb',
+        '  cHHFFaHHd FFaHHFFb FFV FFFFb FFFFV',
+        '     FFV    FFFFFFad FFV FFaFFFFaFFV',
+        '     FFV    FFaHHFFb FFV FFVcFFadFFV',
+        '     FFV    FFV  FFV FFV FFV cHd FFV',
+        '     cHd    cHd  cHd cHd cHd     cHd'
     )
+
+    # Box-drawing characters only render if the console is in a code page that
+    # has them. Setting UTF-8 output is what makes that true, and it throws on
+    # hosts with no real console attached - in which case the plain version is
+    # used instead of printing a row of question marks.
+    $unicode = $false
+    try {
+        [Console]::OutputEncoding = [Text.Encoding]::UTF8
+        $unicode = $true
+    } catch { }
+
+    $mark = if ($unicode) {
+        foreach ($line in $art) {
+            $sb = New-Object System.Text.StringBuilder
+            foreach ($ch in $line.ToCharArray()) {
+                if ($ch -eq ' ') { [void]$sb.Append(' ') }
+                else             { [void]$sb.Append([char]$glyph["$ch"]) }
+            }
+            $sb.ToString()
+        }
+    } else {
+        @(
+            '  ########  ######   ##  ###    ###',
+            '     ##     ##   ##  ##  ####  ####',
+            '     ##     ######   ##  ## #### ##',
+            '     ##     ##  ##   ##  ##  ##  ##',
+            '     ##     ##   ##  ##  ##      ##'
+        )
+    }
+
     Write-Host ''
     foreach ($l in $mark) { Write-Host $l -ForegroundColor Cyan }
     Write-Host ''
