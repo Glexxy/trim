@@ -1,0 +1,75 @@
+name: CI
+
+# Windows only, and Windows PowerShell specifically. The whole project targets
+# 5.1 - the version that ships with Windows and the one almost every user will
+# actually run this under. An earlier encoding bug was invisible under
+# PowerShell 7 and corrupted the script under 5.1, so testing on 7 alone would
+# have shipped it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report the shell it is actually running under
+        shell: powershell
+        run: |
+          "PSVersion : $($PSVersionTable.PSVersion)"
+          "Edition   : $($PSVersionTable.PSEdition)"
+          "OS        : $([Environment]::OSVersion.VersionString)"
+
+      - name: Source encoding
+        shell: powershell
+        run: .\tools\Repair-Encoding.ps1 -Check
+
+      - name: Build
+        shell: powershell
+        run: .\build.ps1
+
+      - name: Dry-run harness
+        shell: powershell
+        run: .\test\Invoke-DryRunHarness.ps1
+
+      - name: Undo round-trip
+        shell: powershell
+        run: .\test\Test-UndoRoundTrip.ps1
+
+      # WPF needs a single-threaded apartment, which the default runner shell
+      # is not, so this one gets its own process.
+      - name: Window interaction
+        shell: cmd
+        run: powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File test\Test-GuiInteraction.ps1
+
+      - name: Reproducible build
+        shell: powershell
+        run: |
+          # The site tells people they can clone this and get byte-identical
+          # output. That claim is only worth making if something checks it.
+          $first = (Get-FileHash .\trim.ps1 -Algorithm SHA256).Hash
+          Remove-Item .\trim.ps1, .\trim.ps1.sha256 -Force
+          .\build.ps1 | Out-Null
+          $second = (Get-FileHash .\trim.ps1 -Algorithm SHA256).Hash
+          "first  $first"
+          "second $second"
+          if ($first -ne $second) {
+              throw "The build is not reproducible: two builds of the same source produced different bytes."
+          }
+          "Reproducible."
+
+      - name: Upload the built script
+        uses: actions/upload-artifact@v4
+        with:
+          name: trim.ps1
+          path: |
+            trim.ps1
+            trim.ps1.sha256
+          retention-days: 14

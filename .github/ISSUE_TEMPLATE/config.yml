@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Glexxy/trim/security/advisories/new
+    about: Report privately, not as a public issue.
+  - name: What the tool actually changes
+    url: https://trimbloat.com
+    about: Screenshots, the full change list, and how to verify a build.

@@ -1,0 +1,33 @@
+name: Suggest a change
+description: A setting worth adding, or one that should not be there.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What should it do
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: |
+        Particularly useful: what it measurably changes. A lot of widely-shared
+        Windows tweaks do nothing at all on current builds, and this project
+        deliberately leaves those out.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: How risky is it
+      description: Everything ships behind one of these, and only Safe is ticked by default.
+      options:
+        - Safe - no plausible downside on any machine
+        - Caution - fine for most people, some will want the opposite
+        - Risky - a real cost is being paid for the gain
+    validations:
+      required: true

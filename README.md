@@ -8,6 +8,7 @@ Strips out the ads, telemetry and preinstalled junk. Tunes what's left for games
 Cleans your drives, uninstalls properly, and takes control of what starts with
 Windows — showing you every single change before it makes one.
 
+[![CI](https://img.shields.io/github/actions/workflow/status/Glexxy/trim/ci.yml?branch=main&style=flat-square&label=tests)](https://github.com/Glexxy/trim/actions/workflows/ci.yml)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-4FE0B0?style=flat-square)](LICENSE)
 [![Windows 10 and 11](https://img.shields.io/badge/Windows-10%20%7C%2011-4FE0B0?style=flat-square)](#requirements)
 [![PowerShell 5.1+](https://img.shields.io/badge/PowerShell-5.1%2B-4FE0B0?style=flat-square)](#requirements)
@@ -240,6 +241,8 @@ Full attribution and licence texts: [NOTICE.md](NOTICE.md).
 Issues and pull requests welcome. Before opening one:
 
 - Run `.\test\Invoke-DryRunHarness.ps1` and `.\test\Test-UndoRoundTrip.ps1`.
+  CI runs both on `windows-latest` under Windows PowerShell 5.1, plus the window
+  interaction test and a check that the build is reproducible.
 - New registry writes need a `-Because` and a tier, plus a `-MinBuild` or
   `-MaxBuild` if the setting only exists on one Windows version. The harness
   checks this.

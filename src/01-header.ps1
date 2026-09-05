@@ -59,6 +59,11 @@ param(
     [switch]$Cleanup,
     [switch]$IncludeDuplicates,
 
+    # Report the biggest files on every drive. Report only - nothing here is
+    # ever deleted, because a large file and a junk file look identical from
+    # the outside.
+    [switch]$LargeFiles,
+
     # Internal: delete a cleanup selection saved by an earlier window.
     [string]$CleanupSelection = '',
 

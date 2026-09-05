@@ -161,6 +161,10 @@ For anything exploitable, use GitHub's private vulnerability reporting on this
 repository (**Security -> Report a vulnerability**). That reaches the maintainer
 without the report being public while it is being fixed.
 
+If that option is not visible, open a normal issue saying only that you have
+found a security problem and need a private channel - no details, no proof of
+concept - and one will be arranged. Do not post the details publicly first.
+
 For anything else - a bug, a setting you think is wrong, a machine it behaved
 badly on - open a normal issue. Include the log from
 `C:\ProgramData\Trim\logs\`, which records every change and every skip.

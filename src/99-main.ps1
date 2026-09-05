@@ -212,8 +212,11 @@ function Invoke-Main {
     # -------------------------------------------------------------------
     # Disk cleanup. Never part of a preset; always asked for by name.
     # -------------------------------------------------------------------
-    if ($Cleanup) {
-        Invoke-CleanupPhase -IncludeDuplicates:$IncludeDuplicates
+    # -LargeFiles enters here too. Requiring -Cleanup alongside it would mean
+    # `trim.ps1 -LargeFiles` silently did nothing, which is the worst kind of
+    # flag.
+    if ($Cleanup -or $LargeFiles) {
+        Invoke-CleanupPhase -IncludeDuplicates:$IncludeDuplicates -ReportLargeFiles:$LargeFiles
         return
     }
 

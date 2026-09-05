@@ -582,6 +582,42 @@ Test-Phase 'Portability guard' {
 
 # The camera/mic/screen-capture carve-out is the promise most likely to be broken
 # by a careless edit to the deny list.
+Test-Phase 'Every feature is reachable' {
+    # Get-LargeFileScan shipped as dead code: written, unit-checked in isolation,
+    # wired to nothing, and reported as delivered. This asserts that anything
+    # presented as a feature can actually be reached, from the window or the
+    # command line.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    $gui  = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '13-gui.ps1')
+    $main = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '99-main.ps1')
+    $head = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '01-header.ps1')
+    $all  = ($gui + $main + $head)
+
+    # Each entry: the function, and where a caller has to exist.
+    $reachable = @(
+        @{ Name = 'Get-LargeFileScan';  In = $all;  Where = 'the window or the command line' },
+        @{ Name = 'Get-DuplicateScan';  In = $all;  Where = 'the window or the command line' },
+        @{ Name = 'Get-StartupItems';   In = $all;  Where = 'the window' },
+        @{ Name = 'Disable-StartupItem';In = $gui;  Where = 'the window' },
+        @{ Name = 'Get-CleanupScan';    In = $all;  Where = 'the window or the command line' }
+    )
+    foreach ($r in $reachable) {
+        if ($r.In -notmatch [regex]::Escape($r.Name)) {
+            $problems.Add("$($r.Name) is never called from $($r.Where)") | Out-Null
+        }
+    }
+
+    # A switch nobody reads is the same fault wearing a different hat.
+    foreach ($sw in @('LargeFiles', 'IncludeDuplicates', 'Cleanup')) {
+        if ($main -notmatch "\`$$sw") {
+            $problems.Add("-$sw is declared but 99-main never reads it") | Out-Null
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'Windows 10 gating' {
     # The site tells Windows 10 users that Trim "skips whatever does not apply
     # to your build". For a long time nothing gated on the OS at all - it warned

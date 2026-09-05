@@ -756,6 +756,7 @@ function Show-GuiCleanup {
     foreach ($spec in @(
         @{ Text = 'Rescan';          Style = 'Btn';     Handler = { Invoke-GuiCleanScan } },
         @{ Text = 'Find duplicates'; Style = 'Btn';     Handler = { Invoke-GuiDuplicateScan } },
+        @{ Text = 'Find large files'; Style = 'Btn';    Handler = { Invoke-GuiLargeFileScan } },
         @{ Text = 'Delete selected'; Style = 'Primary'; Handler = { Invoke-GuiCleanDelete } })) {
         $b = New-Object Windows.Controls.Button
         $b.Style = $script:GuiWin.FindResource($spec.Style)
@@ -765,6 +766,8 @@ function Show-GuiCleanup {
         $bar.Children.Add($b) | Out-Null
     }
     $ui.PanelItems.Children.Add($bar) | Out-Null
+
+    Show-GuiLargeFiles
 
     if ($script:GuiCleanItems.Count -eq 0) {
         Add-GuiParagraph -Text 'Nothing to clean. This PC is already tidy.' -Colour '#4FBFA4' -Size 14
@@ -881,12 +884,94 @@ function Invoke-GuiCleanScan {
     Update-GuiItems
 }
 
+$script:GuiLargeFiles = @()
+
+<#
+.SYNOPSIS
+    Find the biggest files on the machine. Report only.
+
+.DESCRIPTION
+    Deliberately kept out of $script:GuiCleanItems, which is the list the Delete
+    button acts on. A large file is not a junk file - a 40 GB game, a 40 GB video
+    project and a 40 GB forgotten ISO are indistinguishable from here - so these
+    are shown and never selected.
+#>
+function Invoke-GuiLargeFileScan {
+    $script:GuiUi.TxtPhaseSub.Text = 'Looking for large files across every drive. This can take a minute...'
+    $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
+    $script:GuiLargeFiles = @(Get-LargeFileScan)
+    Update-GuiItems
+}
+
 function Invoke-GuiDuplicateScan {
     $script:GuiUi.TxtPhaseSub.Text = 'Hashing files to find duplicates. This can take a minute...'
     $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
     $existing = @($script:GuiCleanItems | Where-Object { $_.Key -notlike 'dupe|*' })
     $script:GuiCleanItems = @($existing) + @(Get-DuplicateScan)
     Update-GuiItems
+}
+
+<#
+.SYNOPSIS
+    The large-file report. No checkboxes, on purpose.
+#>
+function Show-GuiLargeFiles {
+    if (-not $script:GuiLargeFiles.Count) { return }
+
+    $ui      = $script:GuiUi
+    $brInk   = Get-GuiBrush '#E6EDEB'
+    $brFaint = Get-GuiBrush '#6C7A77'
+    $brRule  = Get-GuiBrush '#2E3937'
+
+    Add-GuiParagraph -Text "Largest files  -  $($script:GuiLargeFiles.Count) found" `
+        -Colour '#E6EDEB' -Size 14 -Weight 'SemiBold' -Top 6
+    Add-GuiParagraph -Text ('Shown so you can see what is using the space. Nothing here is selected ' +
+        'or deleted by Trim - a large file is not the same thing as a junk file, and only you can ' +
+        'tell which is which. Windows and Program Files are left out.') `
+        -Colour '#6C7A77' -Size 12 -Top 4
+
+    foreach ($f in $script:GuiLargeFiles) {
+        $row = New-Object Windows.Controls.Border
+        $row.BorderBrush = $brRule
+        $row.BorderThickness = New-Object Windows.Thickness 0,0,0,1
+        $row.Padding = New-Object Windows.Thickness 4,6,4,7
+
+        $g = New-Object Windows.Controls.Grid
+        foreach ($w in @('Auto','Star','Auto')) {
+            $cd = New-Object Windows.Controls.ColumnDefinition
+            $cd.Width = if ($w -eq 'Star') { New-Object Windows.GridLength 1, 'Star' } else { 'Auto' }
+            $g.ColumnDefinitions.Add($cd)
+        }
+
+        $size = New-Object Windows.Controls.TextBlock
+        $size.Text = $f.Size
+        $size.FontFamily = New-Object Windows.Media.FontFamily 'Cascadia Mono, Consolas, monospace'
+        $size.FontSize = 12
+        $size.Foreground = $brInk
+        $size.MinWidth = 78
+        [Windows.Controls.Grid]::SetColumn($size, 0)
+
+        $path = New-Object Windows.Controls.TextBlock
+        $path.Text = $f.Path
+        $path.FontSize = 12
+        $path.Foreground = $brFaint
+        $path.TextTrimming = 'CharacterEllipsis'
+        $path.Margin = New-Object Windows.Thickness 12,0,12,0
+        $path.ToolTip = $f.Path
+        [Windows.Controls.Grid]::SetColumn($path, 1)
+
+        $kind = New-Object Windows.Controls.TextBlock
+        $kind.Text = "$($f.Kind)  -  $($f.Age)d old"
+        $kind.FontSize = 11.5
+        $kind.Foreground = $brFaint
+        [Windows.Controls.Grid]::SetColumn($kind, 2)
+
+        $g.Children.Add($size) | Out-Null
+        $g.Children.Add($path) | Out-Null
+        $g.Children.Add($kind) | Out-Null
+        $row.Child = $g
+        $ui.PanelItems.Children.Add($row) | Out-Null
+    }
 }
 
 <#

@@ -1,0 +1,66 @@
+name: Something went wrong
+description: A change that misfired, a machine it behaved badly on, a crash.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every run writes a log to `C:\ProgramData\Trim\logs\` recording every
+        change and every skip. Attaching it answers most of the questions below
+        on its own.
+
+        **Please do not paste anything exploitable here.** Use
+        [private vulnerability reporting](https://github.com/Glexxy/trim/security/advisories/new)
+        instead.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: And what you expected instead.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `.\trim.ps1 -Version`.
+      placeholder: "Trim 1.x  -  SHA256 ..."
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows build
+      description: "`winver`, or the OS line from the log."
+      placeholder: "Windows 11 Pro 24H2 (26100)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: shell
+    attributes:
+      label: Which PowerShell
+      options:
+        - Windows PowerShell 5.1 (the one that ships with Windows)
+        - PowerShell 7+
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Drag the file in, or paste the relevant lines.
+      render: text
+
+  - type: checkboxes
+    id: undo
+    attributes:
+      label: Recovery
+      options:
+        - label: I ran the undo script and it did not put things back
+        - label: I have not tried the undo script yet

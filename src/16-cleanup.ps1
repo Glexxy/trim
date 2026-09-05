@@ -397,7 +397,7 @@ function Get-LargeFileScan {
                         Size     = Format-Bytes $info.Length
                         Modified = $info.LastWriteTime
                         Age      = [int]($now - $info.LastWriteTime).TotalDays
-                        Kind     = Get-FileKind -Extension $info.Extension
+                        Kind     = Get-FileKind -Extension $info.Extension -Name $info.Name
                     }) | Out-Null
                 }
             } catch { }
@@ -420,7 +420,20 @@ function Get-LargeFileScan {
     A rough label for what a large file is, so a list of paths is readable.
 #>
 function Get-FileKind {
-    param([string]$Extension)
+    param([string]$Extension, [string]$Name = '')
+
+    # Named first, because these are the ones somebody might otherwise try to
+    # delete. pagefile.sys is routinely the largest file on a machine and is
+    # very often the honest answer to "where did my disk go" - but listing it
+    # among "wasted space" without saying what it is invites exactly the wrong
+    # action. Windows manages these; deleting one by hand breaks things.
+    switch -Regex ($Name) {
+        '^pagefile\.sys$'  { 'Windows paging file - leave alone' ; return }
+        '^swapfile\.sys$'  { 'Windows swap file - leave alone' ; return }
+        '^hiberfil\.sys$'  { 'Hibernation file - disable hibernation to reclaim' ; return }
+        '^DumpStack\.log'  { 'Windows crash stack - leave alone' ; return }
+    }
+
     switch -Regex ($Extension) {
         '\.(iso|img|vhdx?|wim|esd)$'            { 'Disk image' ; break }
         '\.(mp4|mkv|avi|mov|wmv|webm)$'          { 'Video' ; break }
@@ -515,8 +528,22 @@ function Invoke-Cleanup {
     Command-line entry point. The window has its own.
 #>
 function Invoke-CleanupPhase {
-    param([switch]$IncludeDuplicates)
+    param([switch]$IncludeDuplicates, [switch]$ReportLargeFiles)
     Write-Phase 'Cleanup'
+
+    # Printed before the cleanup list and never mixed into it: these are
+    # reported, not removed.
+    if ($ReportLargeFiles) {
+        $big = @(Get-LargeFileScan)
+        if ($big.Count) {
+            Write-Host ''
+            Write-Log "Largest files (reported only, nothing here is deleted):"
+            foreach ($f in $big) {
+                Write-Log ("    {0}  {1}  ({2}, {3}d old)" -f $f.Size.PadLeft(10), $f.Path, $f.Kind, $f.Age)
+            }
+            Write-Host ''
+        }
+    }
 
     $items = @(Get-CleanupScan)
     if ($IncludeDuplicates) { $items += @(Get-DuplicateScan) }
