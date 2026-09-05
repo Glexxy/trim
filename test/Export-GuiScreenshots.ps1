@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Render the real window to PNG files, for the site and the README.
@@ -126,6 +126,39 @@ if (-not $Real) {
             if ($i.Detail -match '^[A-Za-z]:\\') { $i.Detail = $path }
         }
     }
+    # The startup list is a software inventory of whoever ran this - Discord,
+    # work tools, whatever they happen to have installed. Representative
+    # entries instead, for the same reason the machine is a demo machine.
+    $runHkcu  = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    $appHkcu  = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
+    $runHklm  = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+    $appHklm  = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
+
+    $script:GuiStartupItems = @(
+        [pscustomobject]@{ Name='Discord'; Command='Update.exe --processStart Discord.exe'
+                           Publisher='Discord Inc.'; Source='Registry'; Scope='You'
+                           Location=$runHkcu; Approved=$appHkcu; State='Enabled'; CanChange=$true },
+        [pscustomobject]@{ Name='EpicGamesLauncher'; Command='EpicGamesLauncher.exe -silent'
+                           Publisher='Epic Games, Inc.'; Source='Registry'; Scope='You'
+                           Location=$runHkcu; Approved=$appHkcu; State='Disabled'; CanChange=$true },
+        [pscustomobject]@{ Name='Steam'; Command='steam.exe -silent'
+                           Publisher='Valve Corporation'; Source='Registry'; Scope='You'
+                           Location=$runHkcu; Approved=$appHkcu; State='Enabled'; CanChange=$true },
+        [pscustomobject]@{ Name='RtkAudUService'; Command='RtkAudUService64.exe -background'
+                           Publisher='Realtek Semiconductor'; Source='Registry'; Scope='All users'
+                           Location=$runHklm; Approved=$appHklm; State='Enabled'; CanChange=$true },
+        [pscustomobject]@{ Name='Corsair iCUE'; Command='iCUE.exe --autorun'
+                           Publisher='Corsair Memory, Inc.'; Source='Registry'; Scope='All users'
+                           Location=$runHklm; Approved=$appHklm; State='Enabled'; CanChange=$true },
+        [pscustomobject]@{ Name='OneDrive'; Command='OneDrive.exe /background'
+                           Publisher='Microsoft Corporation'; Source='Startup folder'; Scope='You'
+                           Location='Startup'; Approved=''; State='Enabled'; CanChange=$true },
+        [pscustomobject]@{ Name='NvTmRep_CrashReport1'; Command='NvTmRep.exe'
+                           Publisher=''; Source='Scheduled task'; Scope='All users'
+                           Location='\NvTmRep_CrashReport1'; Approved=''; State='Enabled'; CanChange=$false }
+    )
+    $script:GuiStartupLoaded = $true
+
     Write-Host '  using the demo machine (pass -Real for this PC)' -ForegroundColor DarkGray
 }
 
@@ -204,6 +237,7 @@ try {
     Save-Pane $busiest         'changes.png'
 
     Save-Pane 'Disk cleanup'   'cleanup.png'
+    Save-Pane 'Startup apps'   'startup.png'
     Save-Pane 'Uninstall apps' 'uninstall.png'
 } finally {
     $win.Close()

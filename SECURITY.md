@@ -157,14 +157,24 @@ it is happening. Skip them with `-Skip WinUtil,Fixes`.
 
 ## Reporting a problem
 
-Open an issue, or for anything exploitable, contact the maintainer privately
-before disclosing.
+For anything exploitable, use GitHub's private vulnerability reporting on this
+repository (**Security -> Report a vulnerability**). That reaches the maintainer
+without the report being public while it is being fixed.
+
+For anything else - a bug, a setting you think is wrong, a machine it behaved
+badly on - open a normal issue. Include the log from
+`C:\ProgramData\Trim\logs\`, which records every change and every skip.
 
 ## Not claimed
 
-- Trim is **not** code-signed yet. An Authenticode certificate is a cost
-  decision, not a technical one. Until then SmartScreen will warn, and it
-  should.
+- Trim is **not** code-signed. Worth being precise about what that does and
+  does not mean here: SmartScreen gates *downloaded executables*, and
+  `irm | iex` never writes a file to disk for it to gate. Authenticode on a
+  `.ps1` only takes effect under an `AllSigned` execution policy, which piping
+  does not go through either. So signing would change very little about this
+  distribution method - it would start mattering the day an `.exe` ships.
+  Verify the SHA256 and the reproducible build instead; those are the checks
+  that actually apply.
 - No formal audit has been done.
 - The threat model is a careless or malicious *input*, not a hostile
   administrator. Anyone who already has administrator on the machine does not

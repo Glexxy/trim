@@ -97,7 +97,7 @@ foreach ($f in @('index.html', 'styles.css', 'app.js', 'favicon.svg',
 # file is a 503 on a URL the page references rather than a silent gap.
 New-Item -ItemType Directory -Force -Path (Join-Path $public 'img') | Out-Null
 $images = @('og.png', 'icon-180.png') + @(
-    'overview', 'changes', 'cleanup', 'uninstall' | ForEach-Object { "$_.webp"; "$_@2x.webp" }
+    'overview', 'changes', 'cleanup', 'startup', 'uninstall' | ForEach-Object { "$_.webp"; "$_@2x.webp" }
 )
 foreach ($f in $images) {
     $from = Join-Path $site "img\$f"

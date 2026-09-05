@@ -33,7 +33,7 @@
 
 <noscript>
   <style>
-    /* The screenshot panels start hidden so the page does not paint four large
+    /* The screenshot panels start hidden so the page does not paint five large
        images and then collapse to one. Without JavaScript nothing can ever
        reveal them, so show them all and remove the tab strip that would not
        work anyway. */
@@ -121,7 +121,7 @@
   <section class="band" id="what" aria-labelledby="what-h">
     <div class="band-head">
       <p class="eyebrow">What it does</p>
-      <h2 id="what-h">Four jobs.</h2>
+      <h2 id="what-h">Five jobs.</h2>
       <p class="band-sub">It tells you exactly what it plans to do in each one, and
          waits for you to agree.</p>
     </div>
@@ -169,6 +169,17 @@
           <li>Leftover scan</li><li>Registry</li><li>You approve</li>
         </ul>
       </article>
+
+      <article class="job">
+        <span class="job-n" aria-hidden="true">05</span>
+        <h3>Shows what starts with Windows</h3>
+        <p>Every program that launches when you sign in, from all four places Windows
+           hides them. Switch one off and it uses the same switch Task Manager does,
+           so it stays off and you can turn it back on without this tool.</p>
+        <ul class="tags">
+          <li>Logon items</li><li>Startup folders</li><li>Nothing deleted</li>
+        </ul>
+      </article>
     </div>
   </section>
 
@@ -194,6 +205,10 @@
         <button role="tab" id="tab-cleanup" aria-controls="panel-cleanup" aria-selected="false" tabindex="-1">
           <span class="tab-t">Disk cleanup</span>
           <span class="tab-d">What is safe to bin</span>
+        </button>
+        <button role="tab" id="tab-startup" aria-controls="panel-startup" aria-selected="false" tabindex="-1">
+          <span class="tab-t">Startup apps</span>
+          <span class="tab-d">What runs when you sign in</span>
         </button>
         <button role="tab" id="tab-uninstall" aria-controls="panel-uninstall" aria-selected="false" tabindex="-1">
           <span class="tab-t">Uninstall</span>
@@ -239,6 +254,19 @@
           <p class="shot-cap">Fourteen categories, scanned across every drive you have.
              Each one shows its size and where it is, so you are never agreeing to
              delete something described only as &ldquo;temporary files&rdquo;.</p>
+        </div>
+
+        <div role="tabpanel" id="panel-startup" aria-labelledby="tab-startup" tabindex="0" hidden>
+          <div class="shot">
+            <img src="/img/startup.webp?v={{V}}"
+                 srcset="/img/startup.webp?v={{V}} 1200w, /img/startup@2x.webp?v={{V}} 2320w"
+                 sizes="(max-width: 949px) 92vw, 62vw"
+                 width="2320" height="1540" loading="lazy" decoding="async"
+                 alt="The startup apps screen listing programs that run at sign-in, each with its publisher, where it is configured, and a button to turn it off.">
+          </div>
+          <p class="shot-cap">Each entry says who published it and where it is
+             configured, which Task Manager does not. Shortcuts are moved rather than
+             deleted, and the undo script puts them back.</p>
         </div>
 
         <div role="tabpanel" id="panel-uninstall" aria-labelledby="tab-uninstall" tabindex="0" hidden>
@@ -519,6 +547,7 @@ cd trim
         "https://trimbloat.com/img/overview.webp",
         "https://trimbloat.com/img/changes.webp",
         "https://trimbloat.com/img/cleanup.webp",
+        "https://trimbloat.com/img/startup.webp",
         "https://trimbloat.com/img/uninstall.webp"
       ],
       "featureList": [
@@ -527,6 +556,7 @@ cd trim
         "Disk cleanup across every drive",
         "Deep uninstall including leftover files and registry keys",
         "Shows every change before applying it",
+        "Manages which programs run at Windows sign-in",
         "Generates an undo script for every change made"
       ]
     },

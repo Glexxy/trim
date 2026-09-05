@@ -67,6 +67,8 @@ const ROUTES = {
   '/img/changes@2x.webp': { file: '/img/changes@2x.webp', type: 'image/webp', cache: 604800, binary: true },
   '/img/cleanup.webp':    { file: '/img/cleanup.webp',    type: 'image/webp', cache: 604800, binary: true },
   '/img/cleanup@2x.webp': { file: '/img/cleanup@2x.webp', type: 'image/webp', cache: 604800, binary: true },
+  '/img/startup.webp':    { file: '/img/startup.webp',    type: 'image/webp', cache: 604800, binary: true },
+  '/img/startup@2x.webp': { file: '/img/startup@2x.webp', type: 'image/webp', cache: 604800, binary: true },
   '/img/uninstall.webp':  { file: '/img/uninstall.webp',  type: 'image/webp', cache: 604800, binary: true },
   '/img/uninstall@2x.webp':{ file: '/img/uninstall@2x.webp',type: 'image/webp', cache: 604800, binary: true },
 };

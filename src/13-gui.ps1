@@ -240,6 +240,11 @@ $script:GuiUi      = $null
 $script:GuiWin     = $null
 $script:GuiItems   = @()
 $script:GuiPhases  = @()
+# The panes that are not phases of the plan. Declared once, next to the state
+# it belongs with: this list was repeated in five places, and adding a pane to
+# four of them produces a tab that renders but shows a meaningless 0/0 counter.
+$script:GuiExtraPanes = @('Overview', 'Disk cleanup', 'Startup apps', 'Uninstall apps')
+
 $script:GuiCurrent = 'Overview'
 $script:GuiApplied = $false
 $script:GuiPreset  = 'recommended'
@@ -447,7 +452,7 @@ function Update-GuiPhases {
         $t2.VerticalAlignment = 'Center'
         if ($p -eq 'Overview') {
             $t2.Text = ''
-        } elseif ($p -in @('Disk cleanup','Uninstall apps')) {
+        } elseif ($p -in $script:GuiExtraPanes) {
             # Not part of the preset flow, so it has no selected/total to show.
             $t2.Text = ''
             $t1.Foreground = if ($isCur) { $brInk } else { $brFaint }
@@ -1315,11 +1320,6 @@ function Invoke-GuiRemoveLeftovers {
     $msg += [Environment]::NewLine + [Environment]::NewLine + "Registry backups: $($result.BackupDir)"
     [void][Windows.MessageBox]::Show($msg, 'Trim - leftovers removed', 'OK', 'Information')
 }
-
-# The panes that are not phases of the plan. Declared once: this list was
-# repeated in four places, and adding a pane to three of them produces a tab
-# that renders but never updates its own counter.
-$script:GuiExtraPanes = @('Overview', 'Disk cleanup', 'Startup apps', 'Uninstall apps')
 
 function Update-GuiItems {
     $ui = $script:GuiUi
