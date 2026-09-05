@@ -294,6 +294,13 @@ function Test-SafeToRemovePath {
     # Rule 4: shared infrastructure is never a leftover.
     $leaf = $segments[-1].ToLower()
     if ($script:UninstallProtectedNames -contains $leaf) { return $false }
+    # Test-SafeToRemoveKey has refused these by name since it was written and
+    # this did not, so C:\Program Files\NVIDIA rested entirely on the caller
+    # having checked the publisher first. Guards should not depend on their
+    # callers being careful.
+    foreach ($p in $script:UninstallProtectedPublishers) {
+        if ($leaf -eq $p.ToLower()) { return $false }
+    }
     foreach ($seg in $segments) {
         if ($seg.ToLower() -eq 'windowsapps') { return $false }
     }
@@ -446,11 +453,22 @@ function Test-SafeToRemoveKey {
     foreach ($p in $script:UninstallProtectedPublishers) {
         if ($leaf -eq $p.ToLower()) { return $false }
     }
-    # Never the hive roots themselves. Derived from the same helper the rest of
-    # the program uses, so this stays correct on a 32-bit install.
+    # Never the hive roots themselves, and never anything outside them.
+    #
+    # Refusing only the roots was enough while the only caller built its own
+    # candidates by joining a name onto one of these. It stopped being enough
+    # when this became the check that runs again immediately before deletion:
+    # a key from anywhere in the registry would then have been judged on its
+    # name alone. The path guard has required its equivalent since it was
+    # written. Derived from the same helper the rest of the program uses, so
+    # this stays correct on a 32-bit install.
+    $underRoot = $false
     foreach ($r in (@('HKCU:\Software') + @(Get-SoftwareHivePaths ''))) {
-        if ($Key.TrimEnd('\') -ieq $r.TrimEnd('\')) { return $false }
+        $rr = $r.TrimEnd('\')
+        if ($Key.TrimEnd('\') -ieq $rr) { return $false }
+        if ($Key.StartsWith("$rr\", [StringComparison]::OrdinalIgnoreCase)) { $underRoot = $true }
     }
+    if (-not $underRoot) { return $false }
 
     $norm  = { param($t) ($t -replace '[^A-Za-z0-9]', '').ToLower() }
     $leafN = & $norm $leaf

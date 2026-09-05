@@ -1031,6 +1031,67 @@ Test-Phase 'The winutil handoff survives our own strict mode' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+Test-Phase 'The folder guard and the key guard agree' {
+    # Four faults in this file in one day, every one of them the same shape: a
+    # rule reasoned out carefully for folders and never mirrored to keys, or
+    # the reverse. The containment rule, the re-check before deleting, the
+    # protected-publisher names, and the requirement to live under a known
+    # root. Each half was written well; neither was written twice.
+    #
+    # So this asserts the two guards behave the same way on the cases they
+    # should both refuse, rather than testing each of them alone and trusting
+    # that somebody remembered the other one.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    $pf   = @(Get-ProgramFilesRoots)[0]
+    $hive = @(Get-SoftwareHivePaths '')[-1]
+
+    # Each case: what it is, the folder to try, the key to try, and the app
+    # asking. Both guards must say no to all of them.
+    $mustRefuse = @(
+        @{ Why = 'a shared-vendor name that is on the protected list'
+           Path = (Join-Path $pf 'NVIDIA'); Key = "$hive\NVIDIA"
+           App = 'NVIDIA'; Pub = 'Some Bundled Tool Vendor' }
+        @{ Why = 'a name that is shared infrastructure'
+           Path = (Join-Path $pf 'Common Files'); Key = "$hive\Common Files"
+           App = 'Common Files'; Pub = 'Whoever' }
+        @{ Why = 'somewhere applications do not live'
+           Path = 'C:\Windows\System32\SomeApp'; Key = 'HKCU:\Volatile Environment\SomeApp'
+           App = 'SomeApp'; Pub = 'Whoever' }
+        @{ Why = 'a root rather than something inside one'
+           Path = $pf; Key = $hive
+           App = 'Anything'; Pub = 'Whoever' }
+        @{ Why = 'a name too short to be evidence of anything'
+           Path = (Join-Path $pf 'Q'); Key = "$hive\Q"
+           App = 'Q'; Pub = 'Whoever' }
+        @{ Why = 'nothing to do with the app being removed'
+           Path = (Join-Path $pf 'CompletelyUnrelatedThing'); Key = "$hive\CompletelyUnrelatedThing"
+           App = 'SomethingElseEntirely'; Pub = 'Whoever' }
+    )
+
+    foreach ($c in $mustRefuse) {
+        if (Test-SafeToRemovePath -Path $c.Path -AppName $c.App -Publisher $c.Pub) {
+            $problems.Add("the folder guard allows $($c.Why): '$($c.Path)'") | Out-Null
+        }
+        if (Test-SafeToRemoveKey -Key $c.Key -AppName $c.App -Publisher $c.Pub) {
+            $problems.Add("the key guard allows $($c.Why): '$($c.Key)'") | Out-Null
+        }
+    }
+
+    # Both must still say yes to the ordinary case, or the agreement above
+    # would be satisfied by two guards that refuse everything.
+    $okPath = Join-Path $pf 'ContosoWidgetStudio'
+    $okKey  = "$hive\ContosoWidgetStudio"
+    if (-not (Test-SafeToRemovePath -Path $okPath -AppName 'Contoso Widget Studio' -Publisher 'Contoso')) {
+        $problems.Add("the folder guard refuses an ordinary product folder: '$okPath'") | Out-Null
+    }
+    if (-not (Test-SafeToRemoveKey -Key $okKey -AppName 'Contoso Widget Studio' -Publisher 'Contoso')) {
+        $problems.Add("the key guard refuses an ordinary product key: '$okKey'") | Out-Null
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'Deletion re-checks the list it was handed' {
     # The folder branch of Remove-AppLeftovers had always re-run its guard
     # immediately before deleting - "in case anything mutated the list between
