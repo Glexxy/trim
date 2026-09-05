@@ -1031,6 +1031,98 @@ Test-Phase 'The winutil handoff survives our own strict mode' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+Test-Phase 'Uninstalling one product never offers another product''s data' {
+    # Get-AppLeftovers had unit guards on its two filters and had never been
+    # driven end to end. Doing that found this: uninstalling one product from a
+    # vendor offered the vendor's whole folder, ticked by default, with every
+    # other product from that vendor inside it. Remove Photoshop, lose
+    # Lightroom's settings.
+    #
+    # Test-SafeToRemoveKey had refused exactly this on the registry side since
+    # it was written. The same reasoning had never reached the filesystem.
+    $stamp   = [Guid]::NewGuid().ToString('N').Substring(0, 8)
+    $vendor  = "TrimGuardVendor$stamp"
+    $appOne  = "TrimGuardProductOne$stamp"
+    $appTwo  = "TrimGuardProductTwo$stamp"
+
+    $vendorDir = Join-Path $env:LOCALAPPDATA $vendor
+    $oneDir    = Join-Path $vendorDir $appOne
+    $twoDir    = Join-Path $vendorDir $appTwo
+    $soloRoot  = Join-Path $env:LOCALAPPDATA "TrimSoloVendor$stamp"
+    $soloDir   = Join-Path $soloRoot $appOne
+    $vendorKey = "HKCU:\Software\$vendor"
+    $soloKey   = "HKCU:\Software\TrimSoloVendor$stamp"
+
+    $app = [pscustomobject]@{
+        Name = $appOne; Publisher = $vendor; Version = '1.0'
+        DisplayName = $appOne; PublisherDisplay = $vendor
+        InstallDir = ''; Uninstall = ''; QuietUninstall = ''; IconSource = ''
+        SizeMB = 0; RegistryKey = ''; Kind = 'win32'
+    }
+
+    try {
+        $problems = [System.Collections.Generic.List[string]]::new()
+
+        # --- Two products under one vendor. ---------------------------------
+        foreach ($d in @($oneDir, $twoDir)) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
+        Set-Content -LiteralPath (Join-Path $twoDir 'irreplaceable.cfg') -Value 'a different product'
+
+        $paths = @(Get-AppLeftovers -App $app | Where-Object { $_.Kind -eq 'folder' } | ForEach-Object { $_.Path })
+        if ($paths -contains $vendorDir) {
+            $problems.Add("the vendor folder '$vendorDir' is offered, and '$appTwo' lives inside it") | Out-Null
+        }
+        if ($paths -contains $twoDir) {
+            $problems.Add("another product's folder '$twoDir' is offered directly") | Out-Null
+        }
+        if ($paths -notcontains $oneDir) {
+            $problems.Add("the folder actually belonging to the app, '$oneDir', is not offered") | Out-Null
+        }
+
+        # --- The same vendor, holding nothing but this product. --------------
+        # The rule is "only this product is in it", not "never the vendor
+        # folder" - otherwise an empty vendor folder is left behind forever.
+        New-Item -ItemType Directory -Force -Path $soloDir | Out-Null
+        $soloApp = $app.PSObject.Copy()
+        $soloApp.Publisher = "TrimSoloVendor$stamp"
+        $soloApp.PublisherDisplay = $soloApp.Publisher
+        $soloPaths = @(Get-AppLeftovers -App $soloApp | Where-Object { $_.Kind -eq 'folder' } | ForEach-Object { $_.Path })
+        if ($soloPaths -notcontains $soloRoot) {
+            $problems.Add("a vendor folder holding only this product is not offered, so it would be left behind empty") | Out-Null
+        }
+
+        # --- The registry side, which has always been right. -----------------
+        # Asserted in both directions on purpose. Checking only that a shared
+        # publisher key is refused would pass just as well if publisher keys
+        # were never offered at all - a test that cannot fail either way.
+        New-Item -Path $vendorKey -Force | Out-Null
+        New-Item -Path (Join-Path $vendorKey $appOne) -Force | Out-Null
+        New-Item -Path (Join-Path $vendorKey $appTwo) -Force | Out-Null
+        $keys = @(Get-AppLeftovers -App $app | Where-Object { $_.Kind -eq 'registry' } | ForEach-Object { $_.Path })
+        if ($keys -contains $vendorKey) {
+            $problems.Add("the vendor registry key '$vendorKey' is offered while another product is under it") | Out-Null
+        }
+
+        New-Item -Path $soloKey -Force | Out-Null
+        New-Item -Path (Join-Path $soloKey $appOne) -Force | Out-Null
+        $soloKeys = @(Get-AppLeftovers -App $soloApp | Where-Object { $_.Kind -eq 'registry' } | ForEach-Object { $_.Path })
+        if ($soloKeys -notcontains $soloKey) {
+            $problems.Add("a publisher key holding only this product is not offered, so it would be left behind") | Out-Null
+        }
+
+        # Leftovers are ticked on arrival, so every one of them has to be
+        # something the user would agree belongs to what they just removed.
+        if ($problems.Count) { throw ($problems -join '; ') }
+    }
+    finally {
+        foreach ($d in @($vendorDir, $soloRoot)) {
+            Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        foreach ($k in @($vendorKey, $soloKey)) {
+            Remove-Item -LiteralPath $k -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 Test-Phase 'The duplicate finder always keeps one copy' {
     # Deleting every copy of a file is the one mistake in this whole program
     # that no undo script, restore point or .reg export can reverse. The code

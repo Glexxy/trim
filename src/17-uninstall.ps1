@@ -304,6 +304,29 @@ function Test-SafeToRemovePath {
     $appN  = & $norm $AppName
     $pubN  = & $norm $Publisher
     if (-not $leafN) { return $false }
+    if ($leafN.Length -lt 3) { return $false }
+
+    # If this is the publisher's folder rather than the product's, only remove
+    # it when this product is the only thing in it.
+    #
+    # Test-SafeToRemoveKey has had this rule since it was written - "removing
+    # HKCU\Software\Valve because one Valve game was uninstalled would take
+    # Steam's configuration with it" - and the same reasoning was never applied
+    # here, where the consequence is worse: the registry holds settings, this
+    # holds the files. Uninstalling one product offered the whole vendor folder,
+    # ticked by default, with every other product from that vendor inside it.
+    if ($pubN -and $leafN -eq $pubN -and $appN -ne $pubN) {
+        try {
+            # -Force: a hidden sibling is still somebody else's data.
+            $children = @(Get-ChildItem -LiteralPath $full -Force -ErrorAction Stop)
+            if ($children.Count -gt 1) { return $false }
+            if ($children.Count -eq 1) {
+                $childN = & $norm $children[0].Name
+                if (-not ($childN -and ($childN.Contains($appN) -or $appN.Contains($childN)))) { return $false }
+            }
+        } catch { return $false }
+        return $true
+    }
 
     $matches = $false
     if ($appN -and ($leafN -eq $appN -or $leafN.Contains($appN) -or $appN.Contains($leafN))) { $matches = $true }
