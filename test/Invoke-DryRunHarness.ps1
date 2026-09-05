@@ -224,6 +224,34 @@ Test-Phase 'Cleanup scan is read-only and never throws' {
         if ($r.Path -match '^[A-Za-z]:\?$')    { throw "'$($r.Path)' is a drive root" }
     }
 
+    # No folder twice. %TEMP% and %LOCALAPPDATA%\Temp are the same directory on
+    # any machine that has not moved it, and both were listed - so the pane
+    # showed one folder twice and every total counted its bytes twice. A tool
+    # that overstates what it will free is lying about the only number anyone
+    # reads on this screen.
+    $byResolved = @{}
+    foreach ($r in $rows) {
+        $full = "$($r.Path)"
+        try { $full = (Get-Item -LiteralPath $r.Path -Force -ErrorAction Stop).FullName } catch { }
+        $k = $full.TrimEnd('\').ToLowerInvariant()
+        if ($byResolved.ContainsKey($k)) {
+            throw "'$($r.Path)' and '$($byResolved[$k])' are the same folder - its bytes are counted twice"
+        }
+        $byResolved[$k] = $r.Path
+    }
+
+    # And no location may be nested inside another one that is also offered,
+    # for the same reason: the parent's byte count already includes the child.
+    $paths = @($byResolved.Keys | Sort-Object)
+    foreach ($child in $paths) {
+        foreach ($parent in $paths) {
+            if ($child -eq $parent) { continue }
+            if ($child.StartsWith($parent + '\')) {
+                throw "'$($byResolved[$child])' sits inside '$($byResolved[$parent])' - both are offered, so those bytes are counted twice"
+            }
+        }
+    }
+
     # Anything that loses something a person might want must not be pre-ticked.
     $badDefault = @($rows | Where-Object { $_.Tier -ne 'safe' -and $_.Selected }).Count
     if ($badDefault) { throw "$badDefault non-safe cleanup location(s) are selected by default" }
@@ -998,6 +1026,74 @@ Test-Phase 'The winutil handoff survives our own strict mode' {
     # 3. And puts it back, so the rest of the run keeps the protection.
     if ($wu -notmatch '(?s)& \$block -Config.+?Set-StrictMode -Version 2\.0') {
         $problems.Add('the winutil handoff leaves strict mode off for the rest of the run') | Out-Null
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
+Test-Phase 'The documented numbers are the real ones' {
+    # The README and the site said thirteen phases and thirteen cleanup
+    # categories. There were twelve of each. Nobody was lying - the counts were
+    # written by hand, the code changed, and nothing tied one to the other. It
+    # is a small thing that quietly makes every other number on the page worth
+    # less, on a project whose whole pitch is that you can check what it does.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    $main    = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '99-main.ps1')
+    $cleanup = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '16-cleanup.ps1')
+    $header  = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '01-header.ps1')
+
+    # The phases are whatever Invoke-AllPhases actually gates on.
+    $phases = @([regex]::Matches($main, "Test-PhaseEnabled\s+'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
+    if ($phases.Count -lt 5) { throw "found only $($phases.Count) phases in Invoke-AllPhases - this guard has stopped finding them" }
+
+    # The categories are whatever Get-CleanupDefinitions declares.
+    $defsBlock = ''
+    $m = [regex]::Match($cleanup, '(?s)function Get-CleanupDefinitions \{.*?\n\}')
+    if ($m.Success) { $defsBlock = $m.Value }
+    $catCount = @([regex]::Matches($defsBlock, "(?m)^\s*Add-Def\s")).Count
+    if ($catCount -lt 5) { throw "found only $catCount cleanup categories - this guard has stopped finding them" }
+
+    # -Skip and -Only must offer exactly the phases that exist, and offer each
+    # of them once. -Skip listed 'Extras' twice.
+    foreach ($sw in @('Skip', 'Only')) {
+        $vm = [regex]::Match($header, "\[ValidateSet\(([^)]*)\)\]\s*\r?\n\s*\[string\[\]\]\`$$sw\b")
+        if (-not $vm.Success) { $problems.Add("cannot find the ValidateSet for -$sw") | Out-Null; continue }
+        $listed = @([regex]::Matches($vm.Groups[1].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
+        $dupes = @($listed | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
+        if ($dupes.Count) { $problems.Add("-$sw lists $($dupes -join ', ') more than once") | Out-Null }
+        $missing = @($phases | Where-Object { $listed -notcontains $_ })
+        $extra   = @($listed | Where-Object { $phases -notcontains $_ } | Select-Object -Unique)
+        if ($missing.Count) { $problems.Add("-$sw cannot name the $($missing -join ', ') phase(s)") | Out-Null }
+        if ($extra.Count)   { $problems.Add("-$sw offers $($extra -join ', '), which is not a phase") | Out-Null }
+    }
+
+    # Every count stated in prose, in both the README and the landing page.
+    $words = @{}
+    $i = 0
+    foreach ($w in @('zero','one','two','three','four','five','six','seven','eight','nine','ten',
+                     'eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen',
+                     'eighteen','nineteen','twenty')) { $words[$w] = $i; $i++ }
+
+    $claims = 0
+    foreach ($rel in @('README.md', 'hosting\site\index.html')) {
+        $path = Join-Path $root $rel
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        $text = Get-Content -Raw -Encoding UTF8 -LiteralPath $path
+        foreach ($c in [regex]::Matches($text, '(?i)\b([A-Za-z0-9]+)\s+(phases|categories)\b')) {
+            $tok = $c.Groups[1].Value.ToLower()
+            $val = if ($tok -match '^\d+$') { [int]$tok } elseif ($words.ContainsKey($tok)) { $words[$tok] } else { $null }
+            # 'the phases', 'those categories' and the like are not claims.
+            if ($null -eq $val) { continue }
+            $claims++
+            $want = if ($c.Groups[2].Value.ToLower() -eq 'phases') { $phases.Count } else { $catCount }
+            if ($val -ne $want) {
+                $problems.Add("$rel says '$($c.Value.Trim())' but there are $want") | Out-Null
+            }
+        }
+    }
+    if ($claims -lt 2) {
+        $problems.Add("only $claims stated count(s) found across the README and the site - this guard has stopped finding them") | Out-Null
     }
 
     if ($problems.Count) { throw ($problems -join '; ') }

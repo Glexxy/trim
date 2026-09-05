@@ -161,6 +161,19 @@ function Get-CleanupScan {
     }
 
     $results = [System.Collections.Generic.List[object]]::new()
+
+    # Two definitions can name the same folder by different routes, and one
+    # definition already did: %TEMP% and %LOCALAPPDATA%\Temp are the same
+    # directory on any machine that has not moved it. Both were listed, both
+    # were scanned, and the bytes were counted twice - so the pane showed the
+    # folder twice and overstated what deleting it would free, on the category
+    # total, the headline total and the selected total alike.
+    #
+    # Listing both is still right: %TEMP% can be redirected. Counting both is
+    # not. Keyed on the resolved path, so a redirected %TEMP% is a second entry
+    # and an unredirected one is not.
+    $seenPaths = @{}
+
     foreach ($def in (Get-CleanupDefinitions -Drives $drives)) {
         foreach ($path in $def.Paths) {
             # Test-Path THROWS on a directory the current user cannot read - it
@@ -170,6 +183,16 @@ function Get-CleanupScan {
             $exists = $false
             try { $exists = Test-Path -LiteralPath $path -ErrorAction Stop } catch { $exists = $false }
             if (-not $exists) { continue }
+
+            # Resolve before comparing: '%TEMP%' and '%LOCALAPPDATA%\Temp'
+            # expand to different strings and the same directory. Falls back to
+            # the literal path if it cannot be resolved, which is no worse than
+            # not deduplicating at all.
+            $resolved = $path
+            try { $resolved = (Get-Item -LiteralPath $path -Force -ErrorAction Stop).FullName } catch { }
+            $key = $resolved.TrimEnd('\').ToLowerInvariant()
+            if ($seenPaths.ContainsKey($key)) { continue }
+            $seenPaths[$key] = $true
 
             $bytes = 0L
             $count = 0

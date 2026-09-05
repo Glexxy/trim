@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # Trim
 
@@ -51,7 +51,7 @@ Startup folders and logon scheduled tasks, each with its publisher and where it
 is configured.
 
 Underneath: privacy, network, scheduled-task, service and performance phases,
-plus the WinUtil tweak set ([credits](#credits)). Thirteen phases in total.
+plus the WinUtil tweak set ([credits](#credits)). Twelve phases in total.
 
 ---
 
@@ -163,7 +163,7 @@ nothing changes until you click Apply.
 
 Trim's WinUtil phase invokes
 **[WinUtil by Chris Titus Tech](https://github.com/ChrisTitusTech/winutil)** for
-its tweak set rather than reimplementing it. That's one of thirteen phases; the
+its tweak set rather than reimplementing it. That's one of twelve phases; the
 rest is Trim's own.
 
 **[NVIDIA Profile Inspector](https://github.com/Orbmu2k/nvidiaProfileInspector)**
@@ -194,7 +194,7 @@ src/            numbered modules, concatenated in filename order
   01-header     param block, TLS, self-elevation
   02-core       logging, the undo ledger, the guarded registry writer
   03-detect     hardware and OS facts
-  04..12        phases
+  04..12        the phases
   13-gui        the window
   14..19        performance, tasks, cleanup, uninstall, extras, startup
   99-main       orchestration

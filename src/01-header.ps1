@@ -42,7 +42,7 @@
 param(
     [switch]$DryRun,
 
-    [ValidateSet('WinUtil','Fixes','Performance','Gaming','Graphics','Privacy','Background','Appx','Network','Security','Personalisation','Extras','Extras')]
+    [ValidateSet('WinUtil','Fixes','Performance','Gaming','Graphics','Privacy','Background','Appx','Network','Security','Personalisation','Extras')]
     [string[]]$Skip = @(),
 
     [ValidateSet('WinUtil','Fixes','Performance','Gaming','Graphics','Privacy','Background','Appx','Network','Security','Personalisation','Extras')]
