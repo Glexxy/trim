@@ -286,6 +286,177 @@ Check 'startup pane opens without reading anything' {
     if ($script:GuiUi.PanelItems.Children.Count -eq 0) { throw 'the startup pane rendered nothing' }
 }
 
+Check 'the scroll bar is ours, not the 2009 one' {
+    # The default WPF vertical scroll bar is Aero 2 chrome: 17px wide, a light
+    # grey track that reads as a seam down the edge of a dark panel, a raised
+    # grey thumb and a stepper button at each end. It was the oldest looking
+    # thing on the window.
+    $sv = $script:GuiUi.ItemScroll
+
+    # This window is deliberately never shown, so nothing has laid it out and
+    # the template has not expanded. Measure and arrange the content offline -
+    # a Window with no HWND cannot be measured directly, but its content can.
+    # Force the bar visible too: on Auto it is collapsed when the pane happens
+    # to fit, and a collapsed control has no size to assert on.
+    $was = $sv.VerticalScrollBarVisibility
+    $sv.VerticalScrollBarVisibility = 'Visible'
+    $content = $script:GuiWin.Content
+    $content.Measure((New-Object Windows.Size 1160, 770))
+    $content.Arrange((New-Object Windows.Rect 0, 0, 1160, 770))
+    $content.UpdateLayout()
+
+    $bars = @()
+    $stack = [System.Collections.Generic.Stack[object]]::new()
+    $stack.Push($sv)
+    while ($stack.Count) {
+        $n = $stack.Pop()
+        if ($n -is [Windows.Controls.Primitives.ScrollBar]) { $bars += $n }
+        for ($i = 0; $i -lt [Windows.Media.VisualTreeHelper]::GetChildrenCount($n); $i++) {
+            $stack.Push([Windows.Media.VisualTreeHelper]::GetChild($n, $i))
+        }
+    }
+    if (-not $bars.Count) { throw 'the item list has no scroll bar in its visual tree' }
+
+    $v = @($bars | Where-Object { $_.Orientation -eq 'Vertical' })
+    if (-not $v.Count) { throw 'no vertical scroll bar' }
+    $bar = $v[0]
+
+    # 17 is the Windows default. Anything near it means our style is not
+    # reaching the control at all.
+    if ($bar.ActualWidth -ne 10) {
+        throw "scroll bar lays out at $($bar.ActualWidth)px, expected 10 (Windows' own is 17)"
+    }
+
+    # The steppers are the giveaway. Our template has none, so the only
+    # RepeatButtons under the bar are the two invisible paging areas - and
+    # both must still be there, because clicking the track to page is
+    # behaviour people use.
+    $parts = @()
+    $stack.Clear(); $stack.Push($bar)
+    while ($stack.Count) {
+        $n = $stack.Pop()
+        $parts += $n
+        for ($i = 0; $i -lt [Windows.Media.VisualTreeHelper]::GetChildrenCount($n); $i++) {
+            $stack.Push([Windows.Media.VisualTreeHelper]::GetChild($n, $i))
+        }
+    }
+    $repeats = @($parts | Where-Object { $_ -is [Windows.Controls.Primitives.RepeatButton] })
+    if ($repeats.Count -ne 2) {
+        throw "expected 2 paging areas and no steppers, found $($repeats.Count) RepeatButtons"
+    }
+    # Nothing is scrollable in an offline arrange, so the thumb has no length
+    # to measure. Identity is the honest assertion: these parts came from our
+    # styles, not from the theme.
+    $pageStyle = $script:GuiWin.FindResource('ScrollPage')
+    foreach ($r in $repeats) {
+        if ($r.Style -ne $pageStyle) { throw 'a scroll bar RepeatButton is not using the flat paging style' }
+    }
+
+    $thumbs = @($parts | Where-Object { $_ -is [Windows.Controls.Primitives.Thumb] })
+    if ($thumbs.Count -ne 1) { throw "expected 1 thumb, found $($thumbs.Count)" }
+    if ($thumbs[0].Style -ne $script:GuiWin.FindResource('ScrollThumb')) {
+        throw 'the scroll thumb is the default chrome, not ours'
+    }
+
+    $sv.VerticalScrollBarVisibility = $was
+}
+
+Check 'every uninstall row carries an icon or an honest placeholder' {
+    # Two entries one careless click apart is the case this exists for, so the
+    # list is driven with a known one rather than whatever is installed here.
+    # A real icon, a path that does not exist, a path that is not an image, and
+    # no icon at all - every row still has to render a 26px mark, or the column
+    # collapses and the rows stop lining up.
+    $realExe = Join-Path $env:SystemRoot 'explorer.exe'
+
+    $script:GuiApps = @(
+        [pscustomobject]@{ Name='Has a real icon'; Publisher='Contoso'; Version='1.0'
+                           DisplayName='Has a real icon'; PublisherDisplay='Contoso'
+                           InstallDir='C:\a'; Uninstall='x'; QuietUninstall=''
+                           IconSource="`"$realExe`",0"; SizeMB=10; RegistryKey='HKLM:\a'; Kind='win32' },
+        [pscustomobject]@{ Name='Points at nothing'; Publisher=''; Version=''
+                           DisplayName='Points at nothing'; PublisherDisplay=''
+                           InstallDir='C:\b'; Uninstall='x'; QuietUninstall=''
+                           IconSource='C:\does\not\exist\nope.exe,3'; SizeMB=0; RegistryKey=''; Kind='win32' },
+        [pscustomobject]@{ Name='Icon is a text file'; Publisher=''; Version=''
+                           DisplayName='Icon is a text file'; PublisherDisplay=''
+                           InstallDir='C:\c'; Uninstall='x'; QuietUninstall=''
+                           IconSource=(Join-Path $env:SystemRoot 'win.ini'); SizeMB=0; RegistryKey=''; Kind='win32' },
+        # The case this whole column exists for: a Store package whose identity
+        # is a GUID and whose publisher is a certificate subject.
+        [pscustomobject]@{ Name='65d483df-b37e-4fcf-94de-8b795233db63'
+                           Publisher='CN="GIGA-BYTE TECHNOLOGY CO., LTD.", O="GIGA-BYTE TECHNOLOGY CO., LTD.", STREET="5 F., No. 6"'
+                           Version='1.0'
+                           DisplayName='RGB Fusion'; PublisherDisplay='GIGA-BYTE TECHNOLOGY CO., LTD.'
+                           InstallDir=''; Uninstall=''; QuietUninstall=''
+                           IconSource=''; SizeMB=0; RegistryKey=''; Kind='appx'; PackageFullName='p' }
+    )
+    $script:GuiAppsLoaded = $true
+    $script:GuiIconCache  = @{}
+    Set-GuiPhase 'Uninstall apps'
+
+    $rows = @($script:GuiUi.PanelItems.Children)
+    if ($rows.Count -ne 4) { throw "expected 4 rows, rendered $($rows.Count)" }
+
+    $withMark = 0
+    foreach ($r in $rows) {
+        $first = $r.Child.Children[0]
+        if ($first -isnot [Windows.Controls.Border]) {
+            throw 'the first cell of an uninstall row is not the icon tile'
+        }
+        if ($first.Width -ne 26 -or $first.Height -ne 26) {
+            throw "icon tile is $($first.Width)x$($first.Height), not 26x26 - rows will not line up"
+        }
+        # Either a real image, or a letter tile. Never nothing.
+        if     ($first.Child -is [Windows.Controls.Image])     { $withMark++ }
+        elseif ($first.Child -is [Windows.Controls.TextBlock]) {
+            if (-not "$($first.Child.Text)".Trim()) { throw 'placeholder tile rendered with no letter' }
+            $withMark++
+        }
+        else { throw "icon tile contains $($first.Child.GetType().Name), which is neither an icon nor a placeholder" }
+    }
+    if ($withMark -ne 4) { throw "$withMark of 4 rows carry a mark" }
+
+    # explorer.exe definitely has an icon; if that one came back as a
+    # placeholder the extraction path is broken rather than merely untested.
+    if ($rows[0].Child.Children[0].Child -isnot [Windows.Controls.Image]) {
+        throw 'a known-good executable produced a placeholder, so icon extraction is not working'
+    }
+    # And a file with no icon must NOT borrow one. A wrong icon beside Remove
+    # is worse than no icon.
+    if ($rows[1].Child.Children[0].Child -is [Windows.Controls.Image]) {
+        throw 'a path that does not exist produced an image, so the list can show a misleading icon'
+    }
+
+    # A row nobody can identify is the hazard the icon was asked for. The GUID
+    # package must read as its display name, with the certificate subject
+    # reduced to the company - and its placeholder letter must follow the name
+    # shown, not the identity behind it.
+    $texts = @()
+    $walk = [System.Collections.Generic.Stack[object]]::new()
+    $walk.Push($rows[3])
+    while ($walk.Count) {
+        $n = $walk.Pop()
+        if ($n -is [Windows.Controls.TextBlock]) { $texts += "$($n.Text)" }
+        for ($i = 0; $i -lt [Windows.Media.VisualTreeHelper]::GetChildrenCount($n); $i++) {
+            $walk.Push([Windows.Media.VisualTreeHelper]::GetChild($n, $i))
+        }
+    }
+    if ($texts -notcontains 'RGB Fusion') {
+        throw "the Store app row shows $($texts -join ' | ') rather than its display name"
+    }
+    if (@($texts | Where-Object { $_ -match '65d483df|CN=|STREET=' }).Count) {
+        throw 'the Store app row is showing package identity or a certificate subject to the user'
+    }
+    if ($texts -notcontains 'R') {
+        throw 'the placeholder letter does not follow the name being displayed'
+    }
+
+    $script:GuiAppsLoaded = $false
+    $script:GuiApps       = @()
+    $script:GuiIconCache  = @{}
+}
+
 Check 'startup pane renders a row per item once asked' {
     # Drive the real render with a known list rather than whatever this machine
     # happens to run at logon, so the assertion means the same thing anywhere.

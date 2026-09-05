@@ -116,39 +116,172 @@ $script:GuiXaml = @'
       <Setter Property="Padding" Value="20,7"/>
     </Style>
 
+    <!-- The tick used to float free in the 21x21 grid and centre itself on its
+         own geometry bounds, which put it a fraction high and left of the box
+         it belonged to. It is now the box's child, so it is centred on the box
+         by layout rather than by coincidence. -->
     <Style TargetType="CheckBox">
       <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="SnapsToDevicePixels" Value="True"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="CheckBox">
-            <Grid Width="21" Height="21" Background="Transparent">
-              <!-- Sits outside the box so the focus ring does not resize it. -->
-              <Border x:Name="focus" CornerRadius="5" Background="Transparent"
+            <Grid Width="24" Height="24" Background="Transparent">
+              <!-- Outside the box, so showing it cannot resize the box. -->
+              <Border x:Name="focus" CornerRadius="7" Background="Transparent"
                       BorderBrush="{StaticResource Accent}" BorderThickness="1.5"
                       Visibility="Collapsed"/>
-              <Border x:Name="box" Width="17" Height="17" CornerRadius="3" Background="#171C1B"
-                      BorderBrush="#5A6B68" BorderThickness="1.4"/>
-              <Path x:Name="tick" Visibility="Collapsed"
-                    Data="M 3.5,8 L 6.8,11.3 L 13,4.5"
-                    Stroke="#06211D" StrokeThickness="2.2"
-                    StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+              <Border x:Name="box" Width="18" Height="18" CornerRadius="4"
+                      Background="#141918" BorderBrush="#5D6E6B" BorderThickness="1.5"
+                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                      SnapsToDevicePixels="True">
+                <Path x:Name="tick" Visibility="Collapsed"
+                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                      Margin="0,0.5,0,0"
+                      Data="M 0,4.6 L 3.6,8.2 L 9.6,0.8"
+                      Stroke="#06211D" StrokeThickness="2"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+              </Border>
             </Grid>
             <ControlTemplate.Triggers>
+              <!-- BorderThickness goes to zero, not to the same colour as the
+                   fill. A Border draws its background and its border as two
+                   pieces of geometry; the straight edges snap to the pixel
+                   grid and meet invisibly, but the rounded corners cannot, so
+                   an equal-coloured border left four faint arcs inside every
+                   ticked box. One layer has no seam to show. -->
               <Trigger Property="IsChecked" Value="True">
-                <Setter TargetName="box"  Property="Background"  Value="#46C6B0"/>
-                <Setter TargetName="box"  Property="BorderBrush" Value="#46C6B0"/>
-                <Setter TargetName="tick" Property="Visibility"  Value="Visible"/>
+                <Setter TargetName="box"  Property="Background"      Value="#46C6B0"/>
+                <Setter TargetName="box"  Property="BorderThickness" Value="0"/>
+                <Setter TargetName="tick" Property="Visibility"      Value="Visible"/>
               </Trigger>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="box" Property="BorderBrush" Value="#46C6B0"/>
-              </Trigger>
+              <!-- Unticked: the border answers. Ticked: the border is already
+                   the accent, so brightening the fill is the only move left
+                   that reads as a response to the pointer. -->
+              <MultiTrigger>
+                <MultiTrigger.Conditions>
+                  <Condition Property="IsMouseOver" Value="True"/>
+                  <Condition Property="IsChecked"   Value="False"/>
+                </MultiTrigger.Conditions>
+                <Setter TargetName="box" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                <Setter TargetName="box" Property="Background"  Value="#1B2422"/>
+              </MultiTrigger>
+              <MultiTrigger>
+                <MultiTrigger.Conditions>
+                  <Condition Property="IsMouseOver" Value="True"/>
+                  <Condition Property="IsChecked"   Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter TargetName="box" Property="Background"      Value="#5AD6C0"/>
+                <Setter TargetName="box" Property="BorderThickness" Value="0"/>
+              </MultiTrigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
                 <Setter TargetName="focus" Property="Visibility" Value="Visible"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.4"/>
+                <Setter Property="Cursor"  Value="Arrow"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
+    </Style>
+
+    <!-- Scroll bars.
+         The default WPF one is the Aero 2 chrome: 17px wide, a grey track, a
+         raised grey thumb and a stepper button at each end. It is the oldest
+         looking thing on the window by about fifteen years, and on a dark
+         panel the light track reads as a seam down the edge.
+         This is a 10px transparent gutter with a rounded thumb, no steppers.
+         The paging areas are kept - they are invisible, but clicking above or
+         below the thumb still pages, which is behaviour people rely on. -->
+    <Style x:Key="ScrollPage" TargetType="RepeatButton">
+      <Setter Property="Focusable" Value="False"/>
+      <Setter Property="IsTabStop" Value="False"/>
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RepeatButton">
+            <!-- Transparent, not null: a null background is not hit-testable
+                 and paging would silently stop working. -->
+            <Border Background="Transparent"/>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="ScrollThumb" TargetType="Thumb">
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Thumb">
+            <!-- 2px all round, so the same thumb works in either orientation
+                 and the bar reads as a gutter rather than a bar. -->
+            <Border x:Name="t" CornerRadius="3" Background="#3B4746" Margin="2"/>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="t" Property="Background" Value="#556765"/>
+              </Trigger>
+              <Trigger Property="IsDragging" Value="True">
+                <Setter TargetName="t" Property="Background" Value="{StaticResource Accent}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style TargetType="ScrollBar">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Width" Value="10"/>
+      <Setter Property="MinWidth" Value="10"/>
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ScrollBar">
+            <Grid Background="Transparent">
+              <Track x:Name="PART_Track" IsDirectionReversed="True">
+                <Track.DecreaseRepeatButton>
+                  <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageUpCommand"/>
+                </Track.DecreaseRepeatButton>
+                <Track.Thumb>
+                  <Thumb Style="{StaticResource ScrollThumb}"/>
+                </Track.Thumb>
+                <Track.IncreaseRepeatButton>
+                  <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageDownCommand"/>
+                </Track.IncreaseRepeatButton>
+              </Track>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+      <Style.Triggers>
+        <Trigger Property="Orientation" Value="Horizontal">
+          <Setter Property="Width"     Value="Auto"/>
+          <Setter Property="MinWidth"  Value="0"/>
+          <Setter Property="Height"    Value="10"/>
+          <Setter Property="MinHeight" Value="10"/>
+          <Setter Property="Template">
+            <Setter.Value>
+              <ControlTemplate TargetType="ScrollBar">
+                <Grid Background="Transparent">
+                  <Track x:Name="PART_Track" IsDirectionReversed="False">
+                    <Track.DecreaseRepeatButton>
+                      <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageLeftCommand"/>
+                    </Track.DecreaseRepeatButton>
+                    <Track.Thumb>
+                      <Thumb Style="{StaticResource ScrollThumb}"/>
+                    </Track.Thumb>
+                    <Track.IncreaseRepeatButton>
+                      <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageRightCommand"/>
+                    </Track.IncreaseRepeatButton>
+                  </Track>
+                </Grid>
+              </ControlTemplate>
+            </Setter.Value>
+          </Setter>
+        </Trigger>
+      </Style.Triggers>
     </Style>
   </Window.Resources>
 
@@ -1105,6 +1238,134 @@ function Invoke-GuiCleanDelete {
 #  Uninstall apps
 # ---------------------------------------------------------------------------
 
+# Icons for the uninstall list. The point is not decoration: two entries called
+# "Microsoft Visual C++ 2015-2022 Redistributable (x64)" and "(x86)" are one
+# careless click apart, and the icon is what tells them apart at a glance.
+#
+# The rule throughout: show the app's OWN icon or show a neutral placeholder.
+# Never substitute something that could be read as a different app's mark.
+$script:GuiIconCache  = @{}
+$script:GuiIconBudget = $null
+
+function Convert-IconToImageSource {
+    param([string]$Path, [int]$Index = 0)
+
+    try { Add-Type -AssemblyName System.Drawing -ErrorAction Stop } catch { return $null }
+
+    $ico = $null; $bmp = $null; $ms = $null
+    try {
+        if ($Path -match '\.ico$') { $ico = New-Object System.Drawing.Icon($Path, 48, 48) }
+        else                       { $ico = [System.Drawing.Icon]::ExtractAssociatedIcon($Path) }
+        if (-not $ico) { return $null }
+
+        $bmp = $ico.ToBitmap()
+        $ms  = New-Object System.IO.MemoryStream
+        $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+        $ms.Position = 0
+
+        $img = New-Object Windows.Media.Imaging.BitmapImage
+        $img.BeginInit()
+        $img.StreamSource = $ms
+        # OnLoad reads the stream fully here, so disposing it below is safe.
+        $img.CacheOption  = 'OnLoad'
+        $img.EndInit()
+        $img.Freeze()
+        return $img
+    }
+    catch { return $null }
+    finally {
+        if ($bmp) { $bmp.Dispose() }
+        if ($ico) { $ico.Dispose() }
+        if ($ms)  { $ms.Dispose() }
+    }
+}
+
+function Get-GuiAppIcon {
+    param($App)
+
+    $src = "$($App.IconSource)".Trim()
+    if (-not $src) { return $null }
+    if ($script:GuiIconCache.ContainsKey($src)) { return $script:GuiIconCache[$src] }
+
+    # An install directory on a disconnected network share turns every miss
+    # into a timeout. Past the budget the rest of the list gets placeholders
+    # rather than a frozen window.
+    if ($null -eq $script:GuiIconBudget) { $script:GuiIconBudget = [Diagnostics.Stopwatch]::StartNew() }
+    if ($script:GuiIconBudget.Elapsed.TotalSeconds -gt 6) { return $null }
+
+    $img = $null
+    try {
+        # DisplayIcon is a path, optionally quoted, optionally with a resource
+        # index: "C:\Program Files\App\app.exe",0
+        $path  = $src
+        $index = 0
+        if ($path -match '^\s*"([^"]+)"\s*,\s*(-?\d+)\s*$') { $path = $Matches[1]; $index = [int]$Matches[2] }
+        elseif ($path -match '^\s*"([^"]+)"\s*$')           { $path = $Matches[1] }
+        elseif ($path -match '^(.+?)\s*,\s*(-?\d+)\s*$')    { $path = $Matches[1]; $index = [int]$Matches[2] }
+        $path = $path.Trim()
+
+        if ($path -and (Test-Path -LiteralPath $path -PathType Leaf)) {
+            if ($path -match '\.(png|jpg|jpeg|bmp|gif)$') {
+                $img = New-Object Windows.Media.Imaging.BitmapImage
+                $img.BeginInit()
+                $img.UriSource        = New-Object Uri $path
+                $img.DecodePixelWidth = 48
+                $img.CacheOption      = 'OnLoad'
+                $img.EndInit()
+                $img.Freeze()
+            }
+            else {
+                $img = Convert-IconToImageSource -Path $path -Index $index
+            }
+        }
+    }
+    catch { $img = $null }
+
+    $script:GuiIconCache[$src] = $img
+    return $img
+}
+
+# A 26px slot that always renders something, so the column never collapses and
+# rows stay aligned. Real icon when there is one; otherwise a plain tile with
+# the app's initial - visibly a placeholder rather than somebody's logo.
+function New-GuiAppIconTile {
+    param($App)
+
+    $host_ = New-Object Windows.Controls.Border
+    $host_.Width  = 26
+    $host_.Height = 26
+    $host_.VerticalAlignment = 'Center'
+    $host_.Margin = New-Object Windows.Thickness 0,0,12,0
+
+    $icon = Get-GuiAppIcon -App $App
+    if ($icon) {
+        $im = New-Object Windows.Controls.Image
+        $im.Source  = $icon
+        $im.Width   = 24
+        $im.Height  = 24
+        $im.Stretch = 'Uniform'
+        [Windows.Media.RenderOptions]::SetBitmapScalingMode($im, 'HighQuality')
+        $host_.Child = $im
+        return $host_
+    }
+
+    $host_.Background   = Get-GuiBrush '#263130'
+    $host_.BorderBrush  = Get-GuiBrush '#2E3937'
+    $host_.BorderThickness = New-Object Windows.Thickness 1
+    $host_.CornerRadius = New-Object Windows.CornerRadius 5
+
+    $letter = New-Object Windows.Controls.TextBlock
+    $name = "$($App.DisplayName)".Trim()
+    $letter.Text = if ($name) { $name.Substring(0,1).ToUpper() } else { '?' }
+    $letter.FontSize   = 12
+    $letter.FontWeight = 'SemiBold'
+    $letter.Foreground = Get-GuiBrush '#98A6A3'
+    $letter.HorizontalAlignment = 'Center'
+    $letter.VerticalAlignment   = 'Center'
+    $host_.Child = $letter
+    return $host_
+}
+
 <#
 .SYNOPSIS
     Remove an application and then the traces it leaves behind.
@@ -1284,7 +1545,7 @@ function Show-GuiUninstall {
         $row.Padding = New-Object Windows.Thickness 4,7,4,8
 
         $g = New-Object Windows.Controls.Grid
-        foreach ($w in @('Star','Auto','Auto')) {
+        foreach ($w in @('Auto','Star','Auto','Auto')) {
             $cd = New-Object Windows.Controls.ColumnDefinition
             $cd.Width = if ($w -eq 'Star') { New-Object Windows.GridLength 1, 'Star' } else { 'Auto' }
             $g.ColumnDefinitions.Add($cd)
@@ -1292,16 +1553,24 @@ function Show-GuiUninstall {
         $g.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition))
         $g.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition))
 
+        $tile = New-GuiAppIconTile -App $app
+        [Windows.Controls.Grid]::SetColumn($tile, 0)
+        [Windows.Controls.Grid]::SetRowSpan($tile, 2)
+
         $name = New-Object Windows.Controls.TextBlock
-        $name.Text = $app.Name
+        # The display fields, never the identity ones. A Store app's identity
+        # is '5319275A.WhatsAppDesktop' or a bare GUID, and its publisher is a
+        # certificate subject - neither helps anyone decide what to remove.
+        $name.Text = $app.DisplayName
         $name.FontWeight = 'SemiBold'
         $name.Foreground = $brInk
         $name.TextTrimming = 'CharacterEllipsis'
-        [Windows.Controls.Grid]::SetColumn($name, 0)
+        $name.ToolTip = if ($app.DisplayName -ne $app.Name) { "$($app.DisplayName)`n$($app.Name)" } else { $app.Name }
+        [Windows.Controls.Grid]::SetColumn($name, 1)
 
         $meta = New-Object Windows.Controls.TextBlock
         $bits = @()
-        if ($app.Publisher) { $bits += $app.Publisher }
+        if ($app.PublisherDisplay) { $bits += $app.PublisherDisplay }
         if ($app.Version)   { $bits += "v$($app.Version)" }
         if ($app.Kind -eq 'appx') { $bits += 'Store app' }
         $meta.Text = ($bits -join '  -  ')
@@ -1309,7 +1578,7 @@ function Show-GuiUninstall {
         $meta.Foreground = $brFaint
         $meta.TextTrimming = 'CharacterEllipsis'
         $meta.Margin = New-Object Windows.Thickness 0,2,0,0
-        [Windows.Controls.Grid]::SetColumn($meta, 0)
+        [Windows.Controls.Grid]::SetColumn($meta, 1)
         [Windows.Controls.Grid]::SetRow($meta, 1)
 
         $size = New-Object Windows.Controls.TextBlock
@@ -1320,7 +1589,7 @@ function Show-GuiUninstall {
         $size.TextAlignment = 'Right'
         $size.VerticalAlignment = 'Center'
         $size.Margin = New-Object Windows.Thickness 10,0,14,0
-        [Windows.Controls.Grid]::SetColumn($size, 1)
+        [Windows.Controls.Grid]::SetColumn($size, 2)
         [Windows.Controls.Grid]::SetRowSpan($size, 2)
 
         $btn = New-Object Windows.Controls.Button
@@ -1329,9 +1598,10 @@ function Show-GuiUninstall {
         $btn.Tag = $app
         $btn.VerticalAlignment = 'Center'
         $btn.Add_Click({ Invoke-GuiUninstallApp $this.Tag })
-        [Windows.Controls.Grid]::SetColumn($btn, 2)
+        [Windows.Controls.Grid]::SetColumn($btn, 3)
         [Windows.Controls.Grid]::SetRowSpan($btn, 2)
 
+        $g.Children.Add($tile) | Out-Null
         $g.Children.Add($name) | Out-Null
         $g.Children.Add($meta) | Out-Null
         $g.Children.Add($size) | Out-Null
@@ -1353,13 +1623,13 @@ function Invoke-GuiUninstallApp {
     param([Parameter(Mandatory)]$App)
 
     $answer = [Windows.MessageBox]::Show(
-        "Uninstall $($App.Name)?" + [Environment]::NewLine + [Environment]::NewLine +
+        "Uninstall $($App.DisplayName)?" + [Environment]::NewLine + [Environment]::NewLine +
         'Its own uninstaller runs first and may ask you questions. Afterwards Trim will show you ' +
         'anything it left behind, and remove only what you tick.',
         'Trim - uninstall', 'YesNo', 'Question', 'No')
     if ($answer -ne 'Yes') { return }
 
-    $script:GuiUi.TxtPhaseSub.Text = "Uninstalling $($App.Name)..."
+    $script:GuiUi.TxtPhaseSub.Text = "Uninstalling $($App.DisplayName)..."
     $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
     [void](Invoke-AppUninstaller -App $App)
 
@@ -1374,7 +1644,7 @@ function Invoke-GuiUninstallApp {
 function Show-GuiLeftovers {
     $ui  = $script:GuiUi
     $app = $script:GuiUninstallTarget
-    $ui.TxtPhase.Text = "Leftovers from $($app.Name)"
+    $ui.TxtPhase.Text = "Leftovers from $($app.DisplayName)"
 
     $back = New-Object Windows.Controls.Button
     $back.Style = $script:GuiWin.FindResource('Btn')
@@ -1481,7 +1751,7 @@ function Invoke-GuiRemoveLeftovers {
     $folders = @($sel | Where-Object { $_.Kind -eq 'folder' }).Count
     $keys    = @($sel | Where-Object { $_.Kind -eq 'registry' }).Count
     $answer = [Windows.MessageBox]::Show(
-        "Permanently remove $folders folder(s) and $keys registry key(s) belonging to $($app.Name)?" +
+        "Permanently remove $folders folder(s) and $keys registry key(s) belonging to $($app.DisplayName)?" +
         [Environment]::NewLine + [Environment]::NewLine +
         'Registry keys are exported to .reg files first. Folders are not recoverable.',
         'Trim - confirm removal', 'YesNo', 'Warning', 'No')

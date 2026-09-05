@@ -472,6 +472,63 @@ Test-Phase 'Installed application list is usable' {
     # Update entries are not applications and must not be listed.
     $noise = @($apps | Where-Object { $_.Name -match '^(Update for|Security Update|KB\d{6,})' }).Count
     if ($noise) { throw "$noise Windows update entries leaked into the application list" }
+
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    # Every app carries both an identity and something a person can read. The
+    # window reads the second; leftover matching and the protected-publisher
+    # list read the first. A missing display field is a StrictMode error in
+    # front of somebody mid-uninstall.
+    foreach ($a in $apps) {
+        foreach ($f in @('DisplayName','PublisherDisplay','IconSource')) {
+            if ($a.PSObject.Properties.Name -notcontains $f) {
+                $problems.Add("'$($a.Name)' has no $f") | Out-Null
+                break
+            }
+        }
+        if (-not "$($a.DisplayName)".Trim()) { $problems.Add("'$($a.Name)' would render with no name at all") | Out-Null }
+    }
+
+    # Nothing a person cannot identify. A row reading '1527c705-839a-4832-9118-
+    # 54d4Bd6a0c89' beside a Remove button is how somebody deletes the Windows
+    # file picker and loses every Open and Save dialog on the machine.
+    $guid = @($apps | Where-Object { "$($_.DisplayName)" -match '^\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-' })
+    if ($guid.Count) {
+        $problems.Add("$($guid.Count) app(s) would be shown as a bare GUID, starting with '$($guid[0].DisplayName)'") | Out-Null
+    }
+    # A certificate subject is not a publisher.
+    $dn = @($apps | Where-Object { "$($_.PublisherDisplay)" -match '(^|,)\s*(CN|OU|SERIALNUMBER|OID\.)=' })
+    if ($dn.Count) {
+        $problems.Add("$($dn.Count) app(s) would show a raw certificate subject as the publisher") | Out-Null
+    }
+
+    # Inbox Windows components are not applications anybody installed, and the
+    # uninstall pane must not offer them. The curated AppX phase is where Store
+    # apps get removed, with the protection list applied.
+    $appx = @($apps | Where-Object { $_.Kind -eq 'appx' })
+    if ($appx.Count) {
+        # Only meaningful where packages are enumerable at all. A swallowed
+        # failure here would be a guard that passes because it did not run,
+        # which is worse than no guard - so if the list has packages in it,
+        # this has to be able to check them.
+        $sys = $null
+        try {
+            $sys = @(Get-AppxPackage -ErrorAction Stop |
+                     Where-Object { -not $_.IsFramework -and "$($_.SignatureKind)" -eq 'System' })
+        } catch {
+            $problems.Add("the list contains $($appx.Count) package(s) but they cannot be checked against the system set: $($_.Exception.Message)") | Out-Null
+        }
+        if ($null -ne $sys) {
+            $offered = @{}
+            foreach ($a in $appx) { $offered["$($a.Name)"] = $true }
+            $leaked = @($sys | Where-Object { $offered.ContainsKey("$($_.Name)") })
+            if ($leaked.Count) {
+                $problems.Add("$($leaked.Count) Windows system package(s) are offered for removal, including '$($leaked[0].Name)'") | Out-Null
+            }
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
 }
 
 # A profile curated on one card and applied to another is at best useless and at

@@ -46,6 +46,90 @@ $script:UninstallProtectedNames = @(
 .SYNOPSIS
     Everything installed, from the uninstall registry and the package manager.
 #>
+# What a Store app is actually called, who actually made it, and where its icon
+# is - all three live in the package manifest, and all three are unusable
+# without it. Get-AppxPackage reports the package identity instead: names like
+# '5319275A.WhatsAppDesktop' or a bare GUID, and a publisher that is the raw
+# certificate subject. A row reading '1527c705-839a-4832-9118-54d4Bd6a0c89'
+# next to a Remove button is an accident waiting to be clicked.
+#
+# One read of the manifest, three answers, and '' wherever there is no answer -
+# never a guess.
+function Get-AppxManifestInfo {
+    param([AllowEmptyString()][string]$InstallLocation)
+
+    $empty = @{ DisplayName = ''; Publisher = ''; Logo = '' }
+    if (-not $InstallLocation) { return $empty }
+    $manifest = Join-Path $InstallLocation 'AppxManifest.xml'
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { return $empty }
+
+    try { $text = Get-Content -LiteralPath $manifest -Raw -ErrorAction Stop } catch { return $empty }
+
+    $out = @{ DisplayName = ''; Publisher = ''; Logo = '' }
+
+    # ms-resource: values are indirect strings that need the package's resource
+    # index to resolve. Left alone rather than printed raw - 'ms-resource:AppName'
+    # tells a reader less than the package name does.
+    foreach ($pair in @(@{ Tag = 'DisplayName'; Key = 'DisplayName' },
+                        @{ Tag = 'PublisherDisplayName'; Key = 'Publisher' })) {
+        $m = [regex]::Match($text, "<$($pair.Tag)>\s*([^<]+?)\s*</$($pair.Tag)>")
+        if ($m.Success -and $m.Groups[1].Value -notmatch '^ms-resource:') {
+            $out[$pair.Key] = $m.Groups[1].Value
+        }
+    }
+
+    $m = [regex]::Match($text, '<Logo>\s*([^<]+?)\s*</Logo>')
+    if (-not $m.Success) { return $out }
+
+    $full = Join-Path $InstallLocation ($m.Groups[1].Value -replace '/', '\')
+    if (Test-Path -LiteralPath $full -PathType Leaf) { $out.Logo = $full; return $out }
+
+    # Packaged assets usually ship only in scale-qualified form -
+    # Square44x44Logo.scale-200.png, never Square44x44Logo.png. Prefer the
+    # unscaled size so a 24px slot is not fed a 400% asset.
+    $dir  = Split-Path -Parent $full
+    $base = [IO.Path]::GetFileNameWithoutExtension($full)
+    $ext  = [IO.Path]::GetExtension($full)
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return $out }
+
+    $cand = @(Get-ChildItem -LiteralPath $dir -Filter "$base*$ext" -File -ErrorAction SilentlyContinue)
+    if (-not $cand.Count) { return $out }
+    foreach ($prefer in @('scale-100', 'targetsize-48', 'scale-200')) {
+        $hit = @($cand | Where-Object { $_.Name -like "*$prefer*" })
+        if ($hit.Count) { $out.Logo = $hit[0].FullName; return $out }
+    }
+    $out.Logo = (@($cand | Sort-Object { $_.Name.Length })[0]).FullName
+    return $out
+}
+
+# '5319275A.WhatsAppDesktop' -> 'WhatsAppDesktop'. The leading token is the
+# publisher hash, which identifies nothing to a human. Only stripped when what
+# remains is still a name; a package called nothing but a GUID stays as it is
+# rather than being cut into a shorter GUID.
+function Format-AppxPackageName {
+    param([AllowEmptyString()][string]$Name)
+
+    if ($Name -notmatch '^([A-Za-z0-9]+)\.(.+)$') { return $Name }
+    $rest = $Matches[2]
+    if ($rest -match '^[0-9a-f-]{8,}$') { return $Name }
+    return $rest
+}
+
+# 'CN=Adobe Inc., OU=AAM 256, O=Adobe Inc., L=San Jose, S=ca, ...' -> 'Adobe Inc.'
+# The rest of a certificate subject is not information a person needs in order
+# to decide whether to uninstall something.
+function Format-CertificateSubject {
+    param([AllowEmptyString()][string]$Subject)
+
+    if ($Subject -notmatch '(?:^|,)\s*CN=') { return $Subject }
+    $m = [regex]::Match($Subject, '(?:^|,)\s*CN=(?:"([^"]*)"|([^,]*))')
+    if (-not $m.Success) { return $Subject }
+    $cn = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value }
+    $cn = $cn.Trim()
+    if ($cn) { return $cn }
+    return $Subject
+}
+
 function Get-InstalledApplications {
     $apps = [System.Collections.Generic.List[object]]::new()
     $seen = @{}
@@ -70,10 +154,22 @@ function Get-InstalledApplications {
                     $sizeMb = [Math]::Round($p.EstimatedSize / 1024, 0)
                 }
 
+                # Where the app's own icon lives, so the window can show it
+                # beside the Remove button. Two apps with near-identical names
+                # is exactly when someone uninstalls the wrong one.
+                $icon = ''
+                if ($p.PSObject.Properties.Name -contains 'DisplayIcon') { $icon = "$($p.DisplayIcon)".Trim() }
+
                 $apps.Add([pscustomobject]@{
                     Name        = $name
                     Publisher   = "$($p.Publisher)".Trim()
+                    # A registry entry already carries a human name and a plain
+                    # publisher. The fields exist on every app so the window
+                    # never has to ask which kind it is holding.
+                    DisplayName      = $name
+                    PublisherDisplay = "$($p.Publisher)".Trim()
                     Version     = "$($p.DisplayVersion)".Trim()
+                    IconSource  = $icon
                     InstallDir  = "$($p.InstallLocation)".Trim().TrimEnd('\')
                     Uninstall   = "$($p.UninstallString)".Trim()
                     QuietUninstall = if ($p.PSObject.Properties.Name -contains 'QuietUninstallString') { "$($p.QuietUninstallString)".Trim() } else { '' }
@@ -89,10 +185,33 @@ function Get-InstalledApplications {
     try {
         foreach ($pkg in (Get-AppxPackage -ErrorAction Stop | Where-Object { -not $_.IsFramework })) {
             if ($seen.ContainsKey($pkg.Name)) { continue }
+
+            # Inbox Windows components are signed 'System'. They are packages
+            # by construction, not applications anybody installed, and several
+            # of them are named as a bare GUID - the Windows file picker shows
+            # up as '1527c705-839a-4832-9118-54d4Bd6a0c89'. Offering those for
+            # removal beside a Remove button is how somebody breaks Open and
+            # Save dialogs in every application at once. The curated AppX phase
+            # is where Store apps get removed, with protections.
+            if ($pkg.PSObject.Properties.Name -contains 'SignatureKind' -and
+                "$($pkg.SignatureKind)" -eq 'System') { continue }
+            if ($pkg.PSObject.Properties.Name -contains 'NonRemovable' -and $pkg.NonRemovable) { continue }
+
             $seen[$pkg.Name] = $true
+
+            $info = Get-AppxManifestInfo -InstallLocation "$($pkg.InstallLocation)"
+
+            # Name and Publisher stay exactly as the platform reports them.
+            # They are identity: leftover matching keys off Name, and the
+            # protected-publisher list matches on Publisher, so a friendlier
+            # spelling of either would quietly change what is safe to delete.
+            # The display fields are for the window and nothing else.
             $apps.Add([pscustomobject]@{
-                Name = $pkg.Name; Publisher = "$($pkg.Publisher)"; Version = "$($pkg.Version)"
+                Name = "$($pkg.Name)"; Publisher = "$($pkg.Publisher)"; Version = "$($pkg.Version)"
+                DisplayName      = if ($info.DisplayName) { $info.DisplayName } else { Format-AppxPackageName -Name "$($pkg.Name)" }
+                PublisherDisplay = if ($info.Publisher)   { $info.Publisher }   else { Format-CertificateSubject -Subject "$($pkg.Publisher)" }
                 InstallDir = "$($pkg.InstallLocation)"; Uninstall = ''; QuietUninstall = ''
+                IconSource = $info.Logo
                 SizeMB = 0; RegistryKey = ''; Kind = 'appx'
                 PackageFullName = $pkg.PackageFullName
             }) | Out-Null
