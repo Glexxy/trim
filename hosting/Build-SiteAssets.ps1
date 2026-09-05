@@ -83,6 +83,28 @@ foreach ($f in $files) {
     }
 }
 
+# Record which screenshots these were encoded from.
+#
+# The site holds a second copy of every screenshot, in WebP. Regenerating the
+# PNGs does not regenerate these, so the two drifted twenty hours and five
+# window changes apart, and trimbloat.com spent a day showing a version of the
+# window that no longer existed - old checkboxes, the old scroll bar, and an
+# uninstall pane from before it had icons or real application names. On a site
+# whose argument is "look at exactly what it does before you run it".
+#
+# PNGs are marked binary in .gitattributes, so their bytes survive a clone
+# intact and hashing them raw is the right comparison here.
+$stamp = Join-Path $OutDir 'generated-from.txt'
+$lines = @(
+    '# The screenshots these WebP images were encoded from.',
+    '# Rebuild with hosting\Build-SiteAssets.ps1 when this stops matching.'
+)
+foreach ($f in ($files | Sort-Object Name)) {
+    $lines += "$($f.Name) $((Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash)"
+}
+Set-Content -LiteralPath $stamp -Encoding UTF8 -Value $lines
+Write-Host "  stamped generated-from.txt" -ForegroundColor DarkGray
+
 Write-Host ''
 Write-Host "$($files.Count) screenshot(s), $($Widths.Count) width(s), $total KB total" -ForegroundColor Cyan
 Write-Host ''

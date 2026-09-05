@@ -1461,6 +1461,58 @@ Test-Phase 'The screenshots are of the window that exists now' {
         }
     }
 
+    # The site keeps a second copy of every screenshot, as WebP. Regenerating
+    # the PNGs does not regenerate those, and for a day it did not: the site
+    # showed a window twenty hours and five changes out of date. Guarding the
+    # README's copies and not the site's is guarding the one fewer people see.
+    $img  = Join-Path $root 'hosting\site\img'
+    $page = Join-Path $root 'hosting\site\index.html'
+    if ((Test-Path -LiteralPath $img) -and (Test-Path -LiteralPath $page)) {
+        $siteStamp = Join-Path $img 'generated-from.txt'
+        if (-not (Test-Path -LiteralPath $siteStamp)) {
+            $problems.Add('hosting\site\img has no generated-from.txt, so there is no way to tell whether the site images are current. Run hosting\Build-SiteAssets.ps1') | Out-Null
+        }
+        else {
+            $recordedPng = @{}
+            foreach ($line in (Get-Content -LiteralPath $siteStamp)) {
+                if ($line -match '^\s*([A-Za-z0-9._-]+\.png)\s+([0-9A-Fa-f]{64})\s*$') {
+                    $recordedPng[$Matches[1]] = $Matches[2].ToUpper()
+                }
+            }
+            if (-not $recordedPng.Count) {
+                $problems.Add('hosting\site\img\generated-from.txt records no source screenshots') | Out-Null
+            }
+            foreach ($name in $recordedPng.Keys) {
+                $srcPng = Join-Path $shots $name
+                if (-not (Test-Path -LiteralPath $srcPng)) {
+                    $problems.Add("the site was built from $name, which no longer exists") | Out-Null
+                    continue
+                }
+                # PNGs are binary in .gitattributes, so raw bytes survive a
+                # clone and comparing them raw is correct here.
+                $now = (Get-FileHash -LiteralPath $srcPng -Algorithm SHA256).Hash.ToUpper()
+                if ($now -ne $recordedPng[$name]) {
+                    $problems.Add("the site's images are older than $name - run hosting\Build-SiteAssets.ps1") | Out-Null
+                }
+            }
+        }
+
+        # And every image the page asks for must be on disk, or the site shows
+        # a broken picture where a screenshot should be.
+        # Each image is named several times over in a srcset, so report each
+        # missing one once rather than once per mention.
+        $html = Get-Content -Raw -Encoding UTF8 -LiteralPath $page
+        $asked = @{}
+        foreach ($m in [regex]::Matches($html, 'img/([A-Za-z0-9._@-]+\.(?:webp|png|svg))')) {
+            $asked[$m.Groups[1].Value] = $true
+        }
+        foreach ($named in ($asked.Keys | Sort-Object)) {
+            if (-not (Test-Path -LiteralPath (Join-Path $img $named))) {
+                $problems.Add("the site asks for img/$named, which does not exist") | Out-Null
+            }
+        }
+    }
+
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
