@@ -109,20 +109,30 @@ $wsbXml = @"
 </Configuration>
 "@
 
+# The configuration was composed above and never written. Every run launched
+# the sandbox against a file that did not exist.
+#
+# Start-Process on the missing .wsb said "The system cannot find the file
+# specified", which was exactly true and was read as a file-association
+# problem. Launching WindowsSandbox.exe with the path instead made it worse:
+# the executable ignores a configuration it cannot read and starts a default
+# sandbox, with no mapped folders and no logon command, which then sits there
+# looking busy until the harness times out twenty minutes later.
+Set-Content -LiteralPath $wsb -Value $wsbXml -Encoding UTF8
+
+if (-not (Test-Path -LiteralPath $wsb)) {
+    Write-Host "Could not write the sandbox configuration to $wsb." -ForegroundColor Red
+    exit 1
+}
+
 Write-Host "Launching Windows Sandbox ($wsb)..." -ForegroundColor Cyan
 Write-Host 'A sandbox window will open and run the test. Leave it alone.' -ForegroundColor DarkGray
 
-# Launched through the executable, not the .wsb file.
-#
-# Start-Process on a data file needs a registered handler for its extension.
-# .wsb is associated when Windows Sandbox is installed through Settings, and
-# not when the feature is enabled by DISM or by policy - so on a machine where
-# the sandbox is perfectly present and working, this failed with "The system
-# cannot find the file specified", which reads as the .wsb being missing when
-# the .wsb is right there and correct.
-#
-# $sandboxExe was already found and its existence checked at the top of this
-# script, precisely because presence of the executable is the honest test.
+# Through the executable rather than the file type: launching a .wsb by
+# association depends on Windows Sandbox having been installed in the way that
+# registers one, and $sandboxExe was already resolved and checked at the top of
+# this script. The silent-default behaviour above is why the file is verified
+# first rather than trusted.
 Start-Process -FilePath $sandboxExe -ArgumentList "`"$wsb`""
 
 $exitFile = Join-Path $results 'exitcode.txt'
