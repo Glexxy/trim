@@ -393,6 +393,61 @@ Test-Phase 'All remote fetches are https and modern TLS' {
         }
     }
     if ($bad.Count) { throw "plain http reference at: $($bad -join '; ')" }
+
+    # Every host this tool can reach, and why it is allowed to.
+    #
+    # The README and the site both end their safety list with "No analytics, no
+    # account, no telemetry". That is the strongest thing either page claims,
+    # to an audience being asked to pipe this into an elevated shell, and until
+    # now nothing made it true - only that whatever it contacted, it contacted
+    # over TLS. A beacon added by accident, by a merged contribution, or by
+    # pasting a snippet from somewhere would have shipped silently.
+    #
+    # Adding a host here is meant to be a decision somebody makes on purpose.
+    $allowed = @{
+        'trimbloat.com'   = 'itself: the script, its published fingerprint, and the winutil config'
+        'christitus.com'  = 'the WinUtil handoff, credited in the README and NOTICE'
+        'github.com'      = 'the NVIDIA Profile Inspector release, pinned by version and SHA256'
+    }
+
+    $seen = @{}
+    foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1')) {
+        $lines  = Get-Content -LiteralPath $f.FullName
+        $inHelp = $false
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i]
+            # Comment-based help quotes URLs while explaining things - the
+            # example one-liner, and the download-and-execute shape that was
+            # removed. Neither is a fetch.
+            if ($line -match '<#') { $inHelp = $true }
+            if ($inHelp) { if ($line -match '#>') { $inHelp = $false }; continue }
+            if ($line -match '^\s*#') { continue }
+
+            foreach ($m in [regex]::Matches($line, 'https://([A-Za-z0-9.-]+)')) {
+                $host_ = $m.Groups[1].Value.ToLower()
+                if (-not $seen.ContainsKey($host_)) { $seen[$host_] = "$($f.Name) line $($i + 1)" }
+            }
+        }
+    }
+
+    $unexpected = @($seen.Keys | Where-Object { -not $allowed.ContainsKey($_) })
+    if ($unexpected.Count) {
+        $detail = ($unexpected | ForEach-Object { "$_ ($($seen[$_]))" }) -join '; '
+        throw ("this tool would contact a host it does not declare: $detail. " +
+               'The README and the site both promise no analytics and no telemetry. ' +
+               'Add it to the allow-list with a reason, or remove it.')
+    }
+
+    # And the promise has to still be on the pages, or this guard is defending
+    # a claim nobody is making any more.
+    foreach ($doc in @('README.md', 'hosting\site\index.html')) {
+        $p = Join-Path $root $doc
+        if (-not (Test-Path -LiteralPath $p)) { continue }
+        $t = Get-Content -Raw -Encoding UTF8 -LiteralPath $p
+        if ($t -notmatch '(?i)no\s+analytics') {
+            throw "$doc no longer promises no analytics, so the host allow-list is guarding nothing. Restore the claim or remove the guard."
+        }
+    }
 }
 
 # A selection file is read by an elevated process and may have been written by a
