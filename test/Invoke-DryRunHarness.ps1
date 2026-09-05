@@ -636,6 +636,47 @@ Test-Phase 'Window is legible and keyboard-navigable' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+Test-Phase 'The one-liner actually works' {
+    # This shipped broken. `irm | iex` is how essentially everyone runs this,
+    # and it failed on the very first statement:
+    #     Invoke-Expression: Unexpected attribute 'CmdletBinding'.
+    # Invoke-RestMethod passes a UTF-8 byte order mark through as a literal
+    # U+FEFF, and Invoke-Expression cannot parse a script starting with one.
+    # Everything else passed, because the build parsed the artefact from disk
+    # where the mark is a mark rather than a character.
+    $artefact = Join-Path $root 'trim.ps1'
+    if (-not (Test-Path -LiteralPath $artefact)) { throw 'trim.ps1 has not been built' }
+
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    $bytes = [System.IO.File]::ReadAllBytes($artefact)
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        $problems.Add('the artefact starts with a UTF-8 BOM, which breaks irm | iex') | Out-Null
+    }
+
+    # No BOM is only safe while the file is pure ASCII; anything else needs one
+    # to survive being saved and re-read under Windows PowerShell.
+    $text = [System.IO.File]::ReadAllText($artefact)
+    $nonAscii = @($text.ToCharArray() | Where-Object { [int]$_ -gt 127 })
+    if ($nonAscii.Count) {
+        $seen = ($nonAscii | Select-Object -Unique -First 5 | ForEach-Object { 'U+{0:X4}' -f [int]$_ }) -join ', '
+        $problems.Add("the artefact has $($nonAscii.Count) non-ASCII character(s) ($seen) so it would need a BOM") | Out-Null
+    }
+
+    # The failing operation itself: build a script block from the text exactly
+    # as Invoke-Expression would.
+    try { $null = [scriptblock]::Create($text) }
+    catch { $problems.Add("iex cannot parse the artefact: $($_.Exception.Message)") | Out-Null }
+
+    # And confirm the guard still detects the original fault.
+    try {
+        $null = [scriptblock]::Create(([string][char]0xFEFF) + $text)
+        $problems.Add('a leading BOM no longer breaks parsing - this test can no longer detect the fault') | Out-Null
+    } catch { }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'Every feature is reachable' {
     # Get-LargeFileScan shipped as dead code: written, unit-checked in isolation,
     # wired to nothing, and reported as delivered. This asserts that anything

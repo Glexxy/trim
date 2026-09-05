@@ -63,18 +63,38 @@ foreach ($f in $files) {
     [void]$sb.AppendLine("#region $($f.Name)")
     # -Encoding UTF8 is not optional: PowerShell 5.1's Get-Content defaults to
     # ANSI, which silently corrupts any non-ASCII character in the sources.
-    [void]$sb.AppendLine((Get-Content -Raw -Encoding UTF8 -LiteralPath $f.FullName).TrimEnd())
+    # TrimStart on U+FEFF as well: a source file with a byte order mark would
+    # otherwise contribute one in the middle of the concatenated output, where
+    # it is not a marker at all, just a stray character.
+    [void]$sb.AppendLine((Get-Content -Raw -Encoding UTF8 -LiteralPath $f.FullName).TrimStart([char]0xFEFF).TrimEnd())
     [void]$sb.AppendLine("#endregion $($f.Name)")
     [void]$sb.AppendLine('')
 }
 
 # 99-main.ps1 ends with Invoke-Main, so the compiled script is self-executing.
-# UTF8Encoding($true) - explicitly WITH a byte order mark. Set-Content -Encoding
-# UTF8 means "with BOM" on Windows PowerShell and "without BOM" on PowerShell 7,
-# so relying on it made the shipped script's correctness depend on which shell
-# happened to run the build. Without a BOM, Windows PowerShell reads this file
-# as ANSI and the banner becomes mojibake that will not parse.
-[System.IO.File]::WriteAllText($OutFile, $sb.ToString(), (New-Object System.Text.UTF8Encoding $true))
+# No byte order mark, and a check that none is needed.
+#
+# `irm ... | iex` is the way almost everyone runs this. Invoke-RestMethod passes
+# a leading U+FEFF straight through into the string, and Invoke-Expression
+# cannot parse a script that begins with one - it fails on the param block with
+# "Unexpected attribute 'CmdletBinding'". A BOM here breaks the product's
+# primary install path.
+#
+# A BOM is only needed to tell a reader the file is UTF-8, and that only matters
+# if the file contains characters that differ between UTF-8 and the ANSI code
+# page. Pure ASCII decodes identically either way, so the artefact is written
+# without one - and the build refuses to continue if anything non-ASCII creeps
+# in, rather than silently reintroducing the mark.
+$compiled = $sb.ToString()
+$nonAscii = @($compiled.ToCharArray() | Where-Object { [int]$_ -gt 127 })
+if ($nonAscii.Count) {
+    $sample = ($nonAscii | Select-Object -Unique -First 6 | ForEach-Object { 'U+{0:X4}' -f [int]$_ }) -join ', '
+    Write-Host "BUILD FAILED - the compiled script contains $($nonAscii.Count) non-ASCII character(s): $sample" -ForegroundColor Red
+    Write-Host '  A non-ASCII artefact needs a byte order mark, and a byte order mark breaks irm | iex.' -ForegroundColor Yellow
+    exit 1
+}
+
+[System.IO.File]::WriteAllText($OutFile, $compiled, (New-Object System.Text.UTF8Encoding $false))
 
 # Parse the result rather than trusting that concatenation produced valid
 # PowerShell. A build that emits a syntactically broken script is worse than a

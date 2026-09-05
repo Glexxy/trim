@@ -141,33 +141,25 @@ function ConvertTo-SafeArgument {
     act on. The log file keeps everything.
 #>
 function Show-TrimBanner {
-    # Block characters where the console can render them, plain ASCII where it
-    # cannot. Setting the encoding is what makes the difference, and it fails
-    # harmlessly on hosts that do not have a real console attached.
-    $unicode = $false
-    try {
-        [Console]::OutputEncoding = [Text.Encoding]::UTF8
-        $unicode = $true
-    } catch { }
-
-    $mark = if ($unicode) {
-        @(
-            '  ████████╗ ██████╗  ██╗ ███╗   ███╗',
-            '  ╚══██╔══╝ ██╔══██╗ ██║ ████╗ ████║',
-            '     ██║    ██████╔╝ ██║ ██╔████╔██║',
-            '     ██║    ██╔══██╗ ██║ ██║╚██╔╝██║',
-            '     ██║    ██║  ██║ ██║ ██║ ╚═╝ ██║',
-            '     ╚═╝    ╚═╝  ╚═╝ ╚═╝ ╚═╝     ╚═╝'
-        )
-    } else {
-        @(
-            '  ########  ######   ##  ###    ###',
-            '     ##     ##   ##  ##  ####  ####',
-            '     ##     ######   ##  ## #### ##',
-            '     ##     ##  ##   ##  ##  ##  ##',
-            '     ##     ##   ##  ##  ##      ##'
-        )
-    }
+    # ASCII only, deliberately.
+    #
+    # This used to draw the wordmark in Unicode block characters, which meant
+    # this file could not be pure ASCII, which meant the compiled script had to
+    # carry a UTF-8 byte order mark. Invoke-RestMethod hands that mark through
+    # as a literal U+FEFF, and `iex` cannot parse a string that starts with one:
+    #
+    #     irm https://trimbloat.com/go | iex
+    #     Invoke-Expression: Unexpected attribute 'CmdletBinding'.
+    #
+    # So the prettier banner broke the one command this project exists to be.
+    # ASCII costs nothing and works in every console, encoding and shell.
+    $mark = @(
+        '  ########  ######   ##  ###    ###',
+        '     ##     ##   ##  ##  ####  ####',
+        '     ##     ######   ##  ## #### ##',
+        '     ##     ##  ##   ##  ##  ##  ##',
+        '     ##     ##   ##  ##  ##      ##'
+    )
     Write-Host ''
     foreach ($l in $mark) { Write-Host $l -ForegroundColor Cyan }
     Write-Host ''
