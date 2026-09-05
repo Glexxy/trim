@@ -505,6 +505,29 @@ Test-Phase 'Installed application list is usable' {
     # Inbox Windows components are not applications anybody installed, and the
     # uninstall pane must not offer them. The curated AppX phase is where Store
     # apps get removed, with the protection list applied.
+    # Where Windows itself has a name for a package, that is the name to use.
+    # Microsoft's inbox apps carry an unresolvable ms-resource: reference in
+    # their manifest, so without this Media Player reads as 'ZuneMusic' and
+    # Snipping Tool as 'ScreenSketch'.
+    $start = Get-StartMenuNames
+    if ($start.Count) {
+        $byFamily = @{}
+        try {
+            foreach ($p in @(Get-AppxPackage -ErrorAction Stop | Where-Object { -not $_.IsFramework })) {
+                $byFamily["$($p.Name)"] = "$($p.PackageFamilyName)"
+            }
+        } catch { }
+        $wrong = @()
+        foreach ($a in @($apps | Where-Object { $_.Kind -eq 'appx' })) {
+            $fam = $byFamily["$($a.Name)"]
+            if (-not $fam -or -not $start.ContainsKey($fam)) { continue }
+            if ("$($a.DisplayName)" -ne $start[$fam]) { $wrong += "'$($a.DisplayName)' should read '$($start[$fam])'" }
+        }
+        if ($wrong.Count) {
+            $problems.Add("$($wrong.Count) app(s) ignore the name Windows shows for them: $($wrong[0])") | Out-Null
+        }
+    }
+
     $appx = @($apps | Where-Object { $_.Kind -eq 'appx' })
     if ($appx.Count) {
         # Only meaningful where packages are enumerable at all. A swallowed

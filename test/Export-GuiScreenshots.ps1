@@ -159,6 +159,42 @@ if (-not $Real) {
     )
     $script:GuiStartupLoaded = $true
 
+    # The uninstall list is a software inventory too, and the same rule applies.
+    # The exception is the apps Windows ships: they are byte-identical on every
+    # installation, so their names and icons say nothing about whoever ran this,
+    # and they are exactly what the pane is for. Strict allow-list, matched on
+    # the whole name, and no fallback - a short list is fine, a leaked one is
+    # not.
+    # The names Windows itself shows for these, which is what the pane now
+    # displays.
+    $inbox = @(
+        'Microsoft Edge', 'Xbox', 'Xbox Game Bar', 'Media Player', 'Movies & TV',
+        'Photos', 'Snipping Tool', 'Paint', 'Notepad', 'Calculator', 'Clock',
+        'Sound Recorder', 'Phone Link', 'Terminal', 'Sticky Notes', 'Weather',
+        'News', 'Clipchamp', 'Solitaire Collection', 'Microsoft To Do', 'People',
+        'Feedback Hub', 'Get Help', 'Tips', 'Cortana', 'Maps', 'Quick Assist',
+        'Windows Web Experience Pack', 'Microsoft Family', 'Camera', 'Mail',
+        'Calendar', 'Voice Recorder', 'Your Phone', 'Office', 'OneNote'
+    )
+    $picked = @(Get-InstalledApplications |
+                Where-Object { $inbox -contains "$($_.DisplayName)".Trim() } |
+                Sort-Object { "$($_.DisplayName)" } |
+                Select-Object -First 9)
+
+    # If the allow-list ever stops being one, the images stop being publishable.
+    foreach ($p in $picked) {
+        if ($inbox -notcontains "$($p.DisplayName)".Trim()) {
+            throw "'$($p.DisplayName)' is not an app Windows ships, and would be published in a screenshot."
+        }
+    }
+    if ($picked.Count) {
+        $script:GuiApps = $picked
+        $script:GuiAppsLoaded = $true
+        Write-Host "  uninstall pane: $($picked.Count) app(s) Windows ships" -ForegroundColor DarkGray
+    } else {
+        Write-Host '  uninstall pane: none of the allow-listed apps are installed, showing the intro' -ForegroundColor DarkGray
+    }
+
     Write-Host '  using the demo machine (pass -Real for this PC)' -ForegroundColor DarkGray
 }
 

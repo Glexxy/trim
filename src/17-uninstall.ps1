@@ -102,6 +102,28 @@ function Get-AppxManifestInfo {
     return $out
 }
 
+# The name the Start menu shows, per package family.
+#
+# Microsoft's own inbox apps put an ms-resource: reference in their manifest
+# rather than a name - 'ms-resource:AppStoreName' - and resolving those against
+# the package resource index fails for most of them (ERROR_MRM_MAP_NOT_FOUND),
+# so the manifest is no help. Without this, Media Player is listed as
+# 'ZuneMusic', Snipping Tool as 'ScreenSketch', and Phone Link as 'YourPhone' -
+# on the one screen where being sure what you are deleting matters most.
+#
+# Get-StartApps has already done the resolving. Win32 entries have no '!' in
+# their AppID and are skipped; their registry name is good enough already.
+function Get-StartMenuNames {
+    $map = @{}
+    try {
+        foreach ($s in @(Get-StartApps -ErrorAction Stop)) {
+            $id = "$($s.AppID)"
+            if ($id -match '^([^!]+)!' -and "$($s.Name)".Trim()) { $map[$Matches[1]] = "$($s.Name)".Trim() }
+        }
+    } catch { }
+    return $map
+}
+
 # '5319275A.WhatsAppDesktop' -> 'WhatsAppDesktop'. The leading token is the
 # publisher hash, which identifies nothing to a human. Only stripped when what
 # remains is still a name; a package called nothing but a GUID stays as it is
@@ -182,6 +204,8 @@ function Get-InstalledApplications {
         }
     }
 
+    $startNames = Get-StartMenuNames
+
     try {
         foreach ($pkg in (Get-AppxPackage -ErrorAction Stop | Where-Object { -not $_.IsFramework })) {
             if ($seen.ContainsKey($pkg.Name)) { continue }
@@ -208,7 +232,11 @@ function Get-InstalledApplications {
             # The display fields are for the window and nothing else.
             $apps.Add([pscustomobject]@{
                 Name = "$($pkg.Name)"; Publisher = "$($pkg.Publisher)"; Version = "$($pkg.Version)"
-                DisplayName      = if ($info.DisplayName) { $info.DisplayName } else { Format-AppxPackageName -Name "$($pkg.Name)" }
+                # Start menu first: it is the name the person recognises, and
+                # the only one that exists for inbox apps.
+                DisplayName      = if ($startNames.ContainsKey("$($pkg.PackageFamilyName)")) { $startNames["$($pkg.PackageFamilyName)"] }
+                                   elseif ($info.DisplayName)                                { $info.DisplayName }
+                                   else                                                      { Format-AppxPackageName -Name "$($pkg.Name)" }
                 PublisherDisplay = if ($info.Publisher)   { $info.Publisher }   else { Format-CertificateSubject -Subject "$($pkg.Publisher)" }
                 InstallDir = "$($pkg.InstallLocation)"; Uninstall = ''; QuietUninstall = ''
                 IconSource = $info.Logo
