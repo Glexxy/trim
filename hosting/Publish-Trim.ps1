@@ -56,11 +56,39 @@ if ($LASTEXITCODE -eq 0 -and $dirty) {
 }
 Good 'working tree is clean'
 
-# ---- 1. build -------------------------------------------------------------
-Step 'Building'
-& (Join-Path $root 'build.ps1') | Select-Object -Last 3
-if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) { Fail 'Build failed.' }
-if (-not (Test-Path -LiteralPath $script)) { Fail "No artefact at $script" }
+# ---- 1. build, from a pristine checkout -----------------------------------
+# Not from the working tree. `git status` reporting clean is not the same as the
+# working tree matching what somebody else checks out: git normalises line
+# endings on the way in, so a file edited with LF endings is "unmodified" here
+# and arrives as CRLF in a clone. That is a 4,672 byte difference on this
+# project, and it silently broke the claim that cloning reproduces the published
+# build - the guard above passed while the bytes disagreed.
+#
+# Building from a throwaway worktree at HEAD makes "what we publish" and "what
+# you clone" the same thing by construction rather than by discipline.
+Step 'Building from a clean checkout of HEAD'
+
+$exportDir = Join-Path ([System.IO.Path]::GetTempPath()) "trim-publish-$([Guid]::NewGuid().ToString('N').Substring(0,8))"
+& git -C $root worktree add --detach --quiet $exportDir HEAD 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exportDir)) {
+    Fail 'Could not create a clean worktree to build from.'
+}
+
+try {
+    & (Join-Path $exportDir 'build.ps1') | Select-Object -Last 3
+    if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) { Fail 'Build failed.' }
+
+    $builtScript = Join-Path $exportDir 'trim.ps1'
+    if (-not (Test-Path -LiteralPath $builtScript)) { Fail "No artefact at $builtScript" }
+
+    # Copied back so the local artefact matches what is about to ship, and so
+    # the staging step below has something to stage.
+    Copy-Item -LiteralPath $builtScript -Destination $script -Force
+    Copy-Item -LiteralPath "$builtScript.sha256" -Destination "$script.sha256" -Force
+    Good "built from $( & git -C $root rev-parse --short HEAD )"
+} finally {
+    & git -C $root worktree remove --force $exportDir 2>&1 | Out-Null
+}
 
 # ---- 2. test --------------------------------------------------------------
 if ($SkipTests) {
