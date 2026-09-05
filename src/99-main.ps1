@@ -172,11 +172,19 @@ function Invoke-Selection {
                 '-ApplySelection', $file, '-Gui'
             )
         } else {
-            $safeSelf = ConvertTo-SafeArgument $script:SelfUrl
-            $safeFile = ConvertTo-SafeArgument $file
+            # Same reasoning as the elevation in 01-header: stage the script to
+            # a file and pin it by hash, rather than handing the elevated
+            # process a command line that downloads and executes. This is the
+            # path the Apply button takes, so it is the one most people hit.
+            $self = Get-StagedSelf
+            if (-not $self) {
+                Write-Log -Level FAIL -Message "Could not stage the script to elevate. To apply by hand: trim.ps1 -ApplySelection '$file'"
+                return $false
+            }
             Start-Process $shell -Verb RunAs -ArgumentList @(
-                '-ExecutionPolicy','Bypass','-NoProfile','-NoExit','-Command',
-                "&([ScriptBlock]::Create((irm '$safeSelf'))) -ApplySelection '$safeFile' -Gui"
+                '-ExecutionPolicy','Bypass','-NoProfile','-NoExit','-File', $self.Path,
+                '-ElevationHash', $self.Hash,
+                '-ApplySelection', $file, '-Gui'
             )
         }
         Write-Log -Level OK -Message 'Elevated window launched. This one is finished.'
@@ -189,6 +197,26 @@ function Invoke-Selection {
 
 function Invoke-Main {
     $started = Get-Date
+
+    # Only set when this script staged itself to a temp file in order to
+    # elevate. Between writing that file and Windows starting it as
+    # administrator there is a window in which anything that can write to the
+    # temp directory could replace it - and it would then run with full rights.
+    # Re-hashing the file we were actually launched from closes that window.
+    if ($ElevationHash) {
+        if (-not $PSCommandPath -or -not (Test-Path -LiteralPath $PSCommandPath)) {
+            Write-Host '  Cannot verify this script against the hash it was launched with.' -ForegroundColor Red
+            exit 1
+        }
+        $actual = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash
+        if ($actual -ne $ElevationHash.Trim()) {
+            Write-Host '  This script does not match the fingerprint it was elevated with.' -ForegroundColor Red
+            Write-Host "    expected $($ElevationHash.Trim())" -ForegroundColor DarkGray
+            Write-Host "    actual   $actual" -ForegroundColor DarkGray
+            Write-Host '  It was modified after being staged. Refusing to run.' -ForegroundColor Red
+            exit 1
+        }
+    }
 
     Show-TrimBanner
 

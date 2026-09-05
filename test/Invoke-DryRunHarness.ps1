@@ -306,8 +306,13 @@ Test-Phase 'System tools resolve to real system paths' {
     $offenders = [System.Collections.Generic.List[string]]::new()
     foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1')) {
         $lines = Get-Content -LiteralPath $f.FullName
+        $inHelp = $false
         for ($i = 0; $i -lt $lines.Count; $i++) {
             $line = $lines[$i]
+            # Comment-based help quotes the very pattern this guard looks for,
+            # in the course of explaining why it is gone.
+            if ($line -match '<#') { $inHelp = $true }
+            if ($inHelp) { if ($line -match '#>') { $inHelp = $false }; continue }
             if ($line -match '^\s*#') { continue }
             if ($line -match '&\s+(powercfg|netsh|sfc|shutdown|winget|reg)\b' -and
                 $line -notmatch 'Get-SystemTool') {
@@ -631,6 +636,55 @@ Test-Phase 'Window is legible and keyboard-navigable' {
                 $problems.Add("$k ($($named[$k])) is $r`:1 on $bg - under AA for body text") | Out-Null
             }
         }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
+Test-Phase 'Elevation never downloads and executes' {
+    # Microsoft Defender flagged Trojan:Win32/Commando.A!ml on this command
+    # line - a detection on the command line, not on any file:
+    #
+    #   pwsh -ExecutionPolicy Bypass -NoProfile -NoExit -Command
+    #        &([ScriptBlock]::Create((irm 'https://trimbloat.com/go')))
+    #
+    # It is also unsafe on its own terms: it fetches again inside the elevated
+    # process and runs whatever comes back, so what receives administrator is
+    # not provably what the user read. There were two such call sites.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1')) {
+        $lines = Get-Content -LiteralPath $f.FullName
+        $inHelp = $false
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i]
+            # Comment-based help quotes the exact pattern this guard looks for,
+            # in the course of explaining why it is gone.
+            if ($line -match '<#') { $inHelp = $true }
+            if ($inHelp) { if ($line -match '#>') { $inHelp = $false }; continue }
+            if ($line -match '^\s*#') { continue }
+            # The winutil handoff is a documented, deliberate execution of a
+            # third-party script; it is not an elevation command line.
+            if ($line -match 'WinUtilSource') { continue }
+            if ($line -match "ScriptBlock\]::Create\(\(\s*irm" -or
+                $line -match "ScriptBlock\]::Create\(\(Invoke-RestMethod") {
+                if ($line -notmatch 'WinUtilSource') {
+                    $problems.Add("$($f.Name) line $($i + 1) builds a download-and-execute command") | Out-Null
+                }
+            }
+        }
+    }
+
+    # Every elevation must hand over a file and a hash to check it against.
+    $head = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '01-header.ps1')
+    $main = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '99-main.ps1')
+    foreach ($pair in @(@{ N = '01-header.ps1'; T = $head }, @{ N = '99-main.ps1'; T = $main })) {
+        if ($pair.T -match "Start-Process \`$shell -Verb RunAs" -and $pair.T -notmatch 'ElevationHash') {
+            $problems.Add("$($pair.N) elevates without pinning a hash") | Out-Null
+        }
+    }
+    if ($main -notmatch 'Get-StagedSelf' -or $head -notmatch 'function Get-StagedSelf') {
+        $problems.Add('the staged-self helper is missing from an elevation path') | Out-Null
     }
 
     if ($problems.Count) { throw ($problems -join '; ') }

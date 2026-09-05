@@ -64,6 +64,12 @@ param(
     # the outside.
     [switch]$LargeFiles,
 
+    # Set only by this script when it elevates itself from a piped run. The
+    # elevated process re-hashes the file it was launched from and refuses to
+    # continue if it does not match, which closes the window between staging
+    # the file and Windows starting it.
+    [string]$ElevationHash = '',
+
     # Internal: delete a cleanup selection saved by an earlier window.
     [string]$CleanupSelection = '',
 
@@ -122,6 +128,64 @@ try {
     nothing this program legitimately passes contains one, so their presence
     means somebody is trying something.
 #>
+<#
+.SYNOPSIS
+    Download this script to a file and pin it by hash, for elevating.
+
+.DESCRIPTION
+    Used when there is no file on disk to re-invoke - which is the normal case,
+    because the documented way to run this is `irm ... | iex`.
+
+    Both elevation paths used to build a command line that downloaded and
+    executed inside the elevated process:
+
+        -Command &([ScriptBlock]::Create((irm 'https://...')))
+
+    That is wrong twice. It runs unverified bytes with administrator rights, so
+    what actually gets privilege is not provably what the user read - a second
+    fetch is a second opportunity to serve something different. And it is the
+    textbook fileless-downloader shape, which Microsoft Defender flags as
+    Trojan:Win32/Commando.A!ml, a detection on the command line rather than on
+    any file.
+
+    Fetching once here, unelevated, and handing over a path plus the hash it
+    must match fixes both.
+#>
+function Get-StagedSelf {
+    $stage = Join-Path ([System.IO.Path]::GetTempPath()) ("trim_$([Guid]::NewGuid().ToString('N')).ps1")
+
+    try {
+        Invoke-WebRequest -Uri $script:SelfUrl -OutFile $stage -UseBasicParsing -ErrorAction Stop
+    } catch {
+        Write-Host "  Could not download the script to elevate: $($_.Exception.Message)" -ForegroundColor Red
+        return $null
+    }
+
+    $staged = (Get-FileHash -LiteralPath $stage -Algorithm SHA256).Hash
+
+    # Compared against the published fingerprint before anything is elevated. A
+    # mismatch is the one case where stopping is the only correct behaviour.
+    try {
+        $sidecarUrl = ($script:SelfUrl -replace '/go$', '/sha256')
+        $published  = ((Invoke-RestMethod -Uri $sidecarUrl -UseBasicParsing -ErrorAction Stop) -split '\s+')[0]
+        if ($published -and $published.Trim() -ne $staged) {
+            Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
+            Write-Host '  The downloaded script does not match the published fingerprint.' -ForegroundColor Red
+            Write-Host "    downloaded $staged" -ForegroundColor DarkGray
+            Write-Host "    published  $($published.Trim())" -ForegroundColor DarkGray
+            Write-Host '  Refusing to run it as administrator.' -ForegroundColor Red
+            return $null
+        }
+    } catch {
+        # An unreachable fingerprint is not evidence of tampering, and failing
+        # closed on a flaky network would be its own fault. The elevated side
+        # still verifies against the hash computed here.
+        Write-Host '  Could not reach the published fingerprint; continuing with the local hash.' -ForegroundColor DarkYellow
+    }
+
+    return [pscustomobject]@{ Path = $stage; Hash = $staged }
+}
+
 function ConvertTo-SafeArgument {
     param([AllowEmptyString()][AllowNull()][string]$Value = '')
     if ([string]::IsNullOrEmpty($Value)) { return '' }
@@ -315,12 +379,25 @@ elseif (-not $isAdmin) {
         }
         Start-Process $shell -Verb RunAs -ArgumentList $fileArgs
     } else {
-        # Running from `irm | iex`: there is no file on disk to re-invoke, so it
-        # is re-fetched from source. Every value here has been escaped above.
-        $inner = "&([ScriptBlock]::Create((irm '$(ConvertTo-SafeArgument $script:SelfUrl)'))) $($argList -join ' ')"
-        Start-Process $shell -Verb RunAs -ArgumentList @(
-            '-ExecutionPolicy','Bypass','-NoProfile','-NoExit','-Command', $inner
-        )
+        # No file on disk to point at, so stage one and pin it by hash rather
+        # than building a command line that downloads and executes.
+        $self = Get-StagedSelf
+        if (-not $self) { return }
+        $stage  = $self.Path
+        $staged = $self.Hash
+
+        $fileArgs = @('-ExecutionPolicy','Bypass','-NoProfile','-NoExit','-File', $stage, '-ElevationHash', $staged)
+        foreach ($kv in $PSBoundParameters.GetEnumerator()) {
+            if ($kv.Key -notmatch '^[A-Za-z][A-Za-z0-9]*$') { continue }
+            if ($kv.Value -is [switch]) {
+                if ($kv.Value.IsPresent) { $fileArgs += "-$($kv.Key)" }
+            } elseif ($kv.Value -is [array]) {
+                $fileArgs += @("-$($kv.Key)", (($kv.Value | ForEach-Object { "$_" }) -join ','))
+            } elseif ($null -ne $kv.Value -and "$($kv.Value)" -ne '') {
+                $fileArgs += @("-$($kv.Key)", "$($kv.Value)")
+            }
+        }
+        Start-Process $shell -Verb RunAs -ArgumentList $fileArgs
     }
     return
 }
