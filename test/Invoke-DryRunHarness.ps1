@@ -1031,6 +1031,85 @@ Test-Phase 'The winutil handoff survives our own strict mode' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+Test-Phase 'The duplicate finder always keeps one copy' {
+    # Deleting every copy of a file is the one mistake in this whole program
+    # that no undo script, restore point or .reg export can reverse. The code
+    # keeps the newest and offers the rest; nothing checked that it does.
+    # Driven against a scratch directory with known contents, so the assertion
+    # means the same thing on any machine.
+    $dir = Join-Path ([IO.Path]::GetTempPath()) "trim-dupe-$([Guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $sub = Join-Path $dir 'nested'
+    New-Item -ItemType Directory -Force -Path $sub | Out-Null
+
+    try {
+        $problems = [System.Collections.Generic.List[string]]::new()
+
+        # 2 MB of identical bytes, three times, one of them in a subdirectory.
+        $blob = New-Object byte[] (2MB)
+        (New-Object Random 42).NextBytes($blob)
+        $trio = @((Join-Path $dir 'a.bin'), (Join-Path $dir 'b.bin'), (Join-Path $sub 'c.bin'))
+        foreach ($p in $trio) { [IO.File]::WriteAllBytes($p, $blob) }
+
+        # Same size, different content - a size match is not a duplicate.
+        $other = New-Object byte[] (2MB)
+        (New-Object Random 7).NextBytes($other)
+        [IO.File]::WriteAllBytes((Join-Path $dir 'different.bin'), $other)
+
+        # Identical but under the size floor: not worth anyone's attention.
+        $tiny = New-Object byte[] (16KB)
+        (New-Object Random 9).NextBytes($tiny)
+        [IO.File]::WriteAllBytes((Join-Path $dir 'tiny1.bin'), $tiny)
+        [IO.File]::WriteAllBytes((Join-Path $dir 'tiny2.bin'), $tiny)
+
+        # Make "newest" unambiguous rather than dependent on write order.
+        $t = Get-Date
+        (Get-Item $trio[0]).LastWriteTime = $t.AddHours(-3)
+        (Get-Item $trio[1]).LastWriteTime = $t.AddHours(-2)
+        (Get-Item $trio[2]).LastWriteTime = $t              # the newest, must be kept
+
+        $rows = @(Get-DuplicateScan -Roots @($dir) -MinimumMB 1)
+
+        if ($rows.Count -ne 2) {
+            throw "3 identical files should yield 2 deletable copies; got $($rows.Count): $(($rows | ForEach-Object { $_.Path }) -join ', ')"
+        }
+
+        $offered = @($rows | ForEach-Object { $_.Path })
+        if ($offered -contains $trio[2]) { $problems.Add('the newest copy is offered for deletion') | Out-Null }
+        foreach ($p in @($trio[0], $trio[1])) {
+            if ($offered -notcontains $p) { $problems.Add("'$p' is an older duplicate and was not offered") | Out-Null }
+        }
+
+        # Whatever each row says it is keeping must itself survive.
+        foreach ($r in $rows) {
+            if (-not $r.Keeps)               { $problems.Add("'$($r.Path)' does not say what it keeps") | Out-Null; continue }
+            if ($offered -contains $r.Keeps) { $problems.Add("'$($r.Keeps)' is named as the copy to keep and is also offered for deletion") | Out-Null }
+            if (-not (Test-Path -LiteralPath $r.Keeps)) { $problems.Add("'$($r.Keeps)' is named as the copy to keep but does not exist") | Out-Null }
+        }
+
+        foreach ($never in @('different.bin', 'tiny1.bin', 'tiny2.bin')) {
+            if (@($offered | Where-Object { $_ -like "*\$never" }).Count) {
+                $problems.Add("$never was offered as a duplicate") | Out-Null
+            }
+        }
+
+        # Losing a file is not a safe default.
+        if (@($rows | Where-Object { $_.Selected }).Count) { $problems.Add('duplicates are selected by default') | Out-Null }
+        foreach ($r in $rows) {
+            if ($r.Tier -eq 'safe') { $problems.Add("'$($r.Path)' is marked safe; deleting a file never is") | Out-Null }
+            if ($r.Key -notlike 'dupe|*') { $problems.Add("'$($r.Path)' has key '$($r.Key)'") | Out-Null }
+        }
+
+        # Nothing may have been touched by looking.
+        foreach ($p in ($trio + @((Join-Path $dir 'different.bin')))) {
+            if (-not (Test-Path -LiteralPath $p)) { $problems.Add("'$p' disappeared during a scan that only measures") | Out-Null }
+        }
+
+        if ($problems.Count) { throw ($problems -join '; ') }
+    }
+    finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
 Test-Phase 'The documented numbers are the real ones' {
     # The README and the site said thirteen phases and thirteen cleanup
     # categories. There were twelve of each. Nobody was lying - the counts were
