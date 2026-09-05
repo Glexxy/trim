@@ -19,9 +19,14 @@
  *      published hash that disagreed with the published script would be worse
  *      than publishing no hash at all.
  *
- *   4. Binary assets are streamed through untouched. An earlier version read
- *      every asset with .text(), which is correct for a script and silently
- *      destroys a PNG.
+ *   4. Every asset is streamed through byte for byte. Two earlier versions got
+ *      this wrong in different ways: one read images with .text() and destroyed
+ *      them, and the fix for that still decoded the *script* as text - which
+ *      quietly ate its UTF-8 BOM. Three bytes, and they matter twice over. The
+ *      published SHA256 stopped matching the file being served, which is the
+ *      exact signal the site tells people means "do not run this"; and Windows
+ *      PowerShell reads a BOM-less file as ANSI, so anyone saving it to disk
+ *      got a corrupted script.
  */
 
 const CANONICAL = 'https://trimbloat.com';
@@ -34,7 +39,6 @@ const CANONICAL = 'https://trimbloat.com';
  *   file   - the asset to read
  *   type   - the Content-Type to send, chosen here rather than sniffed
  *   cache  - max-age in seconds
- *   binary - stream the body instead of decoding it as text
  */
 const ROUTES = {
   // The one-liner target and the script itself. text/plain on purpose: this is
@@ -59,18 +63,18 @@ const ROUTES = {
 
   // Images. The long cache comes from the ?v= on the URL, not from here; these
   // values are the floor for anyone who requests the bare path.
-  '/img/og.png':          { file: '/img/og.png',          type: 'image/png',  cache: 86400, binary: true },
-  '/img/icon-180.png':    { file: '/img/icon-180.png',    type: 'image/png',  cache: 604800, binary: true },
-  '/img/overview.webp':   { file: '/img/overview.webp',   type: 'image/webp', cache: 604800, binary: true },
-  '/img/overview@2x.webp':{ file: '/img/overview@2x.webp',type: 'image/webp', cache: 604800, binary: true },
-  '/img/changes.webp':    { file: '/img/changes.webp',    type: 'image/webp', cache: 604800, binary: true },
-  '/img/changes@2x.webp': { file: '/img/changes@2x.webp', type: 'image/webp', cache: 604800, binary: true },
-  '/img/cleanup.webp':    { file: '/img/cleanup.webp',    type: 'image/webp', cache: 604800, binary: true },
-  '/img/cleanup@2x.webp': { file: '/img/cleanup@2x.webp', type: 'image/webp', cache: 604800, binary: true },
-  '/img/startup.webp':    { file: '/img/startup.webp',    type: 'image/webp', cache: 604800, binary: true },
-  '/img/startup@2x.webp': { file: '/img/startup@2x.webp', type: 'image/webp', cache: 604800, binary: true },
-  '/img/uninstall.webp':  { file: '/img/uninstall.webp',  type: 'image/webp', cache: 604800, binary: true },
-  '/img/uninstall@2x.webp':{ file: '/img/uninstall@2x.webp',type: 'image/webp', cache: 604800, binary: true },
+  '/img/og.png':          { file: '/img/og.png',          type: 'image/png',  cache: 86400 },
+  '/img/icon-180.png':    { file: '/img/icon-180.png',    type: 'image/png',  cache: 604800 },
+  '/img/overview.webp':   { file: '/img/overview.webp',   type: 'image/webp', cache: 604800 },
+  '/img/overview@2x.webp':{ file: '/img/overview@2x.webp',type: 'image/webp', cache: 604800 },
+  '/img/changes.webp':    { file: '/img/changes.webp',    type: 'image/webp', cache: 604800 },
+  '/img/changes@2x.webp': { file: '/img/changes@2x.webp', type: 'image/webp', cache: 604800 },
+  '/img/cleanup.webp':    { file: '/img/cleanup.webp',    type: 'image/webp', cache: 604800 },
+  '/img/cleanup@2x.webp': { file: '/img/cleanup@2x.webp', type: 'image/webp', cache: 604800 },
+  '/img/startup.webp':    { file: '/img/startup.webp',    type: 'image/webp', cache: 604800 },
+  '/img/startup@2x.webp': { file: '/img/startup@2x.webp', type: 'image/webp', cache: 604800 },
+  '/img/uninstall.webp':  { file: '/img/uninstall.webp',  type: 'image/webp', cache: 604800 },
+  '/img/uninstall@2x.webp':{ file: '/img/uninstall@2x.webp',type: 'image/webp', cache: 604800 },
 };
 
 /**
@@ -124,6 +128,24 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    // Plaintext is refused before anything else happens.
+    //
+    // `irm trimbloat.com/go | iex` with no scheme is fetched over http, and the
+    // thing being fetched is a script the user is about to run as
+    // administrator. Served in the clear, anyone on the path - café wifi, a
+    // compromised router, an ISP - can replace it with their own and it will be
+    // executed with full rights.
+    //
+    // HSTS does not cover this: it only protects the *second* visit, and the
+    // first one is the one that matters. This used to rely on the zone's
+    // "Always Use HTTPS" setting, which was never switched on - so it lived in
+    // a comment rather than in the code. Now it is enforced here, where it is
+    // in version control and can be tested.
+    if (url.protocol !== 'https:') {
+      url.protocol = 'https:';
+      return Response.redirect(url.toString(), 301);
+    }
+
     // www and any other hostname collapse to one canonical origin, so there is
     // exactly one address to trust and to publish.
     if (url.hostname !== 'trimbloat.com') {
@@ -154,9 +176,11 @@ export default {
       return new Response('Not built', { status: 503, headers: harden() });
     }
 
-    // Binary bodies are passed through as a stream. Decoding them as text is
-    // how an image gets silently corrupted on the way out.
-    const body = route.binary ? res.body : await res.text();
+    // Streamed, never decoded. Reading an asset as text and re-encoding it is
+    // not a no-op: it strips a byte order mark and re-encodes anything the
+    // decoder normalises. The only thing that gets read as text here is the
+    // landing page, which has to be, because a token is substituted into it.
+    const body = res.body;
 
     // A request carrying ?v= is for one specific build of that asset, so it can
     // be cached forever. Without the version it has to stay revalidatable - the

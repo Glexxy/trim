@@ -224,6 +224,16 @@ foreach ($ref in $refs) {
 }
 Good 'every referenced asset has a Worker route'
 
+# The one-liner people paste has no scheme, so PowerShell fetches it over
+# plaintext http. Serving a script that runs as administrator in the clear is
+# the single worst thing this deployment could do, so the redirect is checked
+# for rather than assumed - it lived in a comment for a while, describing a
+# Cloudflare setting nobody had switched on.
+if ($worker -notmatch "url\.protocol\s*!==\s*'https:'") {
+    Fail 'The Worker no longer forces HTTPS. Plaintext http:// would serve the script in the clear.'
+}
+Good 'HTTPS is enforced in the Worker'
+
 foreach ($crawl in @('robots.txt', 'sitemap.xml', 'llms.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $public $crawl))) { Fail "Missing $crawl" }
     if ($worker -notmatch [regex]::Escape("'/$crawl'")) { Fail "The Worker has no route for /$crawl" }
@@ -246,6 +256,67 @@ try {
     & npx --yes wrangler@latest deploy
     if ($LASTEXITCODE -ne 0) { Fail 'wrangler deploy failed.' }
 } finally { Pop-Location }
+
+# ---- 6. verify what is actually being served ------------------------------
+# Everything above checks the bytes on the way out. This checks the bytes coming
+# back, which is a different question and the one that matters.
+#
+# It exists because a Worker that decoded the script as text silently removed
+# its UTF-8 BOM: three bytes, so the published fingerprint no longer matched the
+# published file, and anyone saving it to disk got something Windows PowerShell
+# reads as ANSI. Every check before this point passed.
+Step 'Verifying what is being served'
+
+$expected = (Get-FileHash -LiteralPath (Join-Path $public 'trim.ps1') -Algorithm SHA256).Hash
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor 3072
+
+$served = Join-Path ([System.IO.Path]::GetTempPath()) "trim-served-$([Guid]::NewGuid()).ps1"
+$ok = $false
+foreach ($attempt in 1..6) {
+    try {
+        # Cache-busted: the edge holds /go for five minutes, and a stale copy
+        # would make this pass against the previous deployment.
+        Invoke-WebRequest -Uri "https://trimbloat.com/go?verify=$([Guid]::NewGuid())" `
+            -OutFile $served -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+        $actual = (Get-FileHash -LiteralPath $served -Algorithm SHA256).Hash
+        if ($actual -eq $expected) { $ok = $true; break }
+        Write-Host "   attempt $attempt`: served $actual, expected $expected" -ForegroundColor DarkGray
+    } catch {
+        Write-Host "   attempt $attempt`: $($_.Exception.Message)" -ForegroundColor DarkGray
+    }
+    Start-Sleep -Seconds 10
+}
+Remove-Item $served -Force -ErrorAction SilentlyContinue
+
+if (-not $ok) {
+    Fail ('The bytes being served do not match the published fingerprint. ' +
+          'The deployment is live and wrong - fix it or roll back.')
+}
+Good "served bytes match the published fingerprint"
+
+$sidecar = (Invoke-WebRequest -Uri 'https://trimbloat.com/sha256' -UseBasicParsing -TimeoutSec 30).Content
+if ((($sidecar -split '\s+')[0]).Trim() -ne $expected) {
+    Fail 'The published /sha256 disagrees with the script being served.'
+}
+Good '/sha256 agrees with the served script'
+
+# The one-liner people paste carries no scheme, so this is the request that
+# actually happens.
+$plain = [Net.HttpWebRequest]::Create('http://trimbloat.com/go')
+$plain.AllowAutoRedirect = $false
+$plain.Method = 'HEAD'
+try {
+    $r = $plain.GetResponse()
+    $code = [int]$r.StatusCode
+    $loc = $r.Headers['Location']
+    $r.Close()
+    if ($code -notin 301, 302, 307, 308 -or $loc -notlike 'https://*') {
+        Fail "Plaintext http:// returned $code (Location: $loc). The script would be served in the clear."
+    }
+    Good "http:// redirects to HTTPS ($code)"
+} catch {
+    Fail "Could not check the plaintext redirect: $($_.Exception.Message)"
+}
 
 Write-Host ''
 Good 'Published.'
