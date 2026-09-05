@@ -141,10 +141,11 @@
         <span class="job-n" aria-hidden="true">02</span>
         <h3>Sets it up for games</h3>
         <p>Game Bar off. Background recording off. Windowed games get the fast path.
-           Every game it finds gets pointed at your real GPU instead of the
-           integrated one.</p>
+           Every game it finds gets pointed at your real GPU instead of the integrated
+           one. On NVIDIA it also applies a driver profile composed for your exact
+           card.</p>
         <ul class="tags">
-          <li>Game Bar</li><li>GPU scheduling</li><li>Per-game GPU</li><li>Latency</li>
+          <li>Game Bar</li><li>GPU scheduling</li><li>Per-game GPU</li><li>NVIDIA profile</li>
         </ul>
       </article>
 
@@ -155,7 +156,7 @@
            caches, the recycle bins you forgot about. You see the size of each pile
            and where it lives before any of it goes.</p>
         <ul class="tags">
-          <li>14 categories</li><li>Every drive</li><li>Itemised</li>
+          <li>13 categories</li><li>Every drive</li><li>Itemised</li>
         </ul>
       </article>
 
@@ -173,9 +174,10 @@
       <article class="job">
         <span class="job-n" aria-hidden="true">05</span>
         <h3>Shows what starts with Windows</h3>
-        <p>Every program that launches when you sign in, from all four places Windows
-           hides them. Switch one off and it uses the same switch Task Manager does,
-           so it stays off and you can turn it back on without this tool.</p>
+        <p>Every program that launches when you sign in &mdash; the Run keys, both
+           Startup folders and logon scheduled tasks. Switch one off and it uses the
+           same switch Task Manager does, so it stays off and you can turn it back on
+           without this tool.</p>
         <ul class="tags">
           <li>Logon items</li><li>Startup folders</li><li>Nothing deleted</li>
         </ul>
@@ -251,7 +253,7 @@
                  width="2320" height="1540" loading="lazy" decoding="async"
                  alt="The disk cleanup screen listing cleanup categories with the amount of space each would free.">
           </div>
-          <p class="shot-cap">Fourteen categories, scanned across every drive you have.
+          <p class="shot-cap">Thirteen categories, scanned across every drive you have.
              Each one shows its size and where it is, so you are never agreeing to
              delete something described only as &ldquo;temporary files&rdquo;.</p>
         </div>
@@ -468,7 +470,7 @@ cd trim
       </details>
       <details>
         <summary>How is this different from WinUtil?</summary>
-        <div><p>Trim uses WinUtil for one of its twelve phases &mdash; the tweak set
+        <div><p>Trim uses WinUtil for one of its thirteen phases &mdash; the tweak set
            Chris Titus Tech already maintains, which there is no sense reimplementing.
            The rest is Trim's own: the dry run you can read, the recorded undo path,
            hardware detection, disk cleanup, the deep uninstall, the startup manager,
@@ -580,7 +582,7 @@ cd trim
         { "@type": "Question", "name": "Can I undo it weeks later?",
           "acceptedAnswer": { "@type": "Answer", "text": "Yes. The undo script is an ordinary file with a timestamp in its name. It sits there until you delete it and works whenever you run it." } },
         { "@type": "Question", "name": "How is Trim different from WinUtil?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Trim uses WinUtil for one of its twelve phases, the tweak set Chris Titus Tech already maintains. The rest is Trim's own: the dry run you can read, the recorded undo path, hardware detection, disk cleanup, deep uninstall, the startup manager, the NVIDIA profile and a risk label on every change." } }
+          "acceptedAnswer": { "@type": "Answer", "text": "Trim uses WinUtil for one of its thirteen phases, the tweak set Chris Titus Tech already maintains. The rest is Trim's own: the dry run you can read, the recorded undo path, hardware detection, disk cleanup, deep uninstall, the startup manager, the NVIDIA profile and a risk label on every change." } }
       ]
     }
   ]

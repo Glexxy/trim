@@ -15,7 +15,7 @@ Run it with one line in PowerShell:
 - Tunes for gaming: Game Bar and background capture off, windowed-game
   optimisations on, CPU priority favouring the foreground, and installed games
   pointed at the high-performance GPU.
-- Disk cleanup across every drive: 14 categories, each itemised with its size
+- Disk cleanup across every drive: 13 categories, each itemised with its size
   and location before anything is deleted.
 - Deep uninstall: runs an app's own uninstaller, then finds and offers the
   folders, registry keys, services and scheduled tasks it left behind.
