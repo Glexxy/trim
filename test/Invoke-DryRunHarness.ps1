@@ -1471,6 +1471,76 @@ Test-Phase 'The duplicate finder always keeps one copy' {
     finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
+Test-Phase 'Anything that runs the script says which mode it wants' {
+    # Invoke-VmVerification.ps1 applies for real inside a disposable VM and is
+    # the only thing in the project that ever does. It invoked the script with
+    # NoRestorePoint, NoRestartPrompt and Only - filters, none of which is an
+    # instruction to change anything.
+    #
+    # That was correct until the day the default changed. A run with no mode
+    # switch now opens the window, because the published one-liner passes no
+    # arguments and used to apply everything unattended. Unattended in a
+    # sandbox there is no window, so the run prints the plan instead and the
+    # verification would have measured a dry run against a claim that something
+    # had been applied.
+    #
+    # The docs, the flow test and this harness were all updated that day. This
+    # script was not, because it lives outside the suite and CI never runs it -
+    # which is exactly why it needs checking from in here.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    # Invocations of the compiled script, however they are spelled.
+    $invokes = '&\s*(\$ScriptPath|["'']?[^"'']*trim\.ps1["'']?)'
+
+    foreach ($f in (Get-ChildItem (Join-Path $root 'test') -Filter '*.ps1' -File)) {
+        $lines = Get-Content -LiteralPath $f.FullName
+        $hits  = @()
+        $inHelp = $false
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i]
+            if ($line -match '<#') { $inHelp = $true }
+            if ($inHelp) { if ($line -match '#>') { $inHelp = $false }; continue }
+            if ($line -match '^\s*#') { continue }
+            if ($line -match $invokes) { $hits += ($i + 1) }
+        }
+        if (-not $hits.Count) { continue }
+
+        # Asked of each invocation, not of the file. "Somewhere in this file the
+        # word -DryRun appears" is satisfied by a comment, by help text, or by a
+        # different invocation entirely - the first version of this guard passed
+        # while the apply it was written to protect had no mode at all.
+        $body = ($lines -join "`n")
+        foreach ($n in $hits) {
+            $line = $lines[$n - 1]
+            $mode = '(?:^|[^A-Za-z])-(?:Apply|DryRun|Gui)\b'
+
+            if ($line -match $mode) { continue }         # named right there
+
+            if ($line -match '@(\w+)\s*$' -or $line -match '@(\w+)\s') {
+                # Splatted. The mode has to be a key of the hashtable being
+                # splatted, so go and read it.
+                $splat = $Matches[1]
+                $decl  = [regex]::Match($body, "\`$$splat\s*=\s*@\{([^}]*)\}")
+                if (-not $decl.Success) {
+                    $problems.Add("$($f.Name) line $n splats `$$splat, which is never defined as a hashtable literal") | Out-Null
+                    continue
+                }
+                $keys = $decl.Groups[1].Value
+                # A key added afterwards counts too.
+                $added = [regex]::Matches($body, "\`$$splat\[['""](Apply|DryRun|Gui)['""]\]")
+                if ($keys -notmatch '(?:^|[\s;{])\s*(Apply|DryRun|Gui)\s*=' -and -not $added.Count) {
+                    $problems.Add("$($f.Name) line $n applies with `$$splat, which names no mode - filters are not instructions, so the run would open a window or print a plan instead of doing anything") | Out-Null
+                }
+                continue
+            }
+
+            $problems.Add("$($f.Name) line $n runs the script without naming a mode") | Out-Null
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'The screenshots are of the window that exists now' {
     # The README leads with a picture of the window and shows four more. When
     # the window changes and nobody regenerates them, the README describes

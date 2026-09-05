@@ -115,7 +115,17 @@ function Get-Actual {
 # -NoRestartPrompt is not optional either. Without it the run reaches Read-Host
 # after applying and waits forever for an answer nobody is there to give, which
 # looks exactly like a hung verification.
-$phaseArgs = @{ NoRestorePoint = $true; NoRestartPrompt = $true }
+# -Apply is not optional either, and this is the only script in the project that
+# needs it. A run with no mode switch opens the window - that is the whole point
+# of the change that introduced it, because the published one-liner passes no
+# arguments and used to apply everything unattended. Unattended in a sandbox
+# there is no window to open, so the run falls back to printing the plan and
+# this verification would sit there measuring a dry run against a claim that
+# something was applied.
+#
+# -NoRestorePoint and -Only are filters, not instructions to change anything.
+# Only this says "do it".
+$phaseArgs = @{ Apply = $true; NoRestorePoint = $true; NoRestartPrompt = $true }
 if (-not $Full) { $phaseArgs['Only'] = $Phases }
 
 Write-Host ''
