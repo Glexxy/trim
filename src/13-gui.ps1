@@ -31,7 +31,12 @@ $script:GuiXaml = @'
     <SolidColorBrush x:Key="Rule"   Color="#2E3937"/>
     <SolidColorBrush x:Key="Ink"    Color="#E6EDEB"/>
     <SolidColorBrush x:Key="Soft"   Color="#98A6A3"/>
-    <SolidColorBrush x:Key="Faint"  Color="#6C7A77"/>
+    <!-- Was #6C7A77, which measured 3.9:1 on the window and 3.0:1 on a raised
+         panel - under AA, on the secondary line of every single row. Dim is a
+         style; unreadable is a defect. #8C9A97 clears 4.5:1 everywhere. -->
+    <SolidColorBrush x:Key="Faint"  Color="#8C9A97"/>
+    <!-- Kept for the places dimness is decorative rather than informational. -->
+    <SolidColorBrush x:Key="Ghost"  Color="#6C7A77"/>
     <SolidColorBrush x:Key="Accent" Color="#46C6B0"/>
 
     <Style TargetType="TextBlock">
@@ -63,6 +68,12 @@ $script:GuiXaml = @'
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Faint}"/>
               </Trigger>
+              <!-- A custom template replaces the focus adorner, so somebody
+                   tabbing through had no way to see where they were. -->
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                <Setter TargetName="b" Property="BorderThickness" Value="2"/>
+              </Trigger>
               <Trigger Property="IsEnabled" Value="False">
                 <Setter Property="Opacity" Value="0.4"/>
               </Trigger>
@@ -88,6 +99,10 @@ $script:GuiXaml = @'
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="b" Property="Background" Value="#263130"/>
               </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                <Setter TargetName="b" Property="BorderThickness" Value="1.5"/>
+              </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
@@ -106,8 +121,12 @@ $script:GuiXaml = @'
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="CheckBox">
-            <Grid Width="17" Height="17" Background="Transparent">
-              <Border x:Name="box" CornerRadius="3" Background="#171C1B"
+            <Grid Width="21" Height="21" Background="Transparent">
+              <!-- Sits outside the box so the focus ring does not resize it. -->
+              <Border x:Name="focus" CornerRadius="5" Background="Transparent"
+                      BorderBrush="{StaticResource Accent}" BorderThickness="1.5"
+                      Visibility="Collapsed"/>
+              <Border x:Name="box" Width="17" Height="17" CornerRadius="3" Background="#171C1B"
                       BorderBrush="#5A6B68" BorderThickness="1.4"/>
               <Path x:Name="tick" Visibility="Collapsed"
                     Data="M 3.5,8 L 6.8,11.3 L 13,4.5"
@@ -122,6 +141,9 @@ $script:GuiXaml = @'
               </Trigger>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="box" Property="BorderBrush" Value="#46C6B0"/>
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="focus" Property="Visibility" Value="Visible"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -243,6 +265,10 @@ $script:GuiPhases  = @()
 # The panes that are not phases of the plan. Declared once, next to the state
 # it belongs with: this list was repeated in five places, and adding a pane to
 # four of them produces a tab that renders but shows a meaningless 0/0 counter.
+# Made once and frozen: a fresh brush for every row on every repaint is pure
+# allocation, and a frozen brush can be shared across threads for nothing.
+$script:GuiRowHover = $null
+
 $script:GuiExtraPanes = @('Overview', 'Disk cleanup', 'Startup apps', 'Uninstall apps')
 
 $script:GuiCurrent = 'Overview'
@@ -470,6 +496,62 @@ function Update-GuiPhases {
     }
 }
 
+<#
+.SYNOPSIS
+    A row of large figures, for the facts worth reading at a glance.
+#>
+function Add-GuiStatStrip {
+    param([Parameter(Mandatory)][array]$Stats)
+
+    $wrap = New-Object Windows.Controls.Border
+    $wrap.Background      = Get-GuiBrush '#1E2524'
+    $wrap.BorderBrush     = Get-GuiBrush '#2E3937'
+    $wrap.BorderThickness = New-Object Windows.Thickness 1
+    $wrap.CornerRadius    = New-Object Windows.CornerRadius 6
+    $wrap.Padding         = New-Object Windows.Thickness 20,16,20,16
+    $wrap.HorizontalAlignment = 'Left'
+    $wrap.Margin          = New-Object Windows.Thickness 0,2,0,0
+
+    $g = New-Object Windows.Controls.Grid
+    for ($i = 0; $i -lt $Stats.Count; $i++) {
+        $cd = New-Object Windows.Controls.ColumnDefinition
+        $cd.Width = 'Auto'
+        $g.ColumnDefinitions.Add($cd)
+    }
+
+    for ($i = 0; $i -lt $Stats.Count; $i++) {
+        $stat = $Stats[$i]
+
+        $cell = New-Object Windows.Controls.StackPanel
+        $cell.Margin = New-Object Windows.Thickness $(if ($i -eq 0) { 0 } else { 46 }),0,0,0
+
+        $n = New-Object Windows.Controls.TextBlock
+        $n.Text       = [string]$stat.Value
+        $n.FontSize   = 30
+        $n.FontWeight = 'Bold'
+        # Tabular figures, so a 9 and a 60 do not shift the label under them.
+        # ContainsKey, not $stat.Accent: under StrictMode reading a key that is
+        # not there is an error, not $null, and most of these stats do not set
+        # it.
+        $isAccent = $stat.ContainsKey('Accent') -and $stat.Accent
+        $n.Foreground = Get-GuiBrush $(if ($isAccent) { '#46C6B0' } else { '#E6EDEB' })
+        $cell.Children.Add($n) | Out-Null
+
+        $l = New-Object Windows.Controls.TextBlock
+        $l.Text       = [string]$stat.Label
+        $l.FontSize   = 12
+        $l.Foreground = Get-GuiBrush '#8C9A97'
+        $l.Margin     = New-Object Windows.Thickness 0,2,0,0
+        $cell.Children.Add($l) | Out-Null
+
+        [Windows.Controls.Grid]::SetColumn($cell, $i)
+        $g.Children.Add($cell) | Out-Null
+    }
+
+    $wrap.Child = $g
+    $script:GuiUi.PanelItems.Children.Add($wrap) | Out-Null
+}
+
 function Add-GuiParagraph {
     param([string]$Text, [string]$Colour = '#98A6A3', [double]$Size = 13, [string]$Weight = 'Normal', [double]$Top = 0)
     $t = New-Object Windows.Controls.TextBlock
@@ -505,9 +587,18 @@ function Show-GuiOverview {
     $ui.TxtPhaseSub.Text = ''
     $total = $script:GuiItems.Count
 
-    Add-GuiParagraph -Text ("Trim removes advertising, telemetry and preinstalled clutter from Windows, " +
-        "and tunes what is left for games. It found $total things it would change on this PC, " +
-        "and $($script:GuiAlready) settings that are already how it would set them.") -Colour '#E6EDEB' -Size 14.5
+    # The two numbers people actually want were buried mid-paragraph. They are
+    # the first thing on the screen now, at a size you can read without
+    # reading.
+    Add-GuiStatStrip -Stats @(
+        @{ Value = "$total";                 Label = 'things it would change'; Accent = $true },
+        @{ Value = "$($script:GuiAlready)";  Label = 'already set that way' },
+        @{ Value = '0';                      Label = 'changed so far' }
+    )
+
+    Add-GuiParagraph -Text ('Trim removes advertising, telemetry and preinstalled clutter from Windows, ' +
+        'and tunes what is left for games. Nothing on this PC has been touched yet.') `
+        -Colour '#E6EDEB' -Size 14.5 -Top 20
 
     Add-GuiParagraph -Text 'Before anything is changed, a backup is made' -Colour '#E6EDEB' -Size 13 -Weight 'SemiBold' -Top 22
     Add-GuiParagraph -Text ("Trim creates a Windows System Restore point before it touches anything, so the whole " +
@@ -1432,7 +1523,20 @@ function Update-GuiItems {
         $row = New-Object Windows.Controls.Border
         $row.BorderBrush     = $brRule
         $row.BorderThickness = New-Object Windows.Thickness 0,0,0,1
-        $row.Padding         = New-Object Windows.Thickness 4,8,4,9
+        # No left padding: the tier edge occupies that space instead, and the
+        # content is inset from it by its own column.
+        $row.Padding         = New-Object Windows.Thickness 0,8,4,9
+
+        # A coloured left edge carries the tier where the eye already is. The
+        # chip says the same thing 1100px away on a maximised window, which is
+        # a long way to travel to find out whether a change is risky.
+        $edge = New-Object Windows.Controls.Border
+        $edge.Width  = 3
+        $edge.CornerRadius = New-Object Windows.CornerRadius 1.5
+        $edge.Background = $tierBrush[$item.Tier]
+        $edge.Opacity = if ($item.Tier -eq 'safe') { 0.35 } else { 0.9 }
+        $edge.VerticalAlignment = 'Stretch'
+        $edge.Margin = New-Object Windows.Thickness 0,1,0,1
 
         $g = New-Object Windows.Controls.Grid
         foreach ($w in @('Auto','Star','Auto')) {
@@ -1497,7 +1601,31 @@ function Update-GuiItems {
         $g.Children.Add($title)  | Out-Null
         $g.Children.Add($detail) | Out-Null
         $g.Children.Add($chip)   | Out-Null
-        $row.Child = $g
+
+        # Two real columns rather than overlaid children. Stacking them in one
+        # cell put the 3px edge underneath the checkbox, where it rendered as a
+        # stray tick hanging off it.
+        $wrap = New-Object Windows.Controls.Grid
+        $cEdge = New-Object Windows.Controls.ColumnDefinition
+        $cEdge.Width = 'Auto'
+        $cBody = New-Object Windows.Controls.ColumnDefinition
+        $cBody.Width = New-Object Windows.GridLength 1, 'Star'
+        $wrap.ColumnDefinitions.Add($cEdge)
+        $wrap.ColumnDefinitions.Add($cBody)
+
+        [Windows.Controls.Grid]::SetColumn($edge, 0)
+        $g.Margin = New-Object Windows.Thickness 13,0,0,0
+        [Windows.Controls.Grid]::SetColumn($g, 1)
+
+        $wrap.Children.Add($edge) | Out-Null
+        $wrap.Children.Add($g)    | Out-Null
+        $row.Child = $wrap
+
+        # Hover feedback. A dense list gives no sense of which row the pointer
+        # is on without it.
+        $row.Add_MouseEnter({ $this.Background = $script:GuiRowHover })
+        $row.Add_MouseLeave({ $this.Background = $null })
+
         $ui.PanelItems.Children.Add($row) | Out-Null
     }
 }
@@ -1797,6 +1925,12 @@ function Initialize-TrimWindow {
                      'BtnRecommended','BtnAdvanced','BtnEverything','BtnClear','BtnApply','BtnCancel')) {
         $ui[$n] = $script:GuiWin.FindName($n)
         if (-not $ui[$n]) { throw "Window is missing control '$n'." }
+    }
+
+    if (-not $script:GuiRowHover) {
+        $script:GuiRowHover = New-Object Windows.Media.SolidColorBrush (
+            [Windows.Media.Color]::FromArgb(38, 0x46, 0xC6, 0xB0))
+        $script:GuiRowHover.Freeze()
     }
 
     $script:GuiUi      = $ui

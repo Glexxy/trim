@@ -582,6 +582,60 @@ Test-Phase 'Portability guard' {
 
 # The camera/mic/screen-capture carve-out is the promise most likely to be broken
 # by a careless edit to the deny list.
+Test-Phase 'Window is legible and keyboard-navigable' {
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $xaml = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '13-gui.ps1')
+
+    # Custom ControlTemplates replace the default focus adorner. Every one of
+    # them has to put something back, or a keyboard user cannot see where they
+    # are. All three shipped without it.
+    foreach ($ctrl in @('Btn', 'Nav')) {
+        $block = [regex]::Match($xaml, "(?s)x:Key=""$ctrl"".*?</Style>")
+        if (-not $block.Success) { $problems.Add("style $ctrl not found") | Out-Null; continue }
+        if ($block.Value -notmatch 'IsKeyboardFocused') {
+            $problems.Add("$ctrl has no keyboard focus indicator") | Out-Null
+        }
+    }
+    $cb = [regex]::Match($xaml, '(?s)<Style TargetType="CheckBox">.*?</Style>')
+    if (-not $cb.Success) { $problems.Add('CheckBox style not found') | Out-Null }
+    elseif ($cb.Value -notmatch 'IsKeyboardFocused') {
+        $problems.Add('CheckBox has no keyboard focus indicator') | Out-Null
+    }
+
+    # Text colours, measured rather than eyeballed. Faint is the secondary line
+    # on every row and shipped at 3.0:1 on a raised panel.
+    Add-Type -AssemblyName System.Drawing
+    function Get-RelLum([string]$hex) {
+        $c = [System.Drawing.ColorTranslator]::FromHtml($hex)
+        $v = @($c.R, $c.G, $c.B) | ForEach-Object {
+            $x = $_ / 255
+            if ($x -le 0.03928) { $x / 12.92 } else { [Math]::Pow(($x + 0.055) / 1.055, 2.4) }
+        }
+        0.2126 * $v[0] + 0.7152 * $v[1] + 0.0722 * $v[2]
+    }
+    function Get-Contrast($a, $b) {
+        $x = Get-RelLum $a; $y = Get-RelLum $b
+        ([Math]::Max($x, $y) + 0.05) / ([Math]::Min($x, $y) + 0.05)
+    }
+
+    # Pulled from the XAML so the test cannot drift from the palette.
+    $named = @{}
+    foreach ($m in [regex]::Matches($xaml, '<SolidColorBrush x:Key="(\w+)"\s+Color="(#[0-9A-Fa-f]{6})"')) {
+        $named[$m.Groups[1].Value] = $m.Groups[2].Value
+    }
+    foreach ($k in @('Ink', 'Soft', 'Faint')) {
+        if (-not $named.ContainsKey($k)) { $problems.Add("brush $k missing from the palette") | Out-Null; continue }
+        foreach ($bg in @('#171C1B', '#1E2524', '#263130')) {
+            $r = [Math]::Round((Get-Contrast $named[$k] $bg), 2)
+            if ($r -lt 4.5) {
+                $problems.Add("$k ($($named[$k])) is $r`:1 on $bg - under AA for body text") | Out-Null
+            }
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'Every feature is reachable' {
     # Get-LargeFileScan shipped as dead code: written, unit-checked in isolation,
     # wired to nothing, and reported as delivered. This asserts that anything

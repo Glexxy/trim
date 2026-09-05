@@ -134,10 +134,29 @@ Check 'clicking a checkbox does not tear down the list' {
     $rows = @($script:GuiUi.PanelItems.Children)
     if ($rows.Count -eq 0) { throw 'no rows to click' }
 
+    # Found by walking the row rather than by position. The checkbox used to be
+    # the first child of the row's grid; it is now nested one level deeper,
+    # inside a wrapper that also holds the tier edge. Asserting a position makes
+    # the test fail on a layout change that broke nothing.
+    function Find-CheckBox {
+        param($Element)
+        if ($Element -is [Windows.Controls.CheckBox]) { return $Element }
+        $kids = $null
+        if ($Element -is [Windows.Controls.Panel])          { $kids = $Element.Children }
+        elseif ($Element -is [Windows.Controls.Decorator])  { $kids = @($Element.Child) }
+        elseif ($Element -is [Windows.Controls.ContentControl]) { $kids = @($Element.Content) }
+        foreach ($k in @($kids)) {
+            if ($null -eq $k) { continue }
+            $hit = Find-CheckBox -Element $k
+            if ($hit) { return $hit }
+        }
+        return $null
+    }
+
     $before = @($script:GuiItems | Where-Object { $_.Selected }).Count
     for ($n = 0; $n -lt [Math]::Min(6, $rows.Count); $n++) {
-        $cb = $rows[$n].Child.Children[0]
-        if ($cb -isnot [Windows.Controls.CheckBox]) { throw "row $n has no checkbox first" }
+        $cb = Find-CheckBox -Element $rows[$n]
+        if ($null -eq $cb) { throw "row $n contains no checkbox" }
         $cb.IsChecked = -not $cb.IsChecked
         # Fire the real handler the same way a click does.
         $cb.RaiseEvent((New-Object Windows.RoutedEventArgs ([Windows.Controls.Primitives.ButtonBase]::ClickEvent)))
