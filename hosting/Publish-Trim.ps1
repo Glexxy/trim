@@ -40,6 +40,22 @@ function Step { param([string]$Text) Write-Host "`n== $Text" -ForegroundColor Cy
 function Fail { param([string]$Text) Write-Host "   $Text" -ForegroundColor Red; exit 1 }
 function Good { param([string]$Text) Write-Host "   $Text" -ForegroundColor Green }
 
+# ---- 0. the tree has to match what people can clone ------------------------
+# The site tells people to clone the repository and get byte-identical output.
+# That is only true if what gets published was built from a committed tree: the
+# compiled header stamps the commit, and an uncommitted change makes it stamp
+# "+ uncommitted changes" instead - so the published fingerprint stops matching
+# a clean checkout, which is precisely the mismatch the page tells people to
+# treat as tampering.
+Step 'Checking the working tree'
+$dirty = & git -C $root status --porcelain 2>$null
+if ($LASTEXITCODE -eq 0 -and $dirty) {
+    Write-Host '   uncommitted changes:' -ForegroundColor Red
+    @($dirty) | Select-Object -First 8 | ForEach-Object { Write-Host "     $_" -ForegroundColor DarkGray }
+    Fail 'Commit first. A build from a dirty tree cannot be reproduced from a clone.'
+}
+Good 'working tree is clean'
+
 # ---- 1. build -------------------------------------------------------------
 Step 'Building'
 & (Join-Path $root 'build.ps1') | Select-Object -Last 3
