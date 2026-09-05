@@ -43,6 +43,13 @@ jobs:
         shell: powershell
         run: .\test\Test-UndoRoundTrip.ps1
 
+      # Drives Invoke-Main itself. Everything else starts after the decision
+      # about what kind of run this is, and that decision is what shipped
+      # wrong: with no arguments the script applied every change unattended.
+      - name: Entry point flow
+        shell: powershell
+        run: .\test\Test-MainFlow.ps1
+
       # WPF needs a single-threaded apartment, which the default runner shell
       # is not, so this one gets its own process.
       - name: Window interaction

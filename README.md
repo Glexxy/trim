@@ -176,6 +176,7 @@ Licences: [NOTICE.md](NOTICE.md).
 ```powershell
 .\test\Invoke-DryRunHarness.ps1
 .\test\Test-UndoRoundTrip.ps1
+.\test\Test-MainFlow.ps1
 ```
 
 New registry writes need a `-Because` and a tier, plus `-MinBuild` / `-MaxBuild`
