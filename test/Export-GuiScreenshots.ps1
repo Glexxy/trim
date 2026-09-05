@@ -280,6 +280,27 @@ try {
     $win.Dispatcher.Invoke([action]{}, 'Background') | Out-Null
 }
 
+# Record which window these are pictures of.
+#
+# The README shows them, so when the window changes and nobody regenerates
+# them, the README quietly starts describing software that no longer exists.
+# That happened twice in one day and was caught both times by somebody
+# remembering, which is not a mechanism. The harness compares this stamp
+# against the current source and says so.
+#
+# -Real renders this machine's own data and is never what gets committed, so
+# it must not claim the committed images are current.
+if (-not $Real) {
+    $guiSrc = Join-Path (Split-Path $PSScriptRoot -Parent) 'src\13-gui.ps1'
+    $stamp  = Join-Path $OutDir 'generated-from.txt'
+    Set-Content -LiteralPath $stamp -Encoding UTF8 -Value @(
+        '# The window these screenshots were taken of.',
+        '# Regenerate them with test\Export-GuiScreenshots.ps1 when this stops matching.',
+        "13-gui.ps1 $((Get-FileHash -LiteralPath $guiSrc -Algorithm SHA256).Hash)"
+    )
+    Write-Host "  stamped generated-from.txt" -ForegroundColor DarkGray
+}
+
 Write-Host ''
 Write-Host "Written to $OutDir" -ForegroundColor Cyan
 Write-Host ''

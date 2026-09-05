@@ -1416,6 +1416,53 @@ Test-Phase 'The duplicate finder always keeps one copy' {
     finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
+Test-Phase 'The screenshots are of the window that exists now' {
+    # The README leads with a picture of the window and shows four more. When
+    # the window changes and nobody regenerates them, the README describes
+    # software that no longer exists - and the people it is aimed at are being
+    # asked to pipe this into an elevated shell on the strength of what they
+    # can see of it.
+    #
+    # This was kept in sync twice in one day by noticing, which is not a
+    # mechanism. It does not prove the images are right; it proves they were
+    # taken after the last change to the window.
+    $shots = Join-Path $root 'docs\screenshots'
+    if (-not (Test-Path -LiteralPath $shots)) { return }   # nothing to keep honest
+
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    $png = @(Get-ChildItem -LiteralPath $shots -Filter '*.png' -File -ErrorAction SilentlyContinue)
+    if (-not $png.Count) { throw 'docs\screenshots holds no images' }
+
+    $stampFile = Join-Path $shots 'generated-from.txt'
+    if (-not (Test-Path -LiteralPath $stampFile)) {
+        throw "docs\screenshots has $($png.Count) image(s) and no generated-from.txt, so there is no way to tell whether they are current. Run test\Export-GuiScreenshots.ps1"
+    }
+
+    $recorded = ''
+    foreach ($line in (Get-Content -LiteralPath $stampFile)) {
+        if ($line -match '^\s*13-gui\.ps1\s+([0-9A-Fa-f]{64})\s*$') { $recorded = $Matches[1].ToUpper() }
+    }
+    if (-not $recorded) { $problems.Add('generated-from.txt records no hash for 13-gui.ps1') | Out-Null }
+
+    $actual = (Get-FileHash -LiteralPath (Join-Path (Join-Path $root 'src') '13-gui.ps1') -Algorithm SHA256).Hash.ToUpper()
+    if ($recorded -and $recorded -ne $actual) {
+        $problems.Add("the window has changed since the screenshots were taken - run test\Export-GuiScreenshots.ps1 (screenshots: $($recorded.Substring(0,12)), source now: $($actual.Substring(0,12)))") | Out-Null
+    }
+
+    # Every image the README points at has to exist, or it renders a broken
+    # link on the project's front page.
+    $readme = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'README.md')
+    foreach ($m in [regex]::Matches($readme, 'docs/screenshots/([A-Za-z0-9._-]+\.png)')) {
+        $named = $m.Groups[1].Value
+        if (-not (Test-Path -LiteralPath (Join-Path $shots $named))) {
+            $problems.Add("README shows docs/screenshots/$named, which does not exist") | Out-Null
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'The documented numbers are the real ones' {
     # The README and the site said thirteen phases and thirteen cleanup
     # categories. There were twelve of each. Nobody was lying - the counts were

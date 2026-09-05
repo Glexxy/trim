@@ -1,0 +1,3 @@
+﻿# The window these screenshots were taken of.
+# Regenerate them with test\Export-GuiScreenshots.ps1 when this stops matching.
+13-gui.ps1 5ACF0A89E2A0D7F10E2C61597F281E746DD32A758D7B8C18DD440ED3B0DC37D5

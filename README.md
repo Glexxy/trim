@@ -184,6 +184,13 @@ if the setting only exists on one Windows version. Source files must be UTF-8
 with a BOM. The harness checks all of it, and CI runs on `windows-latest` under
 Windows PowerShell 5.1.
 
+Change `src/13-gui.ps1` and the harness will ask you to regenerate the
+screenshots, because the README shows them:
+
+```powershell
+powershell -STA -File test\Export-GuiScreenshots.ps1
+```
+
 Why the contested defaults are what they are: [docs/DECISIONS.md](docs/DECISIONS.md).
 
 <details>
