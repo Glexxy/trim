@@ -344,6 +344,45 @@ if ((($sidecar -split '\s+')[0]).Trim() -ne $expected) {
 }
 Good '/sha256 agrees with the served script'
 
+# The winutil config is the second thing every real user downloads, and until
+# now nothing checked it came back.
+#
+# Piped into a shell there is no $PSScriptRoot, so the script cannot read the
+# copy beside it and fetches this instead. It decides which tweaks get applied.
+# The tests run against the copy in the repository; every actual user gets this
+# one. A failed asset upload, a partial deploy or an edit made straight to the
+# bucket would mean the tool does something different from the thing that was
+# tested, and every check up to this point would still have passed.
+#
+# Compared against the staged copy rather than the working tree, exactly as the
+# script above is: staging came from a git worktree, so it is byte-for-byte
+# what was uploaded, and the comparison cannot be confused by a working copy
+# whose line endings differ from a checkout's.
+$stagedCfg = Join-Path $public 'config\winutil-tweaks.json'
+$cfgWant   = (Get-FileHash -LiteralPath $stagedCfg -Algorithm SHA256).Hash
+$cfgFile   = Join-Path ([System.IO.Path]::GetTempPath()) "trim-cfg-$([Guid]::NewGuid()).json"
+$cfgOk = $false
+foreach ($attempt in 1..6) {
+    try {
+        Invoke-WebRequest -Uri "https://trimbloat.com/config/winutil-tweaks.json?verify=$([Guid]::NewGuid())" `
+            -OutFile $cfgFile -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+        $cfgGot = (Get-FileHash -LiteralPath $cfgFile -Algorithm SHA256).Hash
+        if ($cfgGot -eq $cfgWant) { $cfgOk = $true; break }
+        Write-Host "   attempt $attempt`: config served $cfgGot, expected $cfgWant" -ForegroundColor DarkGray
+    } catch {
+        Write-Host "   attempt $attempt`: $($_.Exception.Message)" -ForegroundColor DarkGray
+    }
+    Start-Sleep -Seconds 10
+}
+Remove-Item $cfgFile -Force -ErrorAction SilentlyContinue
+
+if (-not $cfgOk) {
+    Fail ('The winutil config being served does not match the one that was published. ' +
+          'Everyone running the one-liner would get a different set of tweaks from the ' +
+          'one the tests cover.')
+}
+Good 'the served winutil config matches what was published'
+
 # The one-liner people paste carries no scheme, so this is the request that
 # actually happens.
 $plain = [Net.HttpWebRequest]::Create('http://trimbloat.com/go')
