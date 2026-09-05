@@ -64,4 +64,22 @@ Set-Content -LiteralPath (Join-Path $results 'exitcode.txt') -Value $code
 
 Stop-Transcript | Out-Null
 Write-Host ''
-Write-Host "Results copied to the host at test\results\. This window stays open." -ForegroundColor Yellow
+
+# Shut the guest down from inside, which is the only clean way to end this.
+#
+# Closing the sandbox window asks the user to confirm, so it cannot be
+# automated. Killing the host-side session processes ends the window and
+# strands the VM: vmmemWindowsSandbox stays alive holding its whole memory
+# allocation, owned by the Hyper-V Host Compute Service and refusing
+# Stop-Process with "Access is denied". Reclaiming it then takes a service
+# restart. One run left 1.7 GB stranded exactly that way.
+#
+# Everything worth keeping is already on the host - the results folder is a
+# mapped host directory, written above, not something that leaves with the VM.
+if (Test-Path (Join-Path $results 'keepopen.flag')) {
+    Write-Host "Results copied to the host at test\results\. This window stays open (-KeepOpen)." -ForegroundColor Yellow
+} else {
+    Write-Host "Results copied to the host at test\results\. Shutting down." -ForegroundColor Yellow
+    Start-Sleep -Seconds 2
+    shutdown.exe /s /t 0
+}

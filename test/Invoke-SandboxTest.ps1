@@ -15,7 +15,11 @@
 [CmdletBinding()]
 param(
     [int]$TimeoutMinutes = 20,
-    [switch]$NoBuild
+    [switch]$NoBuild,
+    # Leave the sandbox running afterwards so it can be inspected. Off by
+    # default: the guest shuts itself down, because ending it from the host
+    # strands the VM and its whole memory allocation until a service restart.
+    [switch]$KeepOpen
 )
 
 $ErrorActionPreference = 'Stop'
@@ -125,6 +129,12 @@ if (-not (Test-Path -LiteralPath $wsb)) {
     exit 1
 }
 
+# The guest reads this to decide whether to shut itself down. Removed rather
+# than left behind, or one -KeepOpen run would make every later run stay up.
+$keepFlag = Join-Path $results 'keepopen.flag'
+Remove-Item -LiteralPath $keepFlag -Force -ErrorAction SilentlyContinue
+if ($KeepOpen) { Set-Content -LiteralPath $keepFlag -Value 'requested by -KeepOpen' -Encoding UTF8 }
+
 Write-Host "Launching Windows Sandbox ($wsb)..." -ForegroundColor Cyan
 Write-Host 'A sandbox window will open and run the test. Leave it alone.' -ForegroundColor DarkGray
 
@@ -150,7 +160,42 @@ while ((Get-Date) -lt $deadline) {
         Write-Host "Sandbox verification exit code: $code" -ForegroundColor $(if ($code -eq '0') { 'Green' } else { 'Red' })
         Write-Host "Full log: $(Get-ChildItem $results -Filter 'sandbox-run_*.log' | Select-Object -First 1 -ExpandProperty FullName)"
         Write-Host ''
-        Write-Host 'Close the sandbox window when you are done reading it - everything inside is discarded.' -ForegroundColor DarkGray
+        if ($KeepOpen) {
+            Write-Host 'The sandbox is still running (-KeepOpen). Close its window when finished.' -ForegroundColor DarkGray
+        } else {
+            # The guest shuts itself down. Wait for the VM to actually go
+            # rather than assuming it did: a stranded vmmemWindowsSandbox holds
+            # its entire memory allocation, belongs to the Hyper-V Host Compute
+            # Service, and refuses Stop-Process with "Access is denied". One run
+            # left 1.7 GB held that way, and only a service restart freed it.
+            for ($i = 0; $i -lt 30; $i++) {
+                if (-not (Get-Process -Name vmmemWindowsSandbox -ErrorAction SilentlyContinue)) { break }
+                Start-Sleep -Seconds 2
+            }
+            $stuck = Get-Process -Name vmmemWindowsSandbox -ErrorAction SilentlyContinue
+            if ($stuck) {
+                Write-Host ("The sandbox VM is still holding {0} MB after shutting down. Reclaim it with:" -f [int]($stuck.WorkingSet64/1MB)) -ForegroundColor Yellow
+                Write-Host '  Restart-Service vmcompute -Force     (elevated)' -ForegroundColor DarkGray
+            } else {
+                # The guest shutting down releases the VM but leaves the client
+                # window behind - an empty shell still holding around 190 MB.
+                # Checking only for vmmemWindowsSandbox reported a clean
+                # teardown while that was still on screen.
+                #
+                # Safe to end here, and only here: the VM is already gone, so
+                # there is nothing left to strand. Ending this process while a
+                # VM is still attached is what orphans one.
+                $client = Get-Process -Name WindowsSandboxRemoteSession, WindowsSandboxServer -ErrorAction SilentlyContinue
+                if ($client) {
+                    $mb = [int](($client | Measure-Object WorkingSet64 -Sum).Sum / 1MB)
+                    $client | Stop-Process -Force -ErrorAction SilentlyContinue
+                    Start-Sleep -Seconds 2
+                    Write-Host "Sandbox shut down; VM and its window released (${mb} MB)." -ForegroundColor DarkGray
+                } else {
+                    Write-Host 'Sandbox shut down and its memory released.' -ForegroundColor DarkGray
+                }
+            }
+        }
         exit [int]$code
     }
     Start-Sleep -Seconds 10
