@@ -47,8 +47,10 @@
     Skip creating a system restore point. Not recommended.
 
 .PARAMETER Aggressive
-    Include changes that are effective but more likely to surprise the user:
-    removing more AppX packages, disabling more background services.
+    Widen the AppX removal list to products some people genuinely use - Teams,
+    OneNote, To Do, Sticky Notes, Outlook for Windows. Nothing else in the run
+    behaves differently. It used to promise more than that, and the switch has
+    only ever reached this one list.
 
 .PARAMETER Version
     Print the version and the SHA256 of this exact file, then exit.

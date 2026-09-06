@@ -241,6 +241,110 @@ Test-Phase 'The AppX removal loop refuses protected packages' {
     }
 }
 
+Test-Phase 'Aggressive is the only way to reach the aggressive list' {
+    # -Aggressive was $false in every test in this project, so the widening it
+    # performs had never happened and the gate that holds it back had never
+    # been asked to. The list behind it is Teams, OneNote, To Do, Sticky Notes
+    # and Outlook for Windows - things people use daily. Lose the gate and a
+    # plain run takes them.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    # Pick the fixture out of the shipped lists rather than naming packages
+    # here, so the test cannot drift away from what the tool actually removes.
+    $aggr = @($script:AppxRemoveAggressive)[0]
+    $std  = @($script:AppxRemoveStandard)[0]
+
+    # Self-checking fixture. A name that is on the standard list as well would
+    # be removed with or without the switch, and would prove nothing either way.
+    if ($aggr -in @($script:AppxRemoveStandard + $script:AppxRemoveOem)) {
+        throw "fixture is wrong: '$aggr' is on another list too, so -Aggressive is not what reaches it"
+    }
+    if (Test-AppxProtected $aggr) { throw "fixture is wrong: '$aggr' is protected, so nothing removes it" }
+    if (Test-AppxProtected $std)  { throw "fixture is wrong: '$std' is protected, so the control never gets planned" }
+
+    $stash      = @($script:Actions)
+    $wasAggr    = $Aggressive
+
+    function Get-AppxPackage {
+        param([switch]$AllUsers)
+        @(
+            [pscustomobject]@{ Name = $script:FixtureAggr; PackageFullName = "$($script:FixtureAggr)_1_x64"; IsFramework = $false },
+            [pscustomobject]@{ Name = $script:FixtureStd;  PackageFullName = "$($script:FixtureStd)_1_x64";  IsFramework = $false }
+        )
+    }
+    $script:FixtureAggr = $aggr
+    $script:FixtureStd  = $std
+
+    try {
+        foreach ($state in @($false, $true)) {
+            Set-Variable -Name Aggressive -Value $state -Scope Script
+            $script:Actions.Clear()
+            Invoke-AppxPhase
+            $planned = @($script:Actions | Where-Object { $_.Kind -eq 'appx' } | ForEach-Object { "$($_.Target)" })
+
+            # The control. Without it, a phase that plans nothing at all would
+            # satisfy the "not planned" half and look like a working gate.
+            if ($planned -notcontains $std) {
+                $problems.Add("-Aggressive:$state planned nothing from the standard list, so this proves nothing") | Out-Null
+            }
+            if ($state -and $planned -notcontains $aggr) {
+                $problems.Add("-Aggressive did not reach '$aggr', which is the only thing the switch does") | Out-Null
+            }
+            if (-not $state -and $planned -contains $aggr) {
+                $problems.Add("a run without -Aggressive planned to remove '$aggr' - that list is Teams, OneNote, To Do and Sticky Notes") | Out-Null
+            }
+        }
+    }
+    finally {
+        Remove-Item Function:\Get-AppxPackage -ErrorAction SilentlyContinue
+        Remove-Variable -Name FixtureAggr, FixtureStd -Scope Script -ErrorAction SilentlyContinue
+        Set-Variable -Name Aggressive -Value $wasAggr -Scope Script
+        $script:Actions.Clear()
+        foreach ($a in $stash) { $script:Actions.Add($a) | Out-Null }
+    }
+
+    # And the help has to describe that and nothing more. It promised
+    # "disabling more background services" until 6 September, which the switch
+    # has never done - src\15-tasks.ps1 works off a fixed list and does not read
+    # $Aggressive at all. This block is what the site tells people to read
+    # before piping the script into an elevated shell.
+    $header = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '01-header.ps1')
+    $block  = [regex]::Match($header, '(?s)\.PARAMETER Aggressive\r?\n(.*?)(?=\r?\n\s*\.[A-Z]|\r?\n#>)')
+    if (-not $block.Success) { throw 'cannot find the .PARAMETER Aggressive help - this guard has stopped reading it' }
+    $text = $block.Groups[1].Value
+
+    # What each area of the run would be called in that paragraph, and the file
+    # that would have to read the switch for the claim to be true.
+    $areas = [ordered]@{
+        '09-appx.ps1'    = 'appx|package'
+        '15-tasks.ps1'   = 'service|scheduled task'
+        '16-cleanup.ps1' = 'cleanup|delete file'
+        '19-startup.ps1' = 'startup'
+    }
+    foreach ($file in $areas.Keys) {
+        $path = Join-Path (Join-Path $root 'src') $file
+        if (-not (Test-Path -LiteralPath $path)) { throw "$file is gone - this guard has stopped reading the code it checks" }
+        $reads    = (Get-Content -Raw -Encoding UTF8 -LiteralPath $path) -match '\$Aggressive'
+        $promised = $text -match $areas[$file]
+        if ($promised -and -not $reads) {
+            $problems.Add("the help for -Aggressive promises something in $file, which never reads the switch") | Out-Null
+        }
+        if ($reads -and -not $promised) {
+            $problems.Add("-Aggressive changes what $file does and the help does not say so") | Out-Null
+        }
+    }
+
+    # Anything else reading the switch is a claim nobody wrote down.
+    foreach ($f in (Get-ChildItem -LiteralPath (Join-Path $root 'src') -Filter '*.ps1')) {
+        if ($f.Name -eq '01-header.ps1' -or $areas.Contains($f.Name)) { continue }
+        if ((Get-Content -Raw -Encoding UTF8 -LiteralPath $f.FullName) -match '\$Aggressive') {
+            $problems.Add("$($f.Name) reads `$Aggressive and the help for it does not cover that file") | Out-Null
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 # The window's whole promise is that what you saw is what gets applied. That
 # rests entirely on the selection filter, so it gets its own test rather than
 # being trusted because it looks right.
