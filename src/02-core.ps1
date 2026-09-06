@@ -103,7 +103,12 @@ function Get-SystemTool {
 
 function Write-Log {
     param(
-        [Parameter(Mandatory)][string]$Message,
+        # A blank line is a legitimate thing to want in a warning block, and a
+        # mandatory [string] rejects '' outright. Disable-MemoryIntegrity asks
+        # for two of them, which made the one path in this tool that turns off a
+        # kernel security feature die on a parameter binding error the first
+        # time it was ever executed.
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Message,
         [ValidateSet('INFO','OK','WARN','FAIL','STEP','DRY')][string]$Level = 'INFO'
     )
     $colour = switch ($Level) {
@@ -119,7 +124,9 @@ function Write-Log {
     # interface - and a real failure always is, quiet or not.
     if (-not $script:Quiet -or $Level -eq 'FAIL') { Write-Host $line -ForegroundColor $colour }
     Add-Content -LiteralPath $script:LogPath -Value $line -Encoding UTF8
-    if ($Level -eq 'WARN' -or $Level -eq 'FAIL') { $script:Warnings.Add($Message) | Out-Null }
+    # Spacer lines inside a warning block are not warnings; collecting them
+    # would pad the end-of-run summary with blanks.
+    if (($Level -eq 'WARN' -or $Level -eq 'FAIL') -and $Message.Trim()) { $script:Warnings.Add($Message) | Out-Null }
 }
 
 <#

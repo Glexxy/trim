@@ -96,12 +96,131 @@ Test-Phase 'Invoke-BackgroundPhase'  { Invoke-BackgroundPhase }
 Test-Phase 'Invoke-ExtrasPhase'   { Invoke-ExtrasPhase -Facts $script:facts }
 Test-Phase 'Invoke-SecurityPhase' { Invoke-SecurityPhase -Facts $script:facts }
 Test-Phase 'Security phase is opt-in only' {
-    # The guarantee: a default run must never disable Memory Integrity.
-    $before = Get-MemoryIntegrityState
-    $n = $script:Ledger.Count
-    Invoke-SecurityPhase -Facts $script:facts
-    if ($script:Ledger.Count -ne $n) { throw 'default Security phase recorded a change; it must be read-only' }
-    if (-not $before) { throw 'could not read Memory Integrity state' }
+    # This used to run the default path against the real machine and check the
+    # ledger did not grow. Neither this machine nor the CI runner has Memory
+    # Integrity running, so Disable-MemoryIntegrity returned "already off.
+    # Nothing to do." before touching anything - and the test passed with the
+    # opt-in gate deleted outright. It could not fail for the one thing it was
+    # written to catch, which is the only thing that matters here: this is the
+    # single change in the tool that trades a kernel security feature for
+    # frames.
+    #
+    # The state is supplied now, so the dangerous path is reachable, and each
+    # route into it is exercised - including the two that must refuse.
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $key      = 'HKCU:\Software\TrimHvciGuardTest'
+    $actKey   = 'act|command|Disable Memory Integrity (HVCI)'
+
+    $script:HvciFixture = [pscustomobject]@{
+        HvciEnabled = $true; CredGuardActive = $false; VbsStatus = 2
+        VbsRunning  = $true; RegistryEnabled = 1;      Key = $key
+    }
+    function Get-MemoryIntegrityState { $script:HvciFixture }
+
+    $stashLedger  = @($script:Ledger)
+    $stashActions = @($script:Actions)
+    $wasFilter    = $script:SelectionFilter
+
+    # A real prior value to record. The plan tells the user "reversible: yes -
+    # undo script restores it", and a ledger entry with nothing in OldValue
+    # restores nothing.
+    New-Item -Path $key -Force | Out-Null
+    New-ItemProperty -Path $key -Name 'Enabled' -Value 1 -PropertyType DWord -Force | Out-Null
+
+    try {
+        # --- asked for on the command line -------------------------------
+        $script:SelectionFilter = $null
+        $script:Ledger.Clear(); $script:Actions.Clear(); $script:AlreadySet.Clear()
+        Invoke-SecurityPhase -Facts $script:facts -DisableMemoryIntegrity:$true
+
+        $writes = @($script:Ledger | Where-Object { "$($_.Path)" -like "*TrimHvciGuardTest" })
+        $names  = @($writes | ForEach-Object { "$($_.Name)" } | Sort-Object)
+        if (($names -join ',') -ne 'Enabled,WasEnabledBy') {
+            $problems.Add("-DisableMemoryIntegrity planned '$($names -join ', ')' - it must write Enabled and WasEnabledBy and nothing else") | Out-Null
+        }
+        foreach ($w in $writes) {
+            if ("$($w.NewValue)" -ne '0') { $problems.Add("$($w.Name) is being set to '$($w.NewValue)', not 0") | Out-Null }
+            if ("$($w.Tier)" -ne 'trade') { $problems.Add("$($w.Name) is tier '$($w.Tier)' - anything but trade arrives ticked in the window") | Out-Null }
+        }
+        # Reversibility is claimed on the row itself, so the prior value has to
+        # be in the ledger or the undo script has nothing to put back.
+        $enabled = @($writes | Where-Object { "$($_.Name)" -eq 'Enabled' })[0]
+        if ($enabled -and (-not $enabled.HadValue -or "$($enabled.OldValue)" -ne '1')) {
+            $problems.Add("the ledger did not record that Memory Integrity was on, so the undo script cannot turn it back on") | Out-Null
+        }
+        $act = @($script:Actions | Where-Object { "act|$($_.Kind)|$($_.Target)" -eq $actKey })
+        if ($act.Count -ne 1) { $problems.Add('the HVCI change is not offered as an action, so the window cannot show or refuse it') | Out-Null }
+        elseif ("$($act[0].Tier)" -ne 'trade') { $problems.Add("the HVCI action is tier '$($act[0].Tier)', not trade") | Out-Null }
+
+        # The window has to offer it already unticked. Everything else in the
+        # plan arrives ticked, and this is the one row where that would be a
+        # security downgrade nobody asked for.
+        $rows = @(Get-GuiItems -Ledger $writes -Actions $act)
+        foreach ($r in $rows) {
+            if ($r.Selected) { $problems.Add("the window offers '$($r.Title)' already ticked") | Out-Null }
+        }
+        if ($rows.Count -eq 0) { $problems.Add('no rows were built from the HVCI plan, so the tick state proves nothing') | Out-Null }
+
+        # Keys as the code resolves them, rather than as written here.
+        $selected = @{}
+        foreach ($w in $writes) { $selected["reg|$($w.Path)|$($w.Name)"] = $true }
+        $selected[$actKey] = $true
+
+        # --- not asked for, nothing ticked -------------------------------
+        $script:SelectionFilter = $null
+        $script:Ledger.Clear(); $script:Actions.Clear(); $script:AlreadySet.Clear()
+        Invoke-SecurityPhase -Facts $script:facts -DisableMemoryIntegrity:$false
+        if (@($script:Ledger | Where-Object { "$($_.Path)" -like "*TrimHvciGuardTest" }).Count) {
+            $problems.Add('a run that did not ask for it turned Memory Integrity off anyway') | Out-Null
+        }
+        if (@($script:Actions | Where-Object { "act|$($_.Kind)|$($_.Target)" -eq $actKey }).Count) {
+            $problems.Add('a run that did not ask for it planned the HVCI downgrade') | Out-Null
+        }
+
+        # --- ticked in the window, no switch on the command line ---------
+        # The elevated run is launched with -ApplySelection and not with
+        # -DisableMemoryIntegrity, so this is the route every window user takes.
+        $script:SelectionFilter = $selected
+        $script:Ledger.Clear(); $script:Actions.Clear(); $script:AlreadySet.Clear()
+        Invoke-SecurityPhase -Facts $script:facts -DisableMemoryIntegrity:$false
+        if (@($script:Ledger | Where-Object { "$($_.Path)" -like "*TrimHvciGuardTest" }).Count -ne 2) {
+            $problems.Add('ticking the row in the window did not turn Memory Integrity off, so the window cannot offer it at all') | Out-Null
+        }
+
+        # --- unticked in the window while the switch is still set --------
+        # Invoke-SecurityPhase falls through to Disable-MemoryIntegrity here:
+        # the filter check at the top does not match, and the switch is true.
+        # What stops the write is Set-Reg consulting the same filter. That is
+        # the load-bearing refusal, so it is the one worth asserting.
+        $script:SelectionFilter = @{}
+        $script:Ledger.Clear(); $script:Actions.Clear(); $script:AlreadySet.Clear()
+        Invoke-SecurityPhase -Facts $script:facts -DisableMemoryIntegrity:$true
+        if (@($script:Ledger | Where-Object { "$($_.Path)" -like "*TrimHvciGuardTest" }).Count) {
+            $problems.Add('unticking the row in the window did not stop it - Memory Integrity was turned off after the user refused') | Out-Null
+        }
+
+        # --- already off ------------------------------------------------
+        $script:HvciFixture = [pscustomobject]@{
+            HvciEnabled = $false; CredGuardActive = $false; VbsStatus = 0
+            VbsRunning  = $false; RegistryEnabled = 0;      Key = $key
+        }
+        $script:SelectionFilter = $null
+        $script:Ledger.Clear(); $script:Actions.Clear(); $script:AlreadySet.Clear()
+        Invoke-SecurityPhase -Facts $script:facts -DisableMemoryIntegrity:$true
+        if (@($script:Ledger | Where-Object { "$($_.Path)" -like "*TrimHvciGuardTest" }).Count) {
+            $problems.Add('a machine that already has Memory Integrity off was written to anyway') | Out-Null
+        }
+    }
+    finally {
+        Remove-Item Function:\Get-MemoryIntegrityState -ErrorAction SilentlyContinue
+        Remove-Variable -Name HvciFixture -Scope Script -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue
+        $script:SelectionFilter = $wasFilter
+        $script:Ledger.Clear();  foreach ($e in $stashLedger)  { $script:Ledger.Add($e)  | Out-Null }
+        $script:Actions.Clear(); foreach ($a in $stashActions) { $script:Actions.Add($a) | Out-Null }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
 }
 Test-Phase 'Invoke-Personalisation' { Invoke-PersonalisationPhase }
 
