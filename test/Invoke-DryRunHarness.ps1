@@ -2437,6 +2437,35 @@ Test-Phase 'The pages promise what the code actually does' {
         $problems.Add('no surface admits there is anything the undo script cannot put back - this check has stopped finding them') | Out-Null
     }
 
+    # --- "clone it and build it" has to be a complete instruction ----------
+    #
+    # The compiled header stamps the commit, so identical source at a different
+    # commit produces different bytes. A test-only commit is enough: the same
+    # src gave 85E6A316 at one commit and B85EC81F at the next.
+    #
+    # The trust card told people to clone, build, and compare against /sha256.
+    # Do that while main is one commit ahead of what was published and the
+    # hashes differ, with nothing on the page to say why - on the one check the
+    # page exists to invite.
+    # The header line is assembled, not written literally: build.ps1 has
+    # "Source: $commit" and $commit is "commit $described". Looking for the
+    # finished string found nothing and failed a check that was correct.
+    $build = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'build.ps1')
+    if ($build -notmatch 'Source: \$commit' -or $build -notmatch '"commit \$described"') {
+        throw 'the build no longer stamps the commit - this check has stopped reading the code it is about'
+    }
+    foreach ($doc in @('README.md', 'the landing page')) {
+        $t = $docs[$doc]
+        if ($t -notmatch '(?i)git clone') { continue }
+        if ($t -notmatch '(?i)git checkout') {
+            $problems.Add(("$doc says to clone and build without saying which commit, while the build stamps " +
+                           'one - so the instruction fails whenever the repository has moved on')) | Out-Null
+        }
+        if ($t -notmatch '(?i)Source: commit') {
+            $problems.Add("$doc does not say where to find the commit it was built from") | Out-Null
+        }
+    }
+
     # --- the leftovers list is not the same set as "what survived" ---------
     #
     # Get-AppLeftovers drops anything its deletion guards veto, and the pane

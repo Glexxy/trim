@@ -132,9 +132,14 @@ the restore point), and `netsh` TCP settings — one command, printed in the log
 **Build it yourself** — the build is reproducible, so the same commit gives
 byte-identical output. CI checks this on every push.
 
+The compiled script names the commit it came from on line 4, and `main` may
+have moved since it was published — check that commit out, or the hashes will
+differ for a reason nothing tells you about.
+
 ```powershell
 git clone https://github.com/Glexxy/trim
 cd trim
+git checkout <commit>   # line 4 of trim.ps1: "Source: commit ..."
 .\build.ps1
 ```
 

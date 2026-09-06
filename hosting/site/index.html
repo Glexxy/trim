@@ -364,13 +364,17 @@
       <article class="check hero-check">
         <h3><span class="chk-n">03</span> Build it yourself</h3>
         <p>A published hash proves the file reached you intact. Reproducibility proves
-           it matches the source. Clone the repository, compile it, and you get
+           it matches the source. Build the commit it was built from and you get
            <strong>byte-identical output</strong>.</p>
         <pre><code>git clone https://github.com/Glexxy/trim
 cd trim
+git checkout &lt;commit&gt;
 .\build.ps1</code></pre>
-        <p class="small">Same commit, same fingerprint. Very few tools distributed this
-           way can be checked that far.</p>
+        <p class="small">The commit is on line 4 of the script itself &mdash;
+           <code>#  Source: commit &hellip;</code> &mdash; because the head of the repository
+           may have moved since this build was published, and then the hashes would not
+           match and nothing would tell you why. Same commit, same fingerprint. Very few
+           tools distributed this way can be checked that far.</p>
       </article>
     </div>
 
