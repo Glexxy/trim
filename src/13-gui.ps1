@@ -1123,6 +1123,8 @@ function Invoke-GuiCleanScan {
 }
 
 $script:GuiLargeFiles = @()
+$script:LargeScanTruncated = $false
+$script:LargeScanSeconds   = 0
 
 <#
 .SYNOPSIS
@@ -1167,6 +1169,15 @@ function Show-GuiLargeFiles {
         'or deleted by Trim - a large file is not the same thing as a junk file, and only you can ' +
         'tell which is which. Windows and Program Files are left out.') `
         -Colour '#8C9A97' -Size 12 -Top 4
+
+    # The walk gives up after a fixed time, and until now said so only in the
+    # log. A partial list presented as a complete one is the wrong answer to
+    # "where did my disk go", and the person reading it has no way to tell.
+    if ($script:LargeScanTruncated) {
+        Add-GuiParagraph -Text ("This list is incomplete. The scan stopped after $($script:LargeScanSeconds) seconds " +
+            'and these are the largest it had found by then, so there may be bigger files it never reached.') `
+            -Colour '#E4B45C' -Size 12 -Top 8
+    }
 
     foreach ($f in $script:GuiLargeFiles) {
         $row = New-Object Windows.Controls.Border

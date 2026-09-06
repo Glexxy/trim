@@ -2201,6 +2201,28 @@ Test-Phase 'The pages promise what the code actually does' {
         $problems.Add('no surface admits there is anything the undo script cannot put back - this check has stopped finding them') | Out-Null
     }
 
+    # --- a scan that gives up has to say so -------------------------------
+    #
+    # Get-LargeFileScan stops walking after a fixed number of seconds and
+    # returns whatever it had. It said so in the log; the window showed
+    # "Largest files - N found" and a paragraph explaining what the list is
+    # for, with nothing to suggest it was partial. On a machine with several
+    # large drives that limit is easy to reach, and the answer to "where did my
+    # disk go" is then wrong in a way the person reading it cannot detect.
+    #
+    # If the scan can still stop early, the window has to read the result.
+    $clean = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '16-cleanup.ps1')
+    if ($clean -notmatch 'TimeoutSeconds' -or $clean -notmatch 'timedOut') {
+        throw 'Get-LargeFileScan no longer has a time limit - this check has stopped reading the code it is about'
+    }
+    if ($clean -notmatch 'LargeScanTruncated\s*=\s*\$timedOut') {
+        $problems.Add('the large-file scan does not record that it stopped early, so nothing downstream can say so') | Out-Null
+    }
+    if ($gui -notmatch 'LargeScanTruncated') {
+        $problems.Add(('the window never checks whether the large-file scan finished, so a partial list is ' +
+                       'shown as a complete one')) | Out-Null
+    }
+
     # --- three ways to switch off a startup item, not one ------------------
     #
     # "Switch one off and it uses the same switch Task Manager does, so it

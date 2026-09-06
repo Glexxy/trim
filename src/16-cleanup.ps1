@@ -356,6 +356,8 @@ function Get-LargeFileScan {
     }
 
     $min = [int64]$MinimumMB * 1MB
+    $script:LargeScanTruncated = $false
+    $script:LargeScanSeconds   = $TimeoutSeconds
 
     # Pruned while walking, not filtered afterwards. The first version of this
     # recursed through all of C:\Windows and then threw the results away, which
@@ -430,6 +432,16 @@ function Get-LargeFileScan {
 
     $ranked = @($found | Sort-Object Bytes -Descending | Select-Object -First $Top)
     $took = [Math]::Round($clock.Elapsed.TotalSeconds, 1)
+
+    # Recorded, not just logged. A 90-second walk gives up on a machine with
+    # several large drives, and the window presented what it had as the whole
+    # answer - "Largest files - 40 found", with nothing to say the walk had
+    # stopped early. Somebody working out where their disk went would get a
+    # partial picture and no reason to doubt it. The log said so; nobody reads
+    # the log while looking at the window.
+    $script:LargeScanTruncated = $timedOut
+    $script:LargeScanSeconds   = $TimeoutSeconds
+
     if ($timedOut) {
         Write-Log -Level WARN -Message "Large-file scan stopped at $TimeoutSeconds s. Showing the largest $($ranked.Count) of $($found.Count) found so far."
     } else {
