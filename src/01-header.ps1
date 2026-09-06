@@ -1,26 +1,47 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Trim - opinionated, reversible Windows 11 tuning.
+    Trim - opinionated, reversible Windows 10 and 11 tuning.
 
 .DESCRIPTION
     Applies a curated set of debloat, privacy, gaming and personalisation changes
-    to a Windows 11 machine. Every registry write is recorded before it is made,
-    and an undo script is emitted at the end of the run.
+    to a Windows 10 or 11 machine. Every registry write is recorded before it is
+    made, and an undo script is emitted at the end of the run.
 
-    Designed to be run on someone else's machine: it detects laptop vs desktop and
-    GPU vendor, and skips anything that does not apply rather than guessing.
+    It detects laptop vs desktop, GPU vendor and Windows version, and skips
+    anything that does not apply rather than guessing.
+
+    This block is the first thing anyone reads who takes the site up on "read the
+    whole thing before you run it", so the harness checks it against the
+    parameters below rather than trusting it. It used to say Windows 11 only, and
+    to name a phase called Nvidia that has never existed - following it produced
+    a parameter validation error.
+
+.PARAMETER Gui
+    Open the window. This is what a run with no arguments does, and nothing is
+    changed until Apply is pressed.
+
+.PARAMETER Apply
+    Apply from the command line, with no window and no prompt. Required: a run
+    without it changes nothing.
 
 .PARAMETER DryRun
     Show every change that would be made without making any of them. Still writes
-    a log. Use this first, always.
+    a log, and the only mode that does not ask for administrator rights - so a few
+    machine-wide values cannot be read and are missing from the plan.
 
 .PARAMETER Skip
-    Phases to skip. Valid: WinUtil, Fixes, Gaming, Privacy, Personalisation,
-    Appx, Network, Nvidia.
+    Phases to skip. The valid names are the ValidateSet on the parameter itself,
+    a few lines below; the harness checks this help against it.
 
 .PARAMETER Only
     Run only these phases. Overrides -Skip.
+
+.PARAMETER Cleanup
+    Include the disk cleanup scan. Never part of a preset.
+
+.PARAMETER LargeFiles
+    Report the biggest files on every drive. Report only - nothing is deleted.
 
 .PARAMETER NoRestorePoint
     Skip creating a system restore point. Not recommended.
@@ -29,14 +50,17 @@
     Include changes that are effective but more likely to surprise the user:
     removing more AppX packages, disabling more background services.
 
+.PARAMETER Version
+    Print the version and the SHA256 of this exact file, then exit.
+
+.EXAMPLE
+    irm https://trimbloat.com/go | iex
+
 .EXAMPLE
     .\trim.ps1 -DryRun
 
 .EXAMPLE
     .\trim.ps1 -Skip Appx,Network
-
-.EXAMPLE
-    irm https://example.com/opt.ps1 | iex
 #>
 [CmdletBinding()]
 param(

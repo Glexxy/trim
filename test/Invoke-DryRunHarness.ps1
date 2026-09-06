@@ -2555,6 +2555,118 @@ Test-Phase 'The documents point at things that exist' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+Test-Phase 'Documented commands are commands that work' {
+    # The script's own comment-based help said "Valid: WinUtil, Fixes, Gaming,
+    # Privacy, Personalisation, Appx, Network, Nvidia" and the README's usage
+    # table said `-Only Gaming,Nvidia`. There has never been a phase called
+    # Nvidia - the GPU one is Graphics - so following either produced:
+    #
+    #   Cannot validate argument on parameter 'Only'. The argument "Nvidia"
+    #   does not belong to the set...
+    #
+    # The help also said Windows 11 only, on a tool whose landing page answers
+    # "Does it work on Windows 10?" with "Yes, 10 and 11". That block is the
+    # first thing anyone reads who takes the site up on reading the script.
+    #
+    # Everything below is checked against the param block, which is the only
+    # thing that decides what actually works.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    $headerPath = Join-Path (Join-Path $root 'src') '01-header.ps1'
+    $header = Get-Content -Raw -Encoding UTF8 -LiteralPath $headerPath
+
+    # What the parameters really are, straight off the param block.
+    $vm = [regex]::Match($header, "\[ValidateSet\(([^)]*)\)\]\s*\r?\n\s*\[string\[\]\]\`$Only\b")
+    if (-not $vm.Success) { throw 'cannot read the -Only ValidateSet - this guard has stopped reading the code it checks' }
+    $validPhases = @([regex]::Matches($vm.Groups[1].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
+    if ($validPhases.Count -lt 5) { throw "found only $($validPhases.Count) phase name(s) - this guard has stopped finding them" }
+
+    $paramBlock = [regex]::Match($header, '(?s)\[CmdletBinding\(\)\]\s*param\((.*?)\r?\n\)')
+    if (-not $paramBlock.Success) { throw 'cannot read the param block - this guard has stopped reading the code it checks' }
+    $realParams = @([regex]::Matches($paramBlock.Groups[1].Value, '\$([A-Za-z]\w*)\s*(?:=|,|\r?\n|\))') |
+                    ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+    if ($realParams.Count -lt 8) { throw "found only $($realParams.Count) parameter(s) - this guard has stopped finding them" }
+
+    # Where commands get documented. The help block is part of the artefact
+    # people are told to read; the README table is what they copy from.
+    $help = [regex]::Match($header, '(?s)<#\s*\r?\n\.SYNOPSIS.*?\r?\n#>')
+    if (-not $help.Success) { throw 'cannot find the comment-based help - this guard has stopped reading it' }
+
+    $sources = @{
+        "the script's help" = $help.Value
+        'README.md'         = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'README.md')
+    }
+
+    $checked = 0
+    foreach ($where in $sources.Keys) {
+        $text = $sources[$where]
+
+        # -Skip / -Only followed by a comma-separated list of phase names.
+        # Case-sensitive, and not preceded by a word character or a hyphen:
+        # "a report-only large-file scanner" is prose, not an invocation, and
+        # the first version of this read it as -Only large.
+        foreach ($m in [regex]::Matches($text, '(?<![\w-])-(Skip|Only)\s+([A-Za-z][A-Za-z,]*)')) {
+            foreach ($name in ($m.Groups[2].Value -split ',')) {
+                $name = $name.Trim()
+                if (-not $name) { continue }
+                $checked++
+                if ($validPhases -notcontains $name) {
+                    $problems.Add(("$where documents -$($m.Groups[1].Value) $name; " +
+                                   "'$name' is not a phase and the parameter rejects it")) | Out-Null
+                }
+            }
+        }
+
+        # Every flag it names has to be a parameter that exists.
+        foreach ($m in [regex]::Matches($text, '(?m)^\s*\.PARAMETER\s+(\w+)\s*$')) {
+            $checked++
+            if ($realParams -notcontains $m.Groups[1].Value) {
+                $problems.Add("$where documents a -$($m.Groups[1].Value) parameter that does not exist") | Out-Null
+            }
+        }
+        foreach ($m in [regex]::Matches($text, '\|\s*`-(\w+)')) {
+            $checked++
+            if ($realParams -notcontains $m.Groups[1].Value) {
+                $problems.Add("$where lists -$($m.Groups[1].Value) in its flag table; there is no such parameter") | Out-Null
+            }
+        }
+    }
+    if ($checked -lt 10) {
+        $problems.Add("only $checked documented command element(s) found - this guard has stopped finding them") | Out-Null
+    }
+
+    # The help must not narrow the supported Windows to one version while the
+    # code gates on both and the site answers the question the other way.
+    $detect = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '03-detect.ps1')
+    if ($detect -match 'IsWindows11') {
+        $synopsis = [regex]::Match($help.Value, '(?s)\.SYNOPSIS\s*\r?\n(.*?)\r?\n\s*\.')
+        $desc     = [regex]::Match($help.Value, '(?s)\.DESCRIPTION\s*\r?\n(.*?)\r?\n\s*\.PARAMETER')
+        foreach ($part in @(@{ N = 'SYNOPSIS'; M = $synopsis }, @{ N = 'DESCRIPTION'; M = $desc })) {
+            if (-not $part.M.Success) {
+                $problems.Add("cannot read the help's .$($part.N) - this check has stopped reading it") | Out-Null
+                continue
+            }
+            $t = $part.M.Groups[1].Value
+            if ($t -match '(?i)windows\s*11' -and $t -notmatch '(?i)(10\s*(and|or|/)\s*11|windows\s*10)') {
+                $problems.Add((".$($part.N) says Windows 11 without mentioning Windows 10, which this supports " +
+                               'and gates on. The site answers "Does it work on Windows 10?" with "Yes, 10 and 11".')) | Out-Null
+            }
+        }
+    }
+
+    # And the one-liner in the help has to be the real one. It was
+    # https://example.com/opt.ps1 - a placeholder, for a filename that no
+    # longer exists, in the examples for a tool distributed as one line.
+    foreach ($m in [regex]::Matches($help.Value, '(?i)irm\s+(\S+)')) {
+        $url = $m.Groups[1].Value
+        if ($url -notmatch '^https://trimbloat\.com/') {
+            $problems.Add("the script's help shows `irm $url`; the one-liner is https://trimbloat.com/go") | Out-Null
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'Every feature is reachable' {
     # Get-LargeFileScan shipped as dead code: written, unit-checked in isolation,
     # wired to nothing, and reported as delivered. This asserts that anything

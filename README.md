@@ -161,7 +161,7 @@ nothing changes until you click Apply.
 | `-DryRun` | Print the plan, change nothing |
 | `-Gui` | Open the window (this is the default) |
 | `-Skip Appx,Network` | Leave phases out |
-| `-Only Gaming,Nvidia` | Run only those phases |
+| `-Only Gaming,Graphics` | Run only those phases |
 | `-Cleanup` | Include the disk cleanup scan |
 | `-LargeFiles` | Report the biggest files on every drive |
 | `-NoRestorePoint` | Skip the restore point |
