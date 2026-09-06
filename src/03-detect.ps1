@@ -89,7 +89,7 @@ function Get-HardwareDetail {
         BiosVersion = if ($bios) { "$($bios.SMBIOSBIOSVersion)" } else { '' }
         Disks       = $disks
         RamSticks   = $ramSticks
-        RamSpeed    = if ($ramSticks.Count) { ($ramSticks | Measure-Object Speed -Maximum).Maximum } else { 0 }
+        RamSpeed    = [int](Get-MaxOrZero -Items @($ramSticks) -Property Speed)
     }
     return $script:HardwareDetail
 }

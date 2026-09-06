@@ -929,7 +929,11 @@ function Add-GuiSpecGrid {
 
 function Copy-GuiSpecs {
     $rows = Get-MachineSpecRows -Facts $script:GuiFacts
-    $width = ($rows.Keys | Measure-Object -Property Length -Maximum).Maximum
+    # Written out rather than measured: Measure-Object over no rows returns an
+    # object with no Maximum property, and reading it under StrictMode is a
+    # terminating error - on the button whose only job is to copy some text.
+    $width = 0
+    foreach ($k in $rows.Keys) { if ("$k".Length -gt $width) { $width = "$k".Length } }
     $lines = @('System specification', ('-' * 60))
     foreach ($k in $rows.Keys) {
         $value = "$($rows[$k])" -split [Environment]::NewLine
@@ -1120,32 +1124,6 @@ function Invoke-GuiCleanScan {
     $script:GuiCleanItems = @(Get-CleanupScan -Quiet)
     $script:GuiCleanScanned = $true
     Update-GuiItems
-}
-
-<#
-.SYNOPSIS
-    Total a property across a collection that may be empty.
-
-.DESCRIPTION
-    Measure-Object over nothing returns an object with no Sum property, and
-    reading it under Set-StrictMode -Version 2.0 is a terminating error - so
-    "$(($items | Measure-Object Bytes -Sum).Sum)" crashes on exactly the case it
-    is meant to describe.
-
-    The disk cleanup pane did that. Scan a machine with nothing to clean and it
-    threw on the line above the one that says "Nothing to clean. This PC is
-    already tidy." - a message that could never be reached, on the pane whose
-    whole job is to be careful.
-
-    Six places computed a sum this way. One helper, so the next one cannot get
-    it wrong on its own.
-#>
-function Get-SumOrZero {
-    param([AllowNull()][object[]]$Items, [Parameter(Mandatory)][string]$Property)
-    if (-not $Items -or @($Items).Count -eq 0) { return [double]0 }
-    $m = $Items | Measure-Object -Property $Property -Sum -ErrorAction SilentlyContinue
-    if (-not $m -or $null -eq $m.PSObject.Properties['Sum'] -or $null -eq $m.Sum) { return [double]0 }
-    return [double]$m.Sum
 }
 
 $script:GuiLargeFiles = @()

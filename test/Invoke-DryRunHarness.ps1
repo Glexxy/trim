@@ -3591,6 +3591,72 @@ Test-Phase 'Privacy carve-out guard' {
     }
 }
 
+Test-Phase 'Scanning a machine with nothing to find does not throw' {
+    # "(... | Measure-Object X -Sum).Sum" over an empty collection is a
+    # terminating error under Set-StrictMode -Version 2.0, which this script
+    # sets and which anything it calls inherits.
+    #
+    # The window's cleanup pane shipped that fault: it threw on the line above
+    # the one that says "Nothing to clean. This PC is already tidy." Six sites
+    # went through Get-SumOrZero then. Two were missed, because nothing had ever
+    # run them with nothing to find - Get-CleanupScan totals the same way when
+    # it is not -Quiet, which is the command line rather than the window, and
+    # Get-DuplicateScan totals its findings, which on most machines are none.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    # A directory with nothing duplicated in it. -IncludeDuplicates on a tidy
+    # machine is the ordinary case, not an edge one.
+    $dir = Join-Path ([IO.Path]::GetTempPath()) "trim-nodupe-$([Guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    try {
+        $rows = @(Get-DuplicateScan -Roots @($dir) -MinimumMB 1)
+        if ($rows.Count) {
+            $problems.Add("the fixture is wrong: $($rows.Count) duplicate(s) found in an empty directory") | Out-Null
+        }
+    }
+    catch { $problems.Add("Get-DuplicateScan threw when it found nothing: $($_.Exception.Message)") | Out-Null }
+    finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    # The cleanup scan with nothing to scan. Shadowing the definitions is the
+    # only way to reach it - the real ones always match something on a machine
+    # that has been switched on.
+    function Get-CleanupDefinitions { param($Drives) @() }
+    try {
+        $items = @(Get-CleanupScan)
+        if ($items.Count) {
+            $problems.Add("the fixture is wrong: $($items.Count) location(s) found with no definitions") | Out-Null
+        }
+    }
+    catch { $problems.Add("Get-CleanupScan threw with nothing to report: $($_.Exception.Message)") | Out-Null }
+    finally { Remove-Item Function:\Get-CleanupDefinitions -ErrorAction SilentlyContinue }
+
+    # And the rule, so the eighth one cannot be written. Read from the syntax
+    # tree rather than the text, so the worked example inside Get-SumOrZero's
+    # own help does not count as a use.
+    foreach ($f in (Get-ChildItem -LiteralPath (Join-Path $root 'src') -Filter '*.ps1')) {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$null)
+        $hits = $ast.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.MemberExpressionAst] -and
+            "$($n.Member.Extent.Text)" -in @('Sum','Maximum','Minimum','Average') -and
+            $n.Expression.Extent.Text -match 'Measure-Object'
+        }, $true)
+        foreach ($h in $hits) {
+            # A try that supplies a default is the other honest way to write it.
+            $node = $h.Parent
+            $caught = $false
+            while ($node) {
+                if ($node -is [System.Management.Automation.Language.TryStatementAst]) { $caught = $true; break }
+                $node = $node.Parent
+            }
+            if ($caught) { continue }
+            $problems.Add("$($f.Name) line $($h.Extent.StartLineNumber) reads .$($h.Member.Extent.Text) straight off a Measure-Object result; over an empty collection that property does not exist and StrictMode makes reading it fatal - use Get-SumOrZero, or catch it") | Out-Null
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Write-Host ''
 if ($failures.Count -eq 0) {
     Write-Host "All checks passed. Log: $($script:LogPath)" -ForegroundColor Green

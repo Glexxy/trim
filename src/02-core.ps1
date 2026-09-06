@@ -101,6 +101,54 @@ function Get-SystemTool {
     return $null
 }
 
+<#
+.SYNOPSIS
+    Total a property across a collection that may be empty.
+
+.DESCRIPTION
+    Measure-Object over nothing returns an object with no Sum property, and
+    reading it under Set-StrictMode -Version 2.0 is a terminating error - so
+    "$(($items | Measure-Object Bytes -Sum).Sum)" crashes on exactly the case it
+    is meant to describe.
+
+    The disk cleanup pane did that. Scan a machine with nothing to clean and it
+    threw on the line above the one that says "Nothing to clean. This PC is
+    already tidy." - a message that could never be reached, on the pane whose
+    whole job is to be careful.
+
+    Six places in the window computed a sum this way, and Get-DuplicateScan
+    made it seven - it totalled its findings the unsafe way, so asking for
+    duplicates on a machine that has none threw rather than reporting none.
+    That is why this lives in core rather than beside the window.
+#>
+function Get-SumOrZero {
+    param([AllowNull()][object[]]$Items, [Parameter(Mandatory)][string]$Property)
+    if (-not $Items -or @($Items).Count -eq 0) { return [double]0 }
+    $m = $Items | Measure-Object -Property $Property -Sum -ErrorAction SilentlyContinue
+    if (-not $m -or $null -eq $m.PSObject.Properties['Sum'] -or $null -eq $m.Sum) { return [double]0 }
+    return [double]$m.Sum
+}
+
+<#
+.SYNOPSIS
+    The largest value of a property across a collection that may be empty.
+
+.DESCRIPTION
+    The same fault as Get-SumOrZero, in the other direction: Measure-Object
+    -Maximum over nothing returns an object with no Maximum property. Here so
+    that the rule can be absolute - nothing reads a property straight off a
+    Measure-Object result - rather than "unless a count check happens to sit in
+    front of it", which is a rule nobody remembers at the point of writing the
+    next one.
+#>
+function Get-MaxOrZero {
+    param([AllowNull()][object[]]$Items, [Parameter(Mandatory)][string]$Property)
+    if (-not $Items -or @($Items).Count -eq 0) { return [double]0 }
+    $m = $Items | Measure-Object -Property $Property -Maximum -ErrorAction SilentlyContinue
+    if (-not $m -or $null -eq $m.PSObject.Properties['Maximum'] -or $null -eq $m.Maximum) { return [double]0 }
+    return [double]$m.Maximum
+}
+
 function Write-Log {
     param(
         # A blank line is a legitimate thing to want in a warning block, and a

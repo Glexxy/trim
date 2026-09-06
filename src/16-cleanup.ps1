@@ -228,7 +228,10 @@ function Get-CleanupScan {
     }
 
     if (-not $Quiet) {
-        $total = ($results | Measure-Object Bytes -Sum).Sum
+        # A machine with nothing to clean is the whole point of scanning, and it
+        # is exactly the case that made this throw when it was written the
+        # obvious way. The window never saw it because the window scans -Quiet.
+        $total = Get-SumOrZero -Items @($results) -Property Bytes
         Write-Log "Found $(Format-Bytes ([double]$total)) across $($results.Count) location(s)."
     }
     return @($results | Sort-Object Bytes -Descending)
@@ -313,7 +316,9 @@ function Get-DuplicateScan {
         }
     }
 
-    $total = ($groups | Measure-Object Bytes -Sum).Sum
+    # Finding nothing is the normal outcome, and totalling an empty collection
+    # the obvious way throws under Set-StrictMode -Version 2.0.
+    $total = Get-SumOrZero -Items @($groups) -Property Bytes
     Write-Log "Found $($groups.Count) duplicate file(s), $(Format-Bytes ([double]$total)) recoverable."
     return @($groups | Sort-Object Bytes -Descending)
 }
@@ -615,7 +620,7 @@ function Invoke-CleanupPhase {
 
     Write-Host ''
     foreach ($grp in ($items | Group-Object Category)) {
-        $sum = ($grp.Group | Measure-Object Bytes -Sum).Sum
+        $sum = Get-SumOrZero -Items @($grp.Group) -Property Bytes
         Write-Log "$($grp.Name)  -  $(Format-Bytes ([double]$sum)) in $($grp.Count) location(s)"
         foreach ($i in $grp.Group) { Write-Log "    $($i.Size.PadLeft(10))  $($i.Path)" }
     }
