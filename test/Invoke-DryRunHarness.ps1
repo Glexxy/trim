@@ -2201,6 +2201,33 @@ Test-Phase 'The pages promise what the code actually does' {
         $problems.Add('no surface admits there is anything the undo script cannot put back - this check has stopped finding them') | Out-Null
     }
 
+    # --- three ways to switch off a startup item, not one ------------------
+    #
+    # "Switch one off and it uses the same switch Task Manager does, so it
+    # stays off and you can turn it back on without this tool" was on the site
+    # and, in almost the same words, in the window. It is true of the Run keys.
+    # A Startup folder shortcut is moved instead, and a logon scheduled task
+    # cannot be switched off from here at all - Disable-StartupItem refuses it.
+    # Somebody reading that sentence goes looking for a button that is not
+    # there and concludes the tool is broken.
+    $startup = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '19-startup.ps1')
+    $cannotChangeAll = $startup -match 'CanChange\s*=\s*\$false' -and $startup -match 'Move-Item'
+    if (-not $cannotChangeAll) {
+        throw 'Disable-StartupItem no longer has the cases this guard is about - re-read it before deleting the check'
+    }
+    $sawTaskManager = $false
+    foreach ($doc in $docs.Keys) {
+        if ($docs[$doc] -notmatch '(?i)task manager') { continue }
+        $sawTaskManager = $true
+        if ($docs[$doc] -notmatch '(?i)scheduled task') {
+            $problems.Add(("$doc credits Task Manager's switch for turning startup items off without mentioning " +
+                           'scheduled tasks, which cannot be switched off from here at all')) | Out-Null
+        }
+    }
+    if (-not $sawTaskManager) {
+        $problems.Add('no surface mentions Task Manager any more - this check has stopped finding the claim it guards') | Out-Null
+    }
+
     # --- the restore point is best-effort, and both pages have to say so ----
     $core = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '02-core.ps1')
     $fn = [regex]::Match($core, '(?s)function New-SafetyRestorePoint \{.*?\r?\n\}')
@@ -2404,6 +2431,124 @@ Test-Phase 'The sandbox figure in SECURITY.md is the one it verified' {
         } elseif ([int]$sm.Groups[1].Value -ne [int]$claim.Groups[1].Value) {
             $problems.Add(("SECURITY.md says the sandbox verified $($claim.Groups[1].Value) changes; " +
                            "the last passing run verified $($sm.Groups[1].Value)")) | Out-Null
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
+Test-Phase 'The documents point at things that exist' {
+    # Every markdown file here links to other files, and DECISIONS.md goes
+    # further: each entry ends with "To change it:" and names a variable, a
+    # setting number or a registry value in a specific source file. Those are
+    # instructions somebody follows while editing, so a stale one sends them to
+    # change the wrong thing - or to look for something that is no longer there
+    # and conclude the document is fiction.
+    #
+    # Nothing checked either. Every claim in this project that nothing checked
+    # has eventually gone wrong.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    # --- relative links resolve ---------------------------------------------
+    $docs = @('README.md', 'SECURITY.md', 'NOTICE.md', 'docs\DECISIONS.md')
+    $checked = 0
+    foreach ($rel in $docs) {
+        $path = Join-Path $root $rel
+        if (-not (Test-Path -LiteralPath $path)) {
+            $problems.Add("$rel does not exist") | Out-Null
+            continue
+        }
+        $text = Get-Content -Raw -Encoding UTF8 -LiteralPath $path
+        $here = Split-Path $path -Parent
+
+        foreach ($m in [regex]::Matches($text, '\]\(([^)]+)\)')) {
+            $target = $m.Groups[1].Value.Trim()
+            # External links, anchors and mail are somebody else's problem.
+            if ($target -match '^(https?:|mailto:|#)') { continue }
+            $target = ($target -split '#')[0]
+            if (-not $target) { continue }
+            $checked++
+            $resolved = Join-Path $here ($target -replace '/', '\')
+            if (-not (Test-Path -LiteralPath $resolved)) {
+                $problems.Add("$rel links to $target, which does not exist") | Out-Null
+            }
+        }
+    }
+    if ($checked -lt 5) {
+        $problems.Add("only $checked relative link(s) found across the documents - this check has stopped finding them") | Out-Null
+    }
+
+    # --- DECISIONS.md names things that are really there ---------------------
+    $dec = Join-Path $root 'docs\DECISIONS.md'
+    if (Test-Path -LiteralPath $dec) {
+        $text = Get-Content -Raw -Encoding UTF8 -LiteralPath $dec
+
+        # Each entry: what the document says, where it says to change it, and
+        # the value it states is the current default. Checked against the source
+        # rather than trusted, because "flip $script:DisableGameMode" is useless
+        # advice the day somebody renames it.
+        $pointers = @(
+            @{ Says = '$script:DisableGameMode'; In = 'src\06-gaming.ps1'
+               Default = '\$script:DisableGameMode\s*=\s*\$true'
+               Is = 'Game Mode off by default' },
+            @{ Says = '549528094'; In = 'src\11-gpu.ps1'
+               Default = "Add-S\s+549528094\s+'Threaded optimization'\s+2"
+               Is = 'Threaded Optimization set to Auto (2)' },
+            @{ Says = 'Start_TrackProgs'; In = 'src\08-personalisation.ps1'
+               Default = "'Start_TrackProgs'\s+1"
+               Is = 'launch tracking left on' },
+            @{ Says = 'SystemResponsiveness'; In = 'src\10-network.ps1'
+               Default = "'SystemResponsiveness'\s+10"
+               Is = 'SystemResponsiveness set to 10' }
+        )
+
+        foreach ($p in $pointers) {
+            if ($text -notmatch [regex]::Escape($p.Says)) {
+                $problems.Add("DECISIONS.md no longer mentions $($p.Says) - this check has stopped reading it") | Out-Null
+                continue
+            }
+            $src = Join-Path $root $p.In
+            if (-not (Test-Path -LiteralPath $src)) {
+                $problems.Add("DECISIONS.md sends you to $($p.In) for $($p.Says); that file does not exist") | Out-Null
+                continue
+            }
+            $code = Get-Content -Raw -Encoding UTF8 -LiteralPath $src
+            if ($code -notmatch [regex]::Escape($p.Says)) {
+                $problems.Add("DECISIONS.md says to change $($p.Says) in $($p.In), which does not contain it") | Out-Null
+            } elseif ($code -notmatch $p.Default) {
+                $problems.Add(("DECISIONS.md describes the default as '$($p.Is)', which is no longer what " +
+                               "$($p.In) does. Either the default changed or the document did not.")) | Out-Null
+            }
+        }
+
+        # The two things it says are Risky and off by default. Both are the
+        # kind of change somebody would be angry to find had been applied
+        # without asking, so the tier is the claim that matters.
+        $risky = @(
+            @{ What = 'Removing Edge';   In = 'src\18-extras.ps1';  Find = "'Uninstall Microsoft Edge'" },
+            @{ What = 'Memory Integrity'; In = 'src\12-security.ps1'; Find = "Memory Integrity off \(opted in\)" }
+        )
+        foreach ($r in $risky) {
+            $code = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root $r.In)
+            $m = [regex]::Match($code, "$($r.Find)[\s\S]{0,400}?-Tier\s+(\w+)")
+            if (-not $m.Success) {
+                $problems.Add("cannot find the tier for $($r.What) in $($r.In) - this check has stopped reading it") | Out-Null
+            } elseif ($m.Groups[1].Value -ne 'trade') {
+                $problems.Add(("DECISIONS.md says $($r.What) is Risky and off by default; " +
+                               "$($r.In) marks it '$($m.Groups[1].Value)'")) | Out-Null
+            }
+        }
+
+        # And the packages it names as protected have to still be protected.
+        $named = @('Microsoft.VCLibs', 'Microsoft.UI.Xaml', 'Microsoft.NET.Native',
+                   'Microsoft.WindowsAppRuntime', 'Microsoft.DesktopAppInstaller',
+                   'Microsoft.XboxIdentityProvider')
+        foreach ($pkg in $named) {
+            $short = ($pkg -split '\.')[-1]
+            if ($text -notmatch [regex]::Escape($short)) { continue }
+            if (-not (Test-AppxProtected $pkg)) {
+                $problems.Add("DECISIONS.md says $pkg is protected from removal; Test-AppxProtected disagrees") | Out-Null
+            }
         }
     }
 

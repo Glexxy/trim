@@ -1,7 +1,7 @@
 ﻿# The window these screenshots were taken of.
 # Regenerate them with test\Export-GuiScreenshots.ps1 when this stops matching.
 # Line-ending normalised, so a fresh clone and a working copy agree.
-13-gui.ps1 46C71BA922584F54E37CB9F1AF5A1BF158FEA4210455A400692EE689181E0352
+13-gui.ps1 008EAC3B832D247367EE9A70D81AE0DC343527F3343049ED0427ACAAD9DE88AF
 
 # What the overview pane in overview.png actually says. The site quotes
 # both numbers as things the tool found, so the harness checks them.

@@ -1428,9 +1428,16 @@ function Show-GuiStartup {
         Add-GuiParagraph -Text ('Every program that launches when you sign in, from all four places Windows ' +
             'keeps them: your account, the machine-wide list, the two Startup folders, and scheduled tasks ' +
             'that trigger at logon.') -Top 6
-        Add-GuiParagraph -Text ('Switching one off here is the same switch Task Manager uses, so it stays off ' +
-            'and you can turn it back on without this tool. Nothing is deleted: shortcuts are moved to a ' +
-            '"Disabled by Trim" folder, and the undo script puts them back.') -Colour '#8C9A97' -Size 12 -Top 10
+        # Three mechanisms, and this used to describe them as one. "The same
+        # switch Task Manager uses" is true of the registry entries only; a
+        # Startup folder shortcut is moved, and a logon scheduled task cannot be
+        # changed from here at all - it is listed so you know it is there. The
+        # rows already show which is which; the paragraph above them did not.
+        Add-GuiParagraph -Text ('Registry entries are switched off the way Task Manager does it, so they stay off ' +
+            'and you can turn them back on without this tool. Startup folder shortcuts are moved into a ' +
+            '"Disabled by Trim" folder rather than deleted. Both go through the undo script. Scheduled tasks ' +
+            'are listed so you can see them, but changing one is a job for Task Scheduler.') `
+            -Colour '#8C9A97' -Size 12 -Top 10
 
         $b = New-Object Windows.Controls.Button
         $b.Style = $script:GuiWin.FindResource('Primary')
