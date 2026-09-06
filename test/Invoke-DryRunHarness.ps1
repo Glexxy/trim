@@ -147,6 +147,98 @@ Test-Phase 'AppX protection guard' {
     foreach ($r in ($script:AppxRemoveStandard + $script:AppxRemoveAggressive + $script:AppxRemoveOem)) {
         if (Test-AppxProtected $r) { throw "removal list entry '$r' collides with the protected list" }
     }
+
+    # Targets are matched with "$target*", so a removal entry only has to be a
+    # PREFIX of a protected package to sweep it up - 'Microsoft.Xbox' would
+    # reach Microsoft.XboxIdentityProvider, which is how a large number of PC
+    # games sign in. Checking the two lists for equal entries does not see that.
+    #
+    # No such prefix exists today. The phase re-checks each resolved name for
+    # exactly this reason, and this keeps the lists themselves from growing one.
+    $targets   = @($script:AppxRemoveStandard + $script:AppxRemoveAggressive + $script:AppxRemoveOem)
+    $protected = @('Microsoft.DesktopAppInstaller','Microsoft.WindowsStore','Microsoft.XboxIdentityProvider',
+                   'Microsoft.VCLibs.140.00','Microsoft.UI.Xaml.2.8','Microsoft.NET.Native.Framework.2.2',
+                   'Microsoft.WindowsAppRuntime.1.5','Microsoft.SecHealthUI')
+    foreach ($p in $protected) {
+        foreach ($t in $targets) {
+            if ($p -like "$t*") { throw "removal target '$t' is a prefix of protected package '$p' and would match it" }
+        }
+    }
+}
+
+Test-Phase 'The AppX removal loop refuses protected packages' {
+    # The protections were asserted by comparing two lists; the loop that
+    # applies them had never run. That is the shape the leftover scan had -
+    # both filters unit-guarded, and it still offered another product's folder
+    # the first time anything executed it.
+    #
+    # A Windows Sandbox image has nothing this phase removes, so the real run
+    # cannot exercise this. Get-AppxPackage is shadowed instead, and the actual
+    # loop runs against an inventory built to be hostile: a protected package
+    # sitting directly behind a removal target that prefixes it.
+    #
+    # Asserted against $script:Actions - data the phase produced - rather than
+    # against captured console text, because Write-Log reports through
+    # Write-Host and a captured stream comes back empty.
+    # The danger has to be REACHABLE or this proves nothing. The first version
+    # of this test put protected packages in the inventory and stopped there -
+    # but no shipped removal target matches any of them, so the loop never
+    # considered them and the test passed with both protection checks deleted.
+    #
+    # The targets are therefore made hostile too: one that is literally a
+    # protected package, and one that is a PREFIX of a protected package. Those
+    # are the two refusals the phase performs, and each is now reachable.
+    $stash        = @($script:Actions)
+    $stashTargets = @($script:AppxRemoveStandard)
+    $script:Actions.Clear()
+
+    function Get-AppxPackage {
+        param([switch]$AllUsers)
+        @(
+            [pscustomobject]@{ Name = 'Microsoft.XboxIdentityProvider'; PackageFullName = 'Microsoft.XboxIdentityProvider_1_x64'; IsFramework = $false },
+            [pscustomobject]@{ Name = 'Microsoft.XboxGamingOverlay';    PackageFullName = 'Microsoft.XboxGamingOverlay_1_x64';    IsFramework = $false },
+            [pscustomobject]@{ Name = 'Microsoft.DesktopAppInstaller';  PackageFullName = 'Microsoft.DesktopAppInstaller_1_x64';  IsFramework = $false }
+        )
+    }
+
+    try {
+        # Self-checking fixture: if these stop being true the test is measuring
+        # something other than what it claims.
+        if (-not (Test-AppxProtected 'Microsoft.XboxIdentityProvider')) { throw 'fixture is wrong: XboxIdentityProvider is not protected' }
+        if (-not (Test-AppxProtected 'Microsoft.DesktopAppInstaller'))  { throw 'fixture is wrong: DesktopAppInstaller is not protected' }
+        if (Test-AppxProtected 'Microsoft.XboxGamingOverlay')           { throw 'fixture is wrong: XboxGamingOverlay is protected, so nothing here is removable' }
+
+        $script:AppxRemoveStandard = @(
+            'Microsoft.Xbox',                 # prefix of a protected package
+            'Microsoft.DesktopAppInstaller'   # a protected package, named outright
+        )
+
+        Invoke-AppxPhase
+        $planned = @($script:Actions | Where-Object { $_.Kind -eq 'appx' } | ForEach-Object { "$($_.Target)" })
+
+        # Worth knowing which of the phase's two refusals is load-bearing:
+        # deleting the target-level check alone does not let this through,
+        # because the resolved-name re-check below catches the same package.
+        # The target check is defence in depth and a clearer log line; the
+        # resolved-name check is the one safety actually rests on.
+        if ($planned -contains 'Microsoft.DesktopAppInstaller') {
+            throw 'a protected package named directly as a removal target was planned for removal'
+        }
+        if ($planned -contains 'Microsoft.XboxIdentityProvider') {
+            throw "'Microsoft.Xbox' prefix-matched the protected XboxIdentityProvider and the loop planned to remove it - that is how PC games lose their sign-in"
+        }
+        # And the prefix must still reach what it legitimately matches, or the
+        # refusals above would be satisfied by a loop that plans nothing.
+        if ($planned -notcontains 'Microsoft.XboxGamingOverlay') {
+            throw "the loop planned nothing at all (planned: '$($planned -join ', ')'), so the refusals above prove nothing"
+        }
+    }
+    finally {
+        Remove-Item Function:\Get-AppxPackage -ErrorAction SilentlyContinue
+        $script:AppxRemoveStandard = $stashTargets
+        $script:Actions.Clear()
+        foreach ($a in $stash) { $script:Actions.Add($a) | Out-Null }
+    }
 }
 
 # The window's whole promise is that what you saw is what gets applied. That
