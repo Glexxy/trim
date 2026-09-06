@@ -527,6 +527,10 @@ function Invoke-AppUninstaller {
         elseif ($cmd -match '^(\S+\.exe)\s*(.*)$') { $exe = $Matches[1]; $args = $Matches[2] }
         else { $exe = $cmd; $args = '' }
 
+        # unbounded-by-design: this is the vendor's own uninstaller and the
+        # run says so - "It may ask you questions." Somebody is sitting in
+        # front of it answering them. A timeout here closes a dialog they are
+        # mid-way through reading, and leaves their application half-removed.
         $p = if ($args) { Start-Process -FilePath $exe -ArgumentList $args -Wait -PassThru }
              else       { Start-Process -FilePath $exe -Wait -PassThru }
         Write-Log -Level OK -Message "Uninstaller finished with exit code $($p.ExitCode)."

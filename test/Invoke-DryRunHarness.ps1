@@ -1471,6 +1471,68 @@ Test-Phase 'The duplicate finder always keeps one copy' {
     finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
+Test-Phase 'No external program can block the run forever' {
+    # The NVIDIA profile import ran Start-Process -Wait with no bound. That is
+    # fine while the driver answers, and it is not fine when a machine only
+    # looks like it has an NVIDIA card - Windows Sandbox passes the host's
+    # adapter name straight through, so this ran on a reported RTX 5070 Ti with
+    # no working NVAPI behind it and never came back. Fourteen minutes later it
+    # was still there. A GPU-P virtual machine, a remote desktop session, safe
+    # mode, or a driver update caught half way through all look the same.
+    #
+    # A stuck program the user has to force-kill is worse than a phase that
+    # gives up, because the thing they force-kill is midway through changing
+    # their machine.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1' -File)) {
+        $lines  = Get-Content -LiteralPath $f.FullName
+        $inHelp = $false
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i]
+            if ($line -match '<#') { $inHelp = $true }
+            if ($inHelp) { if ($line -match '#>') { $inHelp = $false }; continue }
+            if ($line -match '^\s*#') { continue }
+
+            $unbounded = ($line -match 'Start-Process' -and $line -match '-Wait\b') -or
+                         ($line -match 'WaitForExit\(\s*\)')
+            if (-not $unbounded) { continue }
+
+            # Some of these should wait without end, and a blanket timeout
+            # would make the tool less safe rather than more. Killing DISM
+            # part-way through a component-store repair can corrupt the store
+            # it was repairing. Killing a vendor uninstaller leaves its product
+            # half-removed. In both cases interrupting is the greater harm, and
+            # the user is watching it happen.
+            #
+            # So the rule is not "always bound it" - it is "say which it is".
+            # An unbounded wait has to carry its reason, on the line or just
+            # above it. Anything new that blocks forever without one is a
+            # decision nobody made.
+            # Wide enough for a real explanation. A reason worth writing is
+            # usually several lines, and the marker sits at the top of it.
+            $window = @($lines[[Math]::Max(0, $i - 10)..$i]) -join "`n"
+            if ($window -notmatch 'unbounded-by-design:') {
+                $problems.Add("$($f.Name) line $($i + 1) waits with no timeout and no stated reason") | Out-Null
+            }
+        }
+    }
+
+    # And the bounded helper has to still be bounded.
+    $gpu = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '11-gpu.ps1')
+    if ($gpu -notmatch 'function Invoke-ProfileInspector') {
+        $problems.Add('Invoke-ProfileInspector is gone; the NVIDIA tool is being run some other way') | Out-Null
+    }
+    elseif ($gpu -notmatch 'WaitForExit\(\$TimeoutSeconds \* 1000\)') {
+        $problems.Add('Invoke-ProfileInspector no longer waits with a timeout') | Out-Null
+    }
+    elseif ($gpu -notmatch '(?s)WaitForExit\(\$TimeoutSeconds \* 1000\).*?\$p\.Kill\(\)') {
+        $problems.Add('Invoke-ProfileInspector times out but never stops the process it gave up on') | Out-Null
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'Anything that runs the script says which mode it wants' {
     # Invoke-VmVerification.ps1 applies for real inside a disposable VM and is
     # the only thing in the project that ever does. It invoked the script with

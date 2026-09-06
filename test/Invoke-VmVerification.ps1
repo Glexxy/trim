@@ -27,7 +27,24 @@
 #>
 [CmdletBinding()]
 param(
-    [string[]]$Phases = @('Gaming','Privacy','Personalisation','Network'),
+    # Every phase whose changes the undo script claims to reverse.
+    #
+    # It was four of these. The other five write registry values, record them
+    # in the same ledger, and are covered by the same promise - they had simply
+    # never been applied and reversed for real.
+    #
+    # The three that are absent cannot be checked this way, and saying which is
+    # part of being honest about what this proves:
+    #   WinUtil - hands off to a third-party script and says in the log that its
+    #             changes are NOT covered by the undo script.
+    #   Appx    - removes Store apps, which the README already states cannot be
+    #             put back.
+    #   Fixes   - runs DISM and sfc. Ten to thirty minutes, and nothing it does
+    #             is a recorded change to reverse.
+    # -Full still runs everything, for when the question is whether they crash
+    # rather than whether they reverse.
+    [string[]]$Phases = @('Gaming','Privacy','Personalisation','Network',
+                          'Performance','Background','Graphics','Security','Extras'),
     [switch]$Full,
     [string]$ScriptPath = '',
 

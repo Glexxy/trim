@@ -384,6 +384,54 @@ function Install-NvidiaControlPanel {
     }
 }
 
+<#
+.SYNOPSIS
+    Run Profile Inspector, and give up on it if it will not come back.
+
+.DESCRIPTION
+    Both calls to this tool used to block with no bound - one through the call
+    operator, one through Start-Process -Wait. That is fine while the driver
+    answers. It is not fine when the machine only looks like it has an NVIDIA
+    card.
+
+    Windows Sandbox passes the host's adapter name straight through, so this
+    ran on a machine reporting an RTX 5070 Ti with no working NVAPI behind it.
+    The export took two minutes and failed; the import never returned at all.
+    The run was still sitting there fourteen minutes later, and nothing would
+    ever have ended it.
+
+    The same shape exists outside a sandbox: a GPU-P virtual machine, a remote
+    desktop session, safe mode, or a driver update caught half way through. A
+    stranger who ran the one-liner in any of those would watch it hang with no
+    indication of why.
+
+    A profile that cannot be applied is a disappointment. A run that never
+    finishes is somebody force-killing a program that is midway through
+    changing their machine.
+#>
+function Invoke-ProfileInspector {
+    param(
+        [Parameter(Mandatory)][string]$Tool,
+        [string[]]$Arguments = @(),
+        [int]$TimeoutSeconds = 120
+    )
+
+    $p = $null
+    try {
+        $p = Start-Process -FilePath $Tool -ArgumentList $Arguments -PassThru -WindowStyle Hidden -ErrorAction Stop
+    } catch {
+        Write-Log -Level WARN -Message "  Could not start Profile Inspector: $($_.Exception.Message)"
+        return $null
+    }
+
+    if ($p.WaitForExit($TimeoutSeconds * 1000)) { return $p.ExitCode }
+
+    Write-Log -Level WARN -Message "  Profile Inspector did not respond within $TimeoutSeconds s. The graphics driver is not answering."
+    Write-Log -Level WARN -Message '  Stopping it and carrying on. No NVIDIA settings were changed.'
+    try { $p.Kill(); $p.WaitForExit(5000) | Out-Null } catch { }
+    return $null
+}
+
 function Import-NvidiaProfile {
     param([Parameter(Mandatory)][string]$NipPath)
 
@@ -392,7 +440,7 @@ function Import-NvidiaProfile {
 
     try {
         $backup = Join-Path $script:RunRoot "nvidia\before_$($script:RunStamp).nip"
-        & $tool -exportCustomized 2>&1 | Out-Null
+        $null = Invoke-ProfileInspector -Tool $tool -Arguments @('-exportCustomized')
         $exported = Get-ChildItem -LiteralPath (Split-Path $tool) -Filter '*.nip' -ErrorAction SilentlyContinue |
                     Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($exported) {
@@ -407,9 +455,10 @@ function Import-NvidiaProfile {
     }
 
     try {
-        $p = Start-Process -FilePath $tool -ArgumentList '-silentImport', "`"$NipPath`"" -Wait -PassThru -WindowStyle Hidden
-        if ($p.ExitCode -eq 0) { Write-Log -Level OK -Message '  NVIDIA profile imported.' }
-        else { Write-Log -Level WARN -Message "  Profile Inspector exited with code $($p.ExitCode)." }
+        $code = Invoke-ProfileInspector -Tool $tool -Arguments @('-silentImport', "`"$NipPath`"")
+        if ($null -eq $code)      { }   # already reported: it was stopped, nothing was changed
+        elseif ($code -eq 0)      { Write-Log -Level OK -Message '  NVIDIA profile imported.' }
+        else                      { Write-Log -Level WARN -Message "  Profile Inspector exited with code $code." }
     } catch {
         Write-Log -Level FAIL -Message "  Profile import failed: $($_.Exception.Message)"
     }

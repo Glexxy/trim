@@ -1,4 +1,4 @@
-# ---------------------------------------------------------------------------
+﻿# ---------------------------------------------------------------------------
 # Phase: Fixes
 #
 # The winutil "Config > Fixes" items that are Buttons rather than checkboxes, so
@@ -36,6 +36,12 @@ function Invoke-CorruptionScan {
     try {
         # DISM first: sfc repairs from the component store, so a corrupt store
         # makes sfc report damage it cannot fix. Order matters here.
+        #
+        # unbounded-by-design: stopping DISM part-way through a component-store
+        # repair can leave the store in a worse state than the damage it was
+        # sent to fix. The run says up front that this takes 10-30 minutes and
+        # may look stuck at 20%, so a person watching it knows what they are
+        # seeing. Waiting is the lesser risk.
         $dism = Start-Process -FilePath (Get-SystemTool 'DISM.exe') -Wait -PassThru -NoNewWindow `
             -ArgumentList '/Online','/Cleanup-Image','/RestoreHealth'
         if ($dism.ExitCode -eq 0) {
@@ -49,6 +55,9 @@ function Invoke-CorruptionScan {
 
     Write-Log 'Running sfc /scannow.'
     try {
+        # unbounded-by-design: same reasoning as DISM above. sfc repairs
+        # protected system files; interrupting it mid-replacement is how a
+        # machine ends up with a half-written system binary.
         $sfc = Start-Process -FilePath (Get-SystemTool 'sfc.exe') -Wait -PassThru -NoNewWindow -ArgumentList '/scannow'
         switch ($sfc.ExitCode) {
             0       { Write-Log -Level OK   -Message 'sfc found no integrity violations.' }

@@ -258,6 +258,10 @@ function Remove-EdgeBrowser {
 
     Write-Log -Level WARN -Message "Uninstalling Edge $($setup.Version). WebView2 is deliberately left in place."
     try {
+        # unbounded-by-design: Edge's own setup.exe, removing itself. An
+        # uninstaller stopped part-way leaves the product neither installed nor
+        # gone, which is worse than a long wait. Risky tier and never selected
+        # by default, so nobody arrives here without having chosen it.
         $proc = Start-Process -FilePath $setup.Path -PassThru -Wait -WindowStyle Hidden `
             -ArgumentList '--uninstall', '--msedge', '--system-level', '--verbose-logging', '--force-uninstall'
         if ($proc.ExitCode -eq 0) {
