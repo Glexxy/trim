@@ -369,9 +369,9 @@ if (-not (Test-Path -LiteralPath $artefact)) {
 
         # A hash that does not match must stop the run before anything else
         # happens, and say why.
-        $r = Invoke-Staged -Path $stage -Hash ('0' * 64)
         $what = 'the elevation hash check refuses a hash that does not match'
         try {
+            $r = Invoke-Staged -Path $stage -Hash ('0' * 64)
             if ($r.Code -ne 1) { throw "it exited $($r.Code), not 1" }
             if ($r.Out -notmatch 'does not match the fingerprint') {
                 throw 'it did not say the fingerprint was wrong'
@@ -391,9 +391,9 @@ if (-not (Test-Path -LiteralPath $artefact)) {
 
         # The matching hash must get past it, or the refusal above would be
         # satisfied by a check that refuses everything.
-        $r = Invoke-Staged -Path $stage -Hash $good
         $what = 'the elevation hash check lets the file it was launched with through'
         try {
+            $r = Invoke-Staged -Path $stage -Hash $good
             if ($r.Out -match 'does not match the fingerprint') {
                 throw 'it refused the very file it hashed'
             }
@@ -413,9 +413,9 @@ if (-not (Test-Path -LiteralPath $artefact)) {
         $tampered = Join-Path ([IO.Path]::GetTempPath()) "trim-elev-tampered-$([Guid]::NewGuid().ToString('N')).ps1"
         Copy-Item -LiteralPath $stage -Destination $tampered -Force
         Add-Content -LiteralPath $tampered -Value "`r`nWrite-Host 'TAMPERED PAYLOAD RAN'"
-        $r = Invoke-Staged -Path $tampered -Hash $good
         $what = 'the elevation hash check refuses a file that was appended to after staging'
         try {
+            $r = Invoke-Staged -Path $tampered -Hash $good
             if ($r.Out -match 'TAMPERED PAYLOAD RAN') { throw 'the appended payload executed' }
             if ($r.Out -notmatch 'does not match the fingerprint') {
                 throw 'an altered file was not refused'
@@ -454,6 +454,91 @@ if (-not (Test-Path -LiteralPath $artefact)) {
         Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
         if ($tampered) { Remove-Item -LiteralPath $tampered -Force -ErrorAction SilentlyContinue }
         Remove-Item Function:\Invoke-Staged -ErrorAction SilentlyContinue
+    }
+}
+
+
+# ---------------------------------------------------------------------------
+# -Version. The one thing a user can do to check that what reached their
+# machine is what was published, and the site and README both send people to
+# it - and it was the only function in src\ that no test could reach at all.
+# It short-circuits in the header before Invoke-Main, so it needs a subprocess
+# like the elevation checks do.
+# ---------------------------------------------------------------------------
+if (-not (Test-Path -LiteralPath $artefact)) {
+    $failures.Add('trim.ps1 is not built, so -Version could not be exercised') | Out-Null
+    Write-Host 'FAIL  -Version prints the hash of the file it is running from' -ForegroundColor Red
+} else {
+    $selfUrl = ([regex]::Match(
+        (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '01-header.ps1')),
+        "SelfUrl\s*=\s*'([^']+)'")).Groups[1].Value
+    if (-not $selfUrl) { $selfUrl = 'https://trimbloat.com/go' }
+
+    # Saved to a file: it must print that file's real hash, and nothing else.
+    $what = '-Version prints the hash of the file it is running from'
+    try {
+        # Inside the try: a subprocess that cannot even start is a failure of
+        # this case, not a reason for the whole file to stop without saying so.
+        $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $artefact -Version *>&1 | Out-String
+        $code = $LASTEXITCODE
+        if ($code -ne 0) { throw "it exited $code" }
+        $m = [regex]::Match($out, 'SHA256\s*:\s*([0-9A-Fa-f]{64})')
+        if (-not $m.Success) { throw 'it printed no SHA256 at all' }
+        $real = (Get-FileHash -LiteralPath $artefact -Algorithm SHA256).Hash
+        if ($m.Groups[1].Value -ne $real) {
+            throw "it printed $($m.Groups[1].Value) for a file whose hash is $real"
+        }
+        # The published sidecar is what a user is told to compare against, so
+        # the two have to be the same number or the instruction is useless.
+        $sidecar = "$artefact.sha256"
+        if (Test-Path -LiteralPath $sidecar) {
+            $published = ((Get-Content -Raw -LiteralPath $sidecar).Trim() -split '\s+')[0]
+            if ($published -ne $real) {
+                throw "the built file hashes to $real and the sidecar published beside it says $published"
+            }
+        }
+        $ver = ([regex]::Match(
+            (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '01-header.ps1')),
+            "TrimVersion\s*=\s*'([^']+)'")).Groups[1].Value
+        if ($ver -and $out -notmatch ('Version\s*:\s*' + [regex]::Escape($ver))) {
+            throw "it did not print the version the source declares ($ver)"
+        }
+        if ($out -notmatch [regex]::Escape($selfUrl)) {
+            throw "it did not name the canonical URL the rest of the script uses ($selfUrl)"
+        }
+        # Printing a version must not be a run.
+        if ($out -match 'STEP ===' -or $out -match 'restore point') {
+            throw 'it did more than print a version'
+        }
+        Write-Host "PASS  $what" -ForegroundColor Green
+    } catch {
+        Write-Host "FAIL  $what" -ForegroundColor Red
+        Write-Host "      $($_.Exception.Message)" -ForegroundColor Red
+        $failures.Add($what) | Out-Null
+    }
+
+    # Piped, which is how almost everyone runs this: there is no file, so there
+    # is no hash, and saying one would be a lie about something the reader is
+    # being asked to trust. Built as a scriptblock so $PSCommandPath is empty,
+    # which is exactly what `iex` leaves behind.
+    $what = '-Version on a piped run says it cannot hash anything, and how to'
+    try {
+        $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `
+               "& ([scriptblock]::Create((Get-Content -Raw '$artefact'))) -Version" *>&1 | Out-String
+        if ($out -match 'SHA256\s*:\s*[0-9A-Fa-f]{64}') {
+            throw 'it printed a hash for a file it was not run from'
+        }
+        if ($out -notmatch 'not available') { throw 'it did not say the hash was unavailable' }
+        foreach ($step in @('-OutFile trim.ps1', 'Get-FileHash', '-Version')) {
+            if ($out -notmatch [regex]::Escape($step)) {
+                throw "the instructions it prints leave out '$step'"
+            }
+        }
+        Write-Host "PASS  $what" -ForegroundColor Green
+    } catch {
+        Write-Host "FAIL  $what" -ForegroundColor Red
+        Write-Host "      $($_.Exception.Message)" -ForegroundColor Red
+        $failures.Add($what) | Out-Null
     }
 }
 
