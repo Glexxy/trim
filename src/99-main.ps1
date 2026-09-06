@@ -204,10 +204,20 @@ function Invoke-Main {
     $started = Get-Date
 
     # Only set when this script staged itself to a temp file in order to
-    # elevate. Between writing that file and Windows starting it as
-    # administrator there is a window in which anything that can write to the
-    # temp directory could replace it - and it would then run with full rights.
-    # Re-hashing the file we were actually launched from closes that window.
+    # elevate, and re-hashed here against the value it was launched with.
+    #
+    # What that catches: a staged file that was added to or altered between
+    # being written and being started as administrator, where the tampering
+    # left this check in place. Appending a payload to the end of the file is
+    # the easy version of that, and it is refused.
+    #
+    # What it does not catch, and this used to claim it did: wholesale
+    # replacement. A file that is not this script does not run this check, so
+    # self-hashing cannot detect being swapped outright. What stands in the way
+    # of that is the staging path - an unguessable name in the user's own temp
+    # directory, which only that user and administrators can write to - and the
+    # fact that the staged bytes were compared against the published
+    # fingerprint before the UAC prompt was ever shown.
     if ($ElevationHash) {
         if (-not $PSCommandPath -or -not (Test-Path -LiteralPath $PSCommandPath)) {
             Write-Host '  Cannot verify this script against the hash it was launched with.' -ForegroundColor Red

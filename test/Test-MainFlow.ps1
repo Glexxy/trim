@@ -300,6 +300,163 @@ Case '-Cleanup runs the sweep and nothing else' @{ Cleanup = $true } {
     if ($t -contains 'window-shown')  { throw '-Cleanup opened a window' }
 }
 
+
+# The Memory Integrity crash aborted the Security phase, which is tenth of
+# twelve. Whether the undo script still gets written when a phase throws is the
+# difference between a half-applied machine you can reverse and one you cannot.
+# Invoke-Main does write it from a finally - but nothing had ever thrown, so
+# that was read rather than known, and each of the three apply routes has its
+# own try/finally to get wrong.
+$realPhases = ${function:Invoke-AllPhases}
+function Invoke-AllPhases {
+    param($Facts)
+    Note $(if ($DryRun) { 'phases(dry)' } else { 'phases(APPLY)' })
+    # Only the applying pass throws. The window builds its plan through this
+    # same function first, and a plan that cannot be built tests nothing.
+    if (-not $DryRun) { throw 'a phase blew up part of the way through' }
+}
+try {
+    $routes = @(
+        @{ What = '-Apply'; Params = @{ Apply = $true } }
+        @{ What = '-ApplySelection'; Params = @{ ApplySelection = $goodSel } }
+        @{ What = 'the window'; Params = @{ Gui = $true; WindowGives = @([pscustomobject]@{
+               Key = 'reg|HKCU:\Software\Trim\FlowTest|Value'; Kind = 'reg'
+               Phase = 'Privacy'; Title = 'a ticked change'; Tier = 'safe' }) } }
+    )
+    foreach ($route in $routes) {
+        Case "a phase that throws still leaves an undo script ($($route.What))" $route.Params {
+            param($t)
+            if ($t -notcontains 'phases(APPLY)') {
+                throw 'the phases never ran, so nothing was asked of the failure path'
+            }
+            if ($t -notcontains 'undo-script') {
+                throw 'a phase threw and no undo script was written - a half-applied run is exactly when you need one'
+            }
+            if ($t -notcontains 'summary') {
+                throw 'the run ended without telling anyone what had happened'
+            }
+        }
+    }
+} finally {
+    ${function:Invoke-AllPhases} = $realPhases
+    $script:SelectionFilter = $null
+}
+
+
+# ---------------------------------------------------------------------------
+# -ElevationHash. Nothing had ever run this: it is only set when the script
+# stages a copy of itself to elevate, and it ends in `exit 1`, which would take
+# any in-process test down with it. So it runs the built artefact as a
+# subprocess, which is also the only way to observe the exit code a user gets.
+# ---------------------------------------------------------------------------
+$artefact = Join-Path $root 'trim.ps1'
+if (-not (Test-Path -LiteralPath $artefact)) {
+    $failures.Add('trim.ps1 is not built, so the elevation hash check could not be exercised') | Out-Null
+    Write-Host 'FAIL  the elevation hash check refuses a file that was tampered with' -ForegroundColor Red
+} else {
+    $stage   = Join-Path ([IO.Path]::GetTempPath()) "trim-elev-test-$([Guid]::NewGuid().ToString('N')).ps1"
+    $tampered = $null
+    try {
+        Copy-Item -LiteralPath $artefact -Destination $stage -Force
+        $good = (Get-FileHash -LiteralPath $stage -Algorithm SHA256).Hash
+
+        function Invoke-Staged {
+            param([string]$Path, [string]$Hash)
+            $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Path `
+                       -ElevationHash $Hash -DryRun -Only Fixes -NoRestartPrompt *>&1 | Out-String
+            @{ Out = $out; Code = $LASTEXITCODE }
+        }
+
+        # A hash that does not match must stop the run before anything else
+        # happens, and say why.
+        $r = Invoke-Staged -Path $stage -Hash ('0' * 64)
+        $what = 'the elevation hash check refuses a hash that does not match'
+        try {
+            if ($r.Code -ne 1) { throw "it exited $($r.Code), not 1" }
+            if ($r.Out -notmatch 'does not match the fingerprint') {
+                throw 'it did not say the fingerprint was wrong'
+            }
+            # Not "DRY RUN": the unelevated-dry-run notice is printed before
+            # this check runs, so matching on it would pass whatever happened.
+            # The phase banner only appears once the run is under way.
+            if ($r.Out -match '=== Fixes') {
+                throw 'it went on and ran the phases anyway'
+            }
+            Write-Host "PASS  $what" -ForegroundColor Green
+        } catch {
+            Write-Host "FAIL  $what" -ForegroundColor Red
+            Write-Host "      $($_.Exception.Message)" -ForegroundColor Red
+            $failures.Add($what) | Out-Null
+        }
+
+        # The matching hash must get past it, or the refusal above would be
+        # satisfied by a check that refuses everything.
+        $r = Invoke-Staged -Path $stage -Hash $good
+        $what = 'the elevation hash check lets the file it was launched with through'
+        try {
+            if ($r.Out -match 'does not match the fingerprint') {
+                throw 'it refused the very file it hashed'
+            }
+            if ($r.Out -notmatch '=== Fixes') { throw 'it never reached the phases, so the refusal above proves nothing' }
+            Write-Host "PASS  $what" -ForegroundColor Green
+        } catch {
+            Write-Host "FAIL  $what" -ForegroundColor Red
+            Write-Host "      $($_.Exception.Message)" -ForegroundColor Red
+            $failures.Add($what) | Out-Null
+        }
+
+        # And the thing the check is actually for: a staged file that was added
+        # to after it was hashed. This is what the comment on the check claims,
+        # now that it no longer claims to stop wholesale replacement - which it
+        # cannot, because a file that is not this script does not run this
+        # check at all.
+        $tampered = Join-Path ([IO.Path]::GetTempPath()) "trim-elev-tampered-$([Guid]::NewGuid().ToString('N')).ps1"
+        Copy-Item -LiteralPath $stage -Destination $tampered -Force
+        Add-Content -LiteralPath $tampered -Value "`r`nWrite-Host 'TAMPERED PAYLOAD RAN'"
+        $r = Invoke-Staged -Path $tampered -Hash $good
+        $what = 'the elevation hash check refuses a file that was appended to after staging'
+        try {
+            if ($r.Out -match 'TAMPERED PAYLOAD RAN') { throw 'the appended payload executed' }
+            if ($r.Out -notmatch 'does not match the fingerprint') {
+                throw 'an altered file was not refused'
+            }
+            if ($r.Code -ne 1) { throw "it exited $($r.Code), not 1" }
+            Write-Host "PASS  $what" -ForegroundColor Green
+        } catch {
+            Write-Host "FAIL  $what" -ForegroundColor Red
+            Write-Host "      $($_.Exception.Message)" -ForegroundColor Red
+            $failures.Add($what) | Out-Null
+        }
+
+        # The comment on the check is the only place this defence is described,
+        # and it overclaimed until 7 September: it said re-hashing closed the
+        # window in which the staged file could be replaced, which it does not.
+        $mainSrc = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '99-main.ps1')
+        $block = [regex]::Match($mainSrc, '(?s)(#[^\r\n]*\r?\n\s*)*?if \(\$ElevationHash\)')
+        $what = 'the elevation hash check does not claim to stop a file being replaced'
+        try {
+            $lead = $mainSrc.Substring(0, $mainSrc.IndexOf('if ($ElevationHash)'))
+            $lead = $lead.Substring([Math]::Max(0, $lead.Length - 1400))
+            if ($lead -notmatch 'replace') {
+                throw 'it no longer says what it cannot do - restore that or remove this check'
+            }
+            if ($lead -match 'closes that window') {
+                throw 'it claims re-hashing closes the replacement window; a replaced file does not run this check'
+            }
+            Write-Host "PASS  $what" -ForegroundColor Green
+        } catch {
+            Write-Host "FAIL  $what" -ForegroundColor Red
+            Write-Host "      $($_.Exception.Message)" -ForegroundColor Red
+            $failures.Add($what) | Out-Null
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
+        if ($tampered) { Remove-Item -LiteralPath $tampered -Force -ErrorAction SilentlyContinue }
+        Remove-Item Function:\Invoke-Staged -ErrorAction SilentlyContinue
+    }
+}
+
 Remove-Item -LiteralPath $selDir -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ''
@@ -309,3 +466,8 @@ if ($failures.Count) {
     exit 1
 }
 Write-Host 'The entry point routes every invocation correctly.' -ForegroundColor Green
+
+# Explicit, because this file now runs powershell.exe as a subprocess and one of
+# those runs is meant to exit 1. Without this the script inherits that code and
+# a passing suite reports a failed build.
+exit 0
