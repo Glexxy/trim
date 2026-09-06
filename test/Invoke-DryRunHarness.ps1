@@ -1471,6 +1471,73 @@ Test-Phase 'The duplicate finder always keeps one copy' {
     finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
+Test-Phase 'A change that gets reverted is noticed and re-applied' {
+    # Windows can accept a write and put it back. The value that showed this is
+    # HKCU:\System\GameConfigStore\GameDVR_FSEBehaviorMode: on a profile where
+    # Game Bar has never initialised, setting it reports success and something
+    # in the GameDVR stack restores 0 during the same run. Reproduced twice in
+    # a clean sandbox, identically.
+    #
+    # Confirm-AppliedChanges exists to catch that. Its first version selected
+    # entries by the ABSENCE of an Action property, meaning to skip removals -
+    # but every entry carries Action, 'set' or 'remove', so it selected nothing
+    # and returned in silence, which read exactly like a clean result. It never
+    # ran once.
+    #
+    # So this asserts the function does something, against a real write to a
+    # scratch key, reverted behind its back the way Windows reverts one.
+    $key = 'HKCU:\Software\TrimConfirmTest'
+    $was = $DryRun
+    try {
+        $problems = [System.Collections.Generic.List[string]]::new()
+
+        New-Item -Path $key -Force | Out-Null
+        Set-ItemProperty -LiteralPath $key -Name 'Reverted' -Value 1 -Type DWord
+
+        $ledgerWas = @($script:Ledger)
+        $script:Ledger.Clear()
+        Set-Variable -Name DryRun -Value $false -Scope Script
+
+        Set-Reg $key 'Reverted' 7 -Because 'confirmation-pass test'
+
+        $selected = @($script:Ledger | Where-Object { $_.Action -eq 'set' })
+        if ($selected.Count -ne 1) {
+            $problems.Add("the write recorded $($selected.Count) 'set' entries, so the filter this relies on is wrong") | Out-Null
+        }
+
+        # Windows putting it back.
+        Set-ItemProperty -LiteralPath $key -Name 'Reverted' -Value 1 -Type DWord
+        if ((Get-ItemProperty -LiteralPath $key).Reverted -ne 1) { throw 'could not stage the revert' }
+
+        Confirm-AppliedChanges
+
+        $now = (Get-ItemProperty -LiteralPath $key).Reverted
+        if ($now -ne 7) {
+            $problems.Add("the reverted value still reads '$now'; it was neither noticed nor re-applied") | Out-Null
+        }
+
+        # And it must leave alone what did not move, rather than rewriting
+        # everything on principle.
+        Set-Variable -Name DryRun -Value $false -Scope Script
+        $script:Ledger.Clear()
+        Set-Reg $key 'Stable' 5 -Because 'confirmation-pass test'
+        $before = (Get-ItemProperty -LiteralPath $key).Stable
+        Confirm-AppliedChanges
+        if ((Get-ItemProperty -LiteralPath $key).Stable -ne $before) {
+            $problems.Add('a value that never moved was rewritten') | Out-Null
+        }
+
+        $script:Ledger.Clear()
+        foreach ($e in $ledgerWas) { $script:Ledger.Add($e) | Out-Null }
+
+        if ($problems.Count) { throw ($problems -join '; ') }
+    }
+    finally {
+        Set-Variable -Name DryRun -Value $was -Scope Script
+        Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Test-Phase 'No external program can block the run forever' {
     # The NVIDIA profile import ran Start-Process -Wait with no bound. That is
     # fine while the driver answers, and it is not fine when a machine only

@@ -29,6 +29,11 @@ function Invoke-AllPhases {
     # Personalisation last: it restarts Explorer, and doing that mid-run makes
     # every later phase's output land in a window the user is watching redraw.
     if (Test-PhaseEnabled 'Personalisation') { Invoke-PersonalisationPhase }
+
+    # After everything, because what reverts a value tends to be something that
+    # ran later in the same run. Reading back at the point of writing would have
+    # seen the value it had just written and reported all well.
+    Confirm-AppliedChanges
 }
 
 function Show-Summary {

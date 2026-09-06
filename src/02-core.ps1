@@ -259,6 +259,79 @@ function Test-BuildApplies {
     return $true
 }
 
+<#
+.SYNOPSIS
+    Check the changes actually stuck, and say so when they did not.
+
+.DESCRIPTION
+    A write can succeed and then be undone by Windows. The value that found
+    this is HKCU:\System\GameConfigStore\GameDVR_FSEBehaviorMode: on a profile
+    where Game Bar has never initialised, setting it reports success and
+    something in the GameDVR stack puts it back to 0 during the same run. Set
+    it a second time and it holds.
+
+    That matters more than one setting. This program's entire argument is that
+    the ledger is an exact record of what changed - it is what the summary
+    counts, what the undo script reverses, and what the site invites people to
+    check. A change recorded as made and silently reverted makes the record a
+    claim rather than a record.
+
+    So every applied value is read back at the end of the run. Anything that
+    did not survive is applied once more, and if it still will not hold it is
+    reported by name rather than counted as done. Re-applying is safe: the
+    ledger keeps the ORIGINAL prior value, so the undo script still reverses to
+    where the machine started, however many times the value was written.
+#>
+function Confirm-AppliedChanges {
+    if ($DryRun) { return }
+
+    # Action is 'set' or 'remove', and every entry carries one. The first
+    # version of this filtered on the ABSENCE of an Action property, meaning to
+    # exclude removals, and excluded everything - so this whole function
+    # selected nothing and returned in silence. Read as a clean result.
+    $applied = @($script:Ledger | Where-Object {
+        $_.Action -eq 'set' -and -not $_.Intended -and $_.Path -and $_.Name
+    })
+    if (-not $applied.Count) { return }
+
+    $reverted = [System.Collections.Generic.List[object]]::new()
+    foreach ($e in $applied) {
+        try { $now = Get-RegValueOrAbsent -Path $e.Path -Name $e.Name } catch { continue }
+        if (-not $now.Exists -or "$($now.Value)" -ne "$($e.NewValue)") { $reverted.Add($e) | Out-Null }
+    }
+    if (-not $reverted.Count) { return }
+
+    Write-Log -Level WARN -Message "$($reverted.Count) change(s) did not survive the run. Applying them again."
+
+    $stuck = [System.Collections.Generic.List[string]]::new()
+    foreach ($e in $reverted) {
+        $label = "$($e.Path)\$($e.Name)"
+        try {
+            if (-not (Test-Path -LiteralPath $e.Path)) { New-Item -Path $e.Path -Force | Out-Null }
+            New-ItemProperty -LiteralPath $e.Path -Name $e.Name -Value $e.NewValue `
+                -PropertyType $e.Type -Force -ErrorAction Stop | Out-Null
+        } catch {
+            $stuck.Add("$label - $($_.Exception.Message.Trim())") | Out-Null
+            continue
+        }
+
+        $after = $null
+        try { $after = Get-RegValueOrAbsent -Path $e.Path -Name $e.Name } catch { }
+        if ($after -and $after.Exists -and "$($after.Value)" -eq "$($e.NewValue)") {
+            Write-Log -Level OK -Message "re-applied: $label = $($e.NewValue)"
+        } else {
+            $stuck.Add("$label wanted '$($e.NewValue)', reads '$(if ($after -and $after.Exists) { $after.Value } else { '<absent>' })'") | Out-Null
+        }
+    }
+
+    foreach ($s in $stuck) {
+        Write-Log -Level WARN -Message "would not hold: $s"
+    }
+    if ($stuck.Count) {
+        Write-Log -Level WARN -Message 'Windows is managing these values and putting them back. They are listed above rather than counted as applied.'
+    }
+}
+
 function Set-Reg {
     param(
         [Parameter(Mandatory)][string]$Path,
