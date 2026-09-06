@@ -4,5 +4,5 @@
 date 2026-09-06
 phases Gaming,Privacy,Personalisation,Network,Performance,Background,Graphics,Security,Extras
 changes 114
-checks 6
+checks 15
 skipped 1

@@ -117,12 +117,31 @@ Two features can destroy data, and both are built guards-first.
 **Disk cleanup** never globs a drive. Every path is named. A cleanup tool that
 walks the filesystem deciding what looks like junk is how people lose work.
 
-**Deep uninstall** applies six vetoes, default answer no: the path must be under
-a real application root; at least three segments deep, so no code path can reach
-`C:\Program Files` or `C:\Users\<name>`; the folder name must resemble the app or
-publisher; Microsoft, NVIDIA, AMD, Intel and shared runtimes are refused
-wholesale; every registry key is exported to `.reg` first; and the guard runs
-again immediately before each delete.
+**Deep uninstall** removes four kinds of thing, each behind its own guard whose
+default answer is no.
+
+*Folders and registry keys.* The path must be under a real application root; at
+least three segments deep, so no code path can reach `C:\Program Files` or
+`C:\Users\<name>`; the name must resemble the app or publisher; Microsoft,
+NVIDIA, AMD, Intel and shared runtimes are refused wholesale; and a publisher's
+folder shared with other products is kept.
+
+*Services and scheduled tasks.* Refused if the publisher is protected, if the
+binary runs from the Windows directory or a shared host like `svchost.exe`, if
+it lives under another vendor's folder whatever it is called, if the service is
+on a list of names Windows and its drivers rely on, or if another service
+depends on it. Tasks under `\Microsoft\` are Windows' own and are never
+touched. Then it wants positive evidence: the binary lives somewhere this
+application owns, or the thing is named after it. Services and tasks are never
+selected for you.
+
+Every registry key and service definition is exported to `.reg` before deletion
+and every task to `.xml`, and each guard runs again immediately before each
+delete rather than trusting the list it was handed.
+
+The vendor-folder rule exists because the guard was pointed at all 330 services
+on a real machine with the application named after each one, and allowed one
+running out of `C:\Program Files\AMD\...` on the strength of its name.
 
 The guards fail **closed** — passing an empty path returns false rather than
 throwing, because a guard that crashes instead of refusing is a guard that fails
@@ -145,8 +164,12 @@ The fallback for WinUtil's changes is the System Restore point taken before the
 run — with the caveat that Windows can refuse to make one, on a machine where
 System Protection is off by policy. The run says so on screen and in the log
 when that happens, rather than leaving you to assume a rollback exists. Keep
-the WinUtil phase off with `-Skip WinUtil` if that matters to you. Verified end to end in Windows Sandbox: 114 changes
-applied, all 114 present, all 114 restored exactly, second run a complete no-op.
+the WinUtil phase off with `-Skip WinUtil` if that matters to you.
+
+Verified end to end in Windows Sandbox: 114 changes applied, all 114 present,
+all 114 restored exactly, second run a complete no-op. The same run stages a
+service and a scheduled task for an application that does not exist, removes
+them through the real code path, and puts the task back from its own backup.
 
 That number is not typed here by hand. `test\Invoke-SandboxTest.ps1` writes
 [`docs/sandbox-verification.txt`](docs/sandbox-verification.txt) at the end of a

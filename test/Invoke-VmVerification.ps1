@@ -339,6 +339,166 @@ if ($removed.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------------------
+# 7. Service and scheduled-task leftovers - the removal, actually run.
+# ---------------------------------------------------------------------------
+# The two guards have unit tests and were swept across every service and task
+# on a real machine. The removal branches had never executed: sc.exe delete,
+# the .reg export, the task XML export and the COM DeleteTask were all written
+# and never run.
+#
+# That is the exact shape of the fault this file was built to catch. The
+# leftover scan had unit guards on both its filters and still offered another
+# product's folder the first time it was really executed.
+#
+# A throwaway service and a throwaway task, belonging to an application that
+# does not exist, created here and removed by the real code path.
+Write-Host ''
+Write-Host '--- Service and task leftovers ---' -ForegroundColor Cyan
+
+# Every other stage runs the compiled script as a child process. This one calls
+# Get-AppLeftovers and Remove-AppLeftovers directly, because the thing being
+# checked is those two functions rather than a phase - so the modules are
+# loaded the way the dry-run harness loads them: everything but the header,
+# which self-elevates on sight, and 99-main, which runs.
+$srcDir = Join-Path (Split-Path $ScriptPath -Parent) 'src'
+$loaded = $false
+if (Test-Path -LiteralPath $srcDir) {
+    $DryRun = $false; $Skip = @(); $Only = @(); $NoRestorePoint = $true; $Aggressive = $false
+    $WinUtilConfigUrl = ''; $NvidiaProfile = ''; $DisableMemoryIntegrity = $false
+    $NoRestartPrompt = $true; $Cleanup = $false; $IncludeDuplicates = $false
+    $CleanupSelection = ''; $Gui = $false; $ApplySelection = ''
+    foreach ($f in (Get-ChildItem $srcDir -Filter '*.ps1' | Sort-Object Name)) {
+        if ($f.Name -in @('01-header.ps1','99-main.ps1')) { continue }
+        . $f.FullName
+    }
+    $loaded = [bool](Get-Command Get-AppLeftovers -ErrorAction SilentlyContinue)
+}
+
+if (-not $loaded) {
+    Add-Result 'Service and task leftovers were removed for real' $false -Inconclusive `
+        "the source modules are not beside $ScriptPath, so the removal branches could not be exercised here"
+}
+
+$fakeApp  = 'TrimTestApp'
+$fakeDir  = Join-Path $env:ProgramFiles $fakeApp
+$fakeExe  = Join-Path $fakeDir 'app.exe'
+$fakeSvc  = 'TrimTestAppSvc'
+$fakeTask = "\$fakeApp\Updater"
+
+$madeSvc = $false; $madeTask = $false
+if ($loaded) { try {
+    New-Item -ItemType Directory -Force -Path $fakeDir | Out-Null
+    # A real binary, so the service is creatable. cmd.exe copied rather than
+    # invented: sc.exe will accept a path that does not exist, and a test whose
+    # subject is only half real proves half as much.
+    Copy-Item -LiteralPath (Join-Path $env:WinDir 'System32\cmd.exe') -Destination $fakeExe -Force
+
+    & (Get-SystemTool 'sc.exe') create $fakeSvc binPath= "`"$fakeExe`"" start= demand DisplayName= "Trim Test App Service" | Out-Null
+    $madeSvc = [bool](Get-Service -Name $fakeSvc -ErrorAction SilentlyContinue)
+
+    $st = New-Object -ComObject Schedule.Service
+    $st.Connect()
+    $root = $st.GetFolder('\')
+    $folder = try { $root.GetFolder($fakeApp) } catch { $root.CreateFolder($fakeApp) }
+    $def = $st.NewTask(0)
+    $def.RegistrationInfo.Description = 'Trim test task'
+    $trigger = $def.Triggers.Create(9)          # TASK_TRIGGER_LOGON
+    $action  = $def.Actions.Create(0)           # TASK_ACTION_EXEC
+    $action.Path = $fakeExe
+    [void]$folder.RegisterTaskDefinition('Updater', $def, 6, $null, $null, 3)   # 6: CREATE_OR_UPDATE, 3: interactive
+    $madeTask = $true
+} catch {
+    Write-Host "   could not stage the test service/task: $($_.Exception.Message)" -ForegroundColor Yellow
+} }
+
+if ($loaded -and -not ($madeSvc -and $madeTask)) {
+    Add-Result 'Service and task leftovers were removed for real' $false -Inconclusive `
+        ("could not create the test service ($madeSvc) or task ($madeTask) here, so the removal " +
+         'branches were not exercised. They need an elevated session.')
+} elseif ($loaded) {
+    $app = [pscustomobject]@{
+        DisplayName = $fakeApp; Name = $fakeApp; Publisher = 'Trim Test Publisher'
+        InstallDir  = $fakeDir; RegistryKey = $null
+    }
+
+    # Through the real scan, not a hand-built list: if the scan does not find
+    # them, the feature does not work, whatever the removal code does.
+    $leftovers = @(Get-AppLeftovers -App $app)
+    $svcRow  = @($leftovers | Where-Object { $_.Kind -eq 'service' -and $_.Path -eq $fakeSvc })
+    $taskRow = @($leftovers | Where-Object { $_.Kind -eq 'task'    -and $_.Path -eq $fakeTask })
+
+    Add-Result 'The scan finds an orphaned service' ($svcRow.Count -eq 1) `
+        "found $($svcRow.Count) matching row(s) out of $($leftovers.Count) leftover(s)"
+    Add-Result 'The scan finds a leftover scheduled task' ($taskRow.Count -eq 1) `
+        "found $($taskRow.Count) matching row(s)"
+
+    # Neither may be selected: they are opt-in by design, and a default of
+    # ticked would remove them without anyone asking.
+    $preTicked = @($leftovers | Where-Object { $_.Kind -in @('service','task') -and $_.Selected })
+    Add-Result 'Services and tasks are not ticked by default' ($preTicked.Count -eq 0) `
+        "$($preTicked.Count) of them arrived already selected"
+
+    if ($svcRow.Count -eq 1 -and $taskRow.Count -eq 1) {
+        foreach ($r in @($svcRow[0], $taskRow[0])) { $r.Selected = $true }
+        $res = Remove-AppLeftovers -Leftovers @($svcRow[0], $taskRow[0]) -AppName $fakeApp -Publisher 'Trim Test Publisher'
+
+        $svcGone  = -not (Get-Service -Name $fakeSvc -ErrorAction SilentlyContinue)
+        $taskGone = $false
+        try { $null = $st.GetFolder($fakeApp).GetTask('Updater') } catch { $taskGone = $true }
+
+        # sc.exe only marks a service for deletion while a handle is open, and
+        # the code says so rather than claiming it is gone. Either outcome is
+        # correct; silently reporting the wrong one is not.
+        Add-Result 'The orphaned service was removed' $svcGone `
+            "$fakeSvc is $(if ($svcGone) { 'gone' } else { 'still present - marked for deletion, needs a restart' })"
+        Add-Result 'The leftover task was removed' $taskGone "$fakeTask"
+
+        # The backups are the whole reason this is allowed to delete anything.
+        $svcBak  = @(Get-ChildItem -LiteralPath $res.BackupDir -Filter 'service_*.reg' -ErrorAction SilentlyContinue)
+        $taskBak = @(Get-ChildItem -LiteralPath $res.BackupDir -Filter 'task_*.xml'    -ErrorAction SilentlyContinue)
+        Add-Result 'The service was exported before it went' ($svcBak.Count -eq 1 -and $svcBak[0].Length -gt 0) `
+            "$($svcBak.Count) file(s) in $($res.BackupDir)"
+        Add-Result 'The task was exported before it went' ($taskBak.Count -eq 1 -and $taskBak[0].Length -gt 0) `
+            "$($taskBak.Count) file(s)"
+
+        # And the exports have to be worth having. A .reg that does not name
+        # the service, or an XML that is not a task definition, is a file that
+        # looks like a backup and is not one.
+        if ($svcBak.Count -eq 1) {
+            $regText = Get-Content -Raw -LiteralPath $svcBak[0].FullName -ErrorAction SilentlyContinue
+            Add-Result 'The service export is a usable backup' `
+                ([bool]($regText -match [regex]::Escape($fakeSvc)) -and [bool]($regText -match '(?i)ImagePath')) `
+                'the .reg names the service and carries its ImagePath'
+        }
+        if ($taskBak.Count -eq 1) {
+            $xmlText = Get-Content -Raw -LiteralPath $taskBak[0].FullName -ErrorAction SilentlyContinue
+            $restorable = $false
+            if ($xmlText -match '(?i)<Task') {
+                # Proved by putting it back, which is the only way to know the
+                # file is a backup rather than a plausible-looking artefact.
+                try {
+                    $def2 = $st.NewTask(0)
+                    $def2.XmlText = $xmlText
+                    [void]$st.GetFolder($fakeApp).RegisterTaskDefinition('Updater', $def2, 6, $null, $null, 3)
+                    $restorable = [bool]$st.GetFolder($fakeApp).GetTask('Updater')
+                } catch { }
+            }
+            Add-Result 'The task export puts the task back' $restorable `
+                'the .xml was re-registered and the task exists again'
+        }
+    }
+}
+
+# Whatever happened above, leave nothing behind.
+if ($loaded) { try {
+    & (Get-SystemTool 'sc.exe') delete $fakeSvc 2>&1 | Out-Null
+    $st2 = New-Object -ComObject Schedule.Service; $st2.Connect()
+    try { $st2.GetFolder($fakeApp).DeleteTask('Updater', 0) } catch { }
+    try { $st2.GetFolder('\').DeleteFolder($fakeApp, 0) } catch { }
+    Remove-Item -LiteralPath $fakeDir -Recurse -Force -ErrorAction SilentlyContinue
+} catch { } }
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 $failed = @($results | Where-Object { $_.State -eq 'FAIL' })
 $skipped = @($results | Where-Object { $_.State -eq 'SKIP' })

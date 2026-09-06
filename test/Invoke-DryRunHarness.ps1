@@ -413,7 +413,19 @@ Test-Phase 'Elevation arguments cannot break out of their quoting' {
 # Running as administrator means a bare tool name resolves through PATH, and a
 # writable PATH entry then executes with those rights.
 Test-Phase 'System tools resolve to real system paths' {
-    foreach ($t in @('powercfg.exe','netsh.exe','reg.exe','sfc.exe','DISM.exe','shutdown.exe')) {
+    # Read off the ValidateSet rather than listed here, so a tool added to
+    # Get-SystemTool cannot skip the check that exists to protect it. sc.exe
+    # went in with the service leftovers and this list did not notice.
+    $toolSet = [regex]::Match(
+        (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '02-core.ps1')),
+        '(?s)function Get-SystemTool \{.*?\[ValidateSet\(\s*(.*?)\s*\)\]')
+    if (-not $toolSet.Success) { throw 'cannot read the Get-SystemTool ValidateSet - this guard has stopped reading it' }
+    $tools = @([regex]::Matches($toolSet.Groups[1].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
+    if ($tools.Count -lt 5) { throw "found only $($tools.Count) system tool(s) - this guard has stopped finding them" }
+
+    foreach ($t in $tools) {
+        # winget is not a System32 tool and says so in its own branch.
+        if ($t -eq 'winget.exe') { continue }
         $path = Get-SystemTool $t
         if (-not $path) { throw "'$t' did not resolve" }
         if (-not (Test-Path -LiteralPath $path)) { throw "'$t' resolved to a path that does not exist: $path" }
@@ -434,11 +446,13 @@ Test-Phase 'System tools resolve to real system paths' {
             if ($line -match '<#') { $inHelp = $true }
             if ($inHelp) { if ($line -match '#>') { $inHelp = $false }; continue }
             if ($line -match '^\s*#') { continue }
-            if ($line -match '&\s+(powercfg|netsh|sfc|shutdown|winget|reg)\b' -and
+            # Built from the same list, for the same reason.
+            $bare = ($tools | ForEach-Object { [regex]::Escape(($_ -replace '\.exe$', '')) }) -join '|'
+            if ($line -match "&\s+($bare)\b" -and
                 $line -notmatch 'Get-SystemTool') {
                 $offenders.Add("$($f.Name) line $($i + 1)") | Out-Null
             }
-            if ($line -match "-FilePath\s+'(DISM|sfc|reg|netsh|powercfg|shutdown)" ) {
+            if ($line -match "-FilePath\s+'($bare)" ) {
                 $offenders.Add("$($f.Name) line $($i + 1)") | Out-Null
             }
         }
@@ -2475,6 +2489,40 @@ Test-Phase 'The pages promise what the code actually does' {
     foreach ($m in [regex]::Matches($unin, '(?s)LeftoversWithheld\.Add\(\[pscustomobject\]@\{(.*?)\}\)')) {
         if ($m.Groups[1].Value -match '\bKey\s*=' -or $m.Groups[1].Value -match '\bSelected\s*=') {
             $problems.Add('a withheld leftover carries Key or Selected, which could put it in reach of the Remove button') | Out-Null
+        }
+    }
+
+    # Services and tasks arrive unticked, and every surface says so.
+    #
+    # A folder left behind wastes space; a service removed by mistake stops
+    # something working. The sandbox proves this behaviourally on a service it
+    # creates and destroys; this is the half that runs in CI, where no service
+    # can be created to ask.
+    foreach ($kind in @('service', 'task')) {
+        # Anchored on $found.Add, not on the Kind line. Both the offered row
+        # and the withheld record start "Kind = 'service'; Path =", the
+        # withheld one comes first in the file, and the first version of this
+        # read that instead - then reported a missing Selected = $false that
+        # was never supposed to be there. A check looking at the wrong thing
+        # fails the same way whether or not the code is right.
+        $block = @([regex]::Matches($unin, '(?s)\$found\.Add\(\[pscustomobject\]@\{(.{0,900}?)\}\) \| Out-Null') |
+                   Where-Object { $_.Groups[1].Value -match "Kind = '$kind'" } |
+                   Select-Object -First 1)
+        if ($block.Count -eq 0) {
+            $problems.Add("cannot find where a $kind leftover is offered - this check has stopped reading it") | Out-Null
+            continue
+        }
+        if ($block[0].Groups[1].Value -notmatch 'Selected = \$false') {
+            $problems.Add(("a $kind leftover is not built with Selected = " + '$false' + ", so removing one could be " +
+                           'ticked without anyone asking')) | Out-Null
+        }
+    }
+    foreach ($doc in $docs.Keys) {
+        if ($docs[$doc] -notmatch '(?i)folders,? (and )?registry keys') { continue }
+        # \s+ rather than a space: the sentence wraps in SECURITY.md, and a
+        # line break between the two words is not a different claim.
+        if ($docs[$doc] -notmatch '(?i)never\s+(ticked|selected)') {
+            $problems.Add("$doc describes the deep uninstall without saying services and tasks are never ticked for you") | Out-Null
         }
     }
 
