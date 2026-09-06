@@ -46,6 +46,19 @@ param(
     [string[]]$Phases = @('Gaming','Privacy','Personalisation','Network',
                           'Performance','Background','Graphics','Security','Extras'),
     [switch]$Full,
+
+    # Run the WinUtil handoff for real. Off by default because it downloads and
+    # executes a third-party script and takes several noisy minutes, and on
+    # because nothing else has ever executed it: the harness only ever reaches
+    # that phase under -DryRun, which returns before the handoff.
+    #
+    # It matters. The phase failed on its first statement for every user, every
+    # run, with "The property 'runspace' cannot be found on this object" - our
+    # own Set-StrictMode -Version 2.0, inherited by anything this script
+    # invokes, against code not written for it. That was fixed and the fix was
+    # never once observed working.
+    [switch]$ThirdParty,
+
     [string]$ScriptPath = '',
 
     # Escape hatch for a physical test bench that does not report as a VM. This
@@ -220,6 +233,51 @@ Write-Host '--- Re-applying to check idempotence ---' -ForegroundColor Cyan
 $second = Get-Content -Raw $ledgerPath | ConvertFrom-Json
 Add-Result 'Second consecutive run is a no-op' (@($second.Entries).Count -eq 0) `
     "second run still changed $(@($second.Entries).Count) value(s); they are not being detected as already-set"
+
+# ---------------------------------------------------------------------------
+# 5. The WinUtil handoff, actually executed.
+# ---------------------------------------------------------------------------
+if ($ThirdParty) {
+    Write-Host ''
+    Write-Host '--- Running the WinUtil handoff for real (several minutes, noisy) ---' -ForegroundColor Cyan
+
+    # Read the run's LOG, not its output stream.
+    #
+    # Write-Log reports through Write-Host, which does not travel on the
+    # success stream, so "2>&1 | Out-String" captured an empty string. The two
+    # assertions looking for progress markers failed against nothing, and - far
+    # worse - the assertion looking for the strict-mode ERROR passed against
+    # nothing too. It could not have failed. Meanwhile the log showed the phase
+    # handing off and completing perfectly.
+    $logDir  = 'C:\ProgramData\Trim\logs'
+    $before  = @(Get-ChildItem $logDir -Filter 'run_*.log' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+
+    & $ScriptPath -Apply -Only WinUtil -NoRestorePoint -NoRestartPrompt | Out-Null
+
+    $newLog = Get-ChildItem $logDir -Filter 'run_*.log' -ErrorAction SilentlyContinue |
+              Where-Object { $before -notcontains $_.Name } |
+              Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $wuOut = if ($newLog) { Get-Content -Raw -LiteralPath $newLog.FullName } else { '' }
+
+    # And prove there is something to assert against, before asserting on it.
+    Add-Result 'The WinUtil run produced a log to check' ([bool]$newLog -and $wuOut.Length -gt 0) `
+        'no new log file, so every check below would be measuring an empty string'
+
+    # The exact failure this phase died on for every user, every run.
+    $strict = $wuOut -match "property 'runspace' cannot be found"
+    Add-Result 'WinUtil survives our strict mode' (-not $strict) `
+        'the phase died on Set-StrictMode again - see 04-winutil.ps1'
+
+    # A check that passes because it could not run is not a check. If the
+    # handoff never happened - no network, the third party moved - this says so
+    # rather than reporting success for something it never observed.
+    $reached  = $wuOut -match 'Handing off to winutil'
+    $finished = $wuOut -match 'WinUtil phase complete'
+    Add-Result 'WinUtil handoff was actually reached' $reached `
+        'the run never got as far as invoking winutil, so nothing about it was verified'
+    Add-Result 'WinUtil phase completed' $finished `
+        "reached the handoff but did not report completion. Output tail: $(($wuOut -split "`r?`n" | Where-Object { $_ } | Select-Object -Last 3) -join ' | ')"
+}
 
 # ---------------------------------------------------------------------------
 Write-Host ''

@@ -19,7 +19,10 @@ param(
     # Leave the sandbox running afterwards so it can be inspected. Off by
     # default: the guest shuts itself down, because ending it from the host
     # strands the VM and its whole memory allocation until a service restart.
-    [switch]$KeepOpen
+    [switch]$KeepOpen,
+    # Also run the WinUtil handoff for real. Slow and noisy, and the only way
+    # to observe that phase working at all.
+    [switch]$ThirdParty
 )
 
 $ErrorActionPreference = 'Stop'
@@ -134,6 +137,9 @@ if (-not (Test-Path -LiteralPath $wsb)) {
 $keepFlag = Join-Path $results 'keepopen.flag'
 Remove-Item -LiteralPath $keepFlag -Force -ErrorAction SilentlyContinue
 if ($KeepOpen) { Set-Content -LiteralPath $keepFlag -Value 'requested by -KeepOpen' -Encoding UTF8 }
+$tpFlag = Join-Path $results 'thirdparty.flag'
+Remove-Item -LiteralPath $tpFlag -Force -ErrorAction SilentlyContinue
+if ($ThirdParty) { Set-Content -LiteralPath $tpFlag -Value 'requested by -ThirdParty' -Encoding UTF8 }
 
 Write-Host "Launching Windows Sandbox ($wsb)..." -ForegroundColor Cyan
 Write-Host 'A sandbox window will open and run the test. Leave it alone.' -ForegroundColor DarkGray

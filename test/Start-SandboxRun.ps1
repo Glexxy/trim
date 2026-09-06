@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Runs inside Windows Sandbox on logon. Do not run this on a real machine.
@@ -44,7 +44,12 @@ Write-Host '--- Stage 1: dry run (should change nothing) ---' -ForegroundColor C
 
 Write-Host ''
 Write-Host '--- Stage 2: apply, verify, undo, verify ---' -ForegroundColor Cyan
-& "$work\test\Invoke-VmVerification.ps1" -ScriptPath "$work\trim.ps1"
+# -ThirdParty is signalled the same way -KeepOpen is: a flag in the mapped
+# folder, because the guest is started by a LogonCommand and cannot be passed
+# arguments from the host.
+$vmArgs = @{ ScriptPath = "$work\trim.ps1" }
+if (Test-Path (Join-Path $results 'thirdparty.flag')) { $vmArgs['ThirdParty'] = $true }
+& "$work\test\Invoke-VmVerification.ps1" @vmArgs
 # A terminating error leaves $LASTEXITCODE unset, and an exit code that is never
 # written looks identical to a sandbox that is still running - which is how the
 # host harness ended up waiting on a container that had already given up.
