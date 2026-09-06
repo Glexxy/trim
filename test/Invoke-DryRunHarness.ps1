@@ -1950,10 +1950,14 @@ Test-Phase 'No external program can block the run forever' {
     if ($gpu -notmatch 'function Invoke-ProfileInspector') {
         $problems.Add('Invoke-ProfileInspector is gone; the NVIDIA tool is being run some other way') | Out-Null
     }
-    elseif ($gpu -notmatch 'WaitForExit\(\$TimeoutSeconds \* 1000\)') {
+    # The variable holding the budget is not the point; that it is bounded and
+    # that the process is stopped afterwards is. This named $TimeoutSeconds
+    # until the first attempt got a shorter budget of its own, and matching the
+    # old name would have failed a change that made the bound tighter.
+    elseif ($gpu -notmatch 'WaitForExit\(\$\w+ \* 1000\)') {
         $problems.Add('Invoke-ProfileInspector no longer waits with a timeout') | Out-Null
     }
-    elseif ($gpu -notmatch '(?s)WaitForExit\(\$TimeoutSeconds \* 1000\).*?\$p\.Kill\(\)') {
+    elseif ($gpu -notmatch '(?s)WaitForExit\(\$\w+ \* 1000\).*?\$p\.Kill\(\)') {
         $problems.Add('Invoke-ProfileInspector times out but never stops the process it gave up on') | Out-Null
     }
 
@@ -2559,6 +2563,60 @@ Test-Phase 'The pages promise what the code actually does' {
                 "$doc says the deep uninstall finds scheduled tasks; Get-AppLeftovers does not look for them"
             })) | Out-Null
         }
+    }
+
+    # --- do not wait two minutes for an answer that is not coming ---------
+    #
+    # Profile Inspector talks to the driver through NVAPI, and a Windows
+    # Sandbox with vGPU reports the host's card by name while having no driver
+    # at all. One verification run started it nine times and was killed by the
+    # 120-second timeout every time: eighteen of twenty minutes spent waiting.
+    #
+    # The timeout stays - it is what stops a stranger watching an unexplained
+    # hang. This is about the check that keeps the run from reaching it.
+    $gpu = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '11-gpu.ps1')
+    # WaitForExit\( with the bracket: 'WaitForExit' alone is a substring of
+    # 'WaitForExitt', so a typo that removes the call entirely still matched.
+    if ($gpu -notmatch 'WaitForExit\(') {
+        throw 'Invoke-ProfileInspector no longer has a timeout - this check has stopped reading the code it is about'
+    }
+    # The first attempt gets a short budget, and a run that never gets an
+    # answer stops asking.
+    #
+    # The first version of this checked for nvapi64.dll instead, on the theory
+    # that a machine without a driver would not have it. A Windows Sandbox has
+    # it and still never answers, so the check bought nothing in the only place
+    # it was needed - which the sandbox said plainly by timing out eight more
+    # times with the check in place.
+    $fn = [regex]::Match($gpu, '(?s)function Invoke-ProfileInspector \{.*??
+\}')
+    if (-not $fn.Success) {
+        throw 'cannot find Invoke-ProfileInspector - this check has stopped reading the code it is about'
+    }
+    if ($fn.Value -notmatch 'NvidiaInspectorAnswered\s*-eq\s*\$false') {
+        $problems.Add(('Profile Inspector is started again after a run has established that nothing answers, ' +
+                       'so every call pays the timeout')) | Out-Null
+    }
+    if ($fn.Value -notmatch 'NvidiaInspectorAnswered = \$false') {
+        $problems.Add('a timed-out probe is not recorded, so the next call cannot know') | Out-Null
+    }
+    if ($fn.Value -notmatch 'NvidiaInspectorAnswered = \$true') {
+        $problems.Add('a successful call is not recorded, so every later call is treated as a probe') | Out-Null
+    }
+    # And "answered" has to mean answered. Merely exiting is not enough: a
+    # sandbox export returned after twenty-nine seconds having done nothing,
+    # which marked the driver alive and handed the next call the full ceiling.
+    if ($fn.Value -notmatch '(?s)ExitCode -eq 0 -and[^
+]*Elapsed\.TotalSeconds -lt \d+') {
+        $problems.Add(('a call that merely exits counts as the driver answering, so one slow failure puts the ' +
+                       'rest of the run back on the full timeout')) | Out-Null
+    }
+    # And the probe has to be shorter than the ceiling, or it is not a probe.
+    $probe = [regex]::Match($fn.Value, 'Min\((\d+), \$TimeoutSeconds\)')
+    if (-not $probe.Success) {
+        $problems.Add('the first attempt does not use a shorter budget than the rest') | Out-Null
+    } elseif ([int]$probe.Groups[1].Value -ge 120) {
+        $problems.Add("the first attempt waits $($probe.Groups[1].Value)s, which is not shorter than the ceiling") | Out-Null
     }
 
     # --- a scan that gives up has to say so -------------------------------

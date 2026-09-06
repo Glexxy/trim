@@ -57,6 +57,11 @@ $script:ProgressDone  = 0
 # look like a hung window. $null when nobody is listening.
 $script:ScanHook = $null
 
+# Whether Profile Inspector has ever replied in this run. $null until asked:
+# the first call gets a short budget and sets this, and a $false stops the rest
+# of the run asking a driver that is not there.
+$script:NvidiaInspectorAnswered = $null
+
 # What Get-AppLeftovers found but its guards refused to offer. Reported to the
 # user rather than dropped: the pane's claim is that it shows what survived the
 # uninstaller, and a silently filtered list does not.

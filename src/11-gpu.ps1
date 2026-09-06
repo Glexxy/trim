@@ -416,6 +416,22 @@ function Invoke-ProfileInspector {
         [int]$TimeoutSeconds = 120
     )
 
+    # Ask once, cheaply, and remember the answer.
+    #
+    # A Windows Sandbox with vGPU reports the host's card by name and installs
+    # the driver DLLs, so nothing about the machine says "no driver here" - the
+    # first attempt to check for one looked for nvapi64.dll and found it. The
+    # only thing that distinguishes it is that Profile Inspector never replies.
+    #
+    # So the first call gets a short budget instead of the full one. Working
+    # hardware answers in a second or two; when nothing answers in thirty, the
+    # rest of the run stops asking. A verification run paid the full timeout
+    # nine times and spent eighteen of its twenty minutes waiting.
+    if ($script:NvidiaInspectorAnswered -eq $false) { return $null }
+
+    $probing = ($null -eq $script:NvidiaInspectorAnswered)
+    $budget  = if ($probing) { [Math]::Min(30, $TimeoutSeconds) } else { $TimeoutSeconds }
+
     $p = $null
     try {
         $p = Start-Process -FilePath $Tool -ArgumentList $Arguments -PassThru -WindowStyle Hidden -ErrorAction Stop
@@ -424,10 +440,38 @@ function Invoke-ProfileInspector {
         return $null
     }
 
-    if ($p.WaitForExit($TimeoutSeconds * 1000)) { return $p.ExitCode }
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    if ($p.WaitForExit($budget * 1000)) {
+        $clock.Stop()
 
-    Write-Log -Level WARN -Message "  Profile Inspector did not respond within $TimeoutSeconds s. The graphics driver is not answering."
-    Write-Log -Level WARN -Message '  Stopping it and carrying on. No NVIDIA settings were changed.'
+        # Exiting is not answering.
+        #
+        # In a sandbox the export call came back after twenty-nine seconds
+        # having produced nothing - inside the probe budget, so this recorded
+        # the driver as alive, and the import that followed got the full
+        # ceiling and hung for two minutes. That is the wait this whole change
+        # exists to remove, and the first version reintroduced it by trusting
+        # the wrong signal.
+        #
+        # A driver that is there answers in a second or two. Anything slow, or
+        # anything that fails, leaves the run still probing - so the next call
+        # gets the short budget too rather than the long one. Deliberately not
+        # a refusal: a real machine where one call is merely slow should not
+        # lose the feature, it should just keep being asked briefly.
+        if ($p.ExitCode -eq 0 -and $clock.Elapsed.TotalSeconds -lt 10) {
+            $script:NvidiaInspectorAnswered = $true
+        }
+        return $p.ExitCode
+    }
+    $clock.Stop()
+
+    Write-Log -Level WARN -Message "  Profile Inspector did not respond within $budget s. The graphics driver is not answering."
+    if ($probing) {
+        $script:NvidiaInspectorAnswered = $false
+        Write-Log -Level WARN -Message '  Not asking it again this run. No NVIDIA settings were changed.'
+    } else {
+        Write-Log -Level WARN -Message '  Stopping it and carrying on. No NVIDIA settings were changed.'
+    }
     try { $p.Kill(); $p.WaitForExit(5000) | Out-Null } catch { }
     return $null
 }
