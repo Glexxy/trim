@@ -7,6 +7,22 @@
 # CRLF, which is what Windows PowerShell sources use anyway.
 * text=auto eol=crlf
 
+# PowerShell sources are text, stated rather than detected.
+#
+# text=auto leaves it to a heuristic, and the heuristic gets it wrong: git
+# classifies test\Invoke-DryRunHarness.ps1 as -text - no NUL bytes, no long
+# lines, nothing non-printable, and every comparable file in the tree detected
+# correctly. A file it calls binary is never normalised, so it commits with
+# whatever line endings the working copy had and every later diff is the whole
+# file.
+#
+# That is a nuisance in a test and a hazard in src\: build.ps1 concatenates
+# those files verbatim, and the published fingerprint is only reproducible from
+# a clone if every one of them checks out with the same bytes everywhere. That
+# is too much to leave to detection.
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+
 # Genuinely binary, never touched. Listed explicitly rather than left to
 # text=auto's detection: an image that gets line-ending conversion applied to it
 # is corrupt, and it is corrupt in the clone rather than here, which is the
