@@ -90,9 +90,11 @@ C:\ProgramData\Trim\undo\undo_<timestamp>.ps1
 Run it whenever, and every value returns to exactly what it was. Values that
 didn't exist before are removed, not zeroed.
 
-A System Restore point is taken first. Startup shortcuts are moved, not deleted.
-Registry keys are exported to `.reg` before a deep uninstall. NVIDIA's previous
-profile is exported to `.nip`.
+A System Restore point is taken first — where Windows allows one. Machines with
+System Protection off by policy refuse, and the run says so on screen and in the
+log rather than letting you assume you have a rollback you don't. Startup
+shortcuts are moved, not deleted. Registry keys are exported to `.reg` before a
+deep uninstall. NVIDIA's previous profile is exported to `.nip`.
 
 Three things it can't take back: removed Store apps, WinUtil's own changes (use
 the restore point), and `netsh` TCP settings — one command, printed in the log.
@@ -109,7 +111,15 @@ the restore point), and `netsh` TCP settings — one command, printed in the log
 - No BIOS, fan curves, undervolting or overclocking.
 - Shared runtimes, winget and Xbox sign-in are protected from removal.
 - Hardware and Windows version are detected, not assumed.
-- No analytics, no account, no telemetry.
+- No analytics, no account, no telemetry. It contacts three hosts and no others:
+  this site for the script, its fingerprint and the WinUtil config;
+  `christitus.com` for WinUtil, if that phase is kept; and GitHub for NVIDIA
+  Profile Inspector, pinned by version and SHA256. The last two are somebody
+  else's code, fetched at run time.
+- It installs nothing, and writes four things: its log, its ledger and the undo
+  script in `C:\ProgramData\Trim`, plus a copy of itself in the temp folder when
+  it elevates — an elevated shell gets a file it can hash, not a second download
+  it cannot.
 
 ## Verifying it
 

@@ -24,6 +24,14 @@ $script:AlreadySet = [System.Collections.Generic.List[object]]::new()
 $script:UndoExtra = [System.Collections.Generic.List[string]]::new()
 $script:Warnings  = [System.Collections.Generic.List[string]]::new()
 $script:Applied   = 0
+
+# Whether Checkpoint-Computer actually produced a restore point this run.
+# $null until the attempt is made. The window used to tell everyone "a restore
+# point was taken" on the finish screen unconditionally, including the runs
+# where Windows had refused to make one - which is the single worst thing to be
+# wrong about, because it is the rollback people are relying on when they agree
+# to any of this.
+$script:RestorePointCreated = $null
 $script:Skipped   = 0
 $script:Phase     = 'startup'
 
@@ -591,8 +599,10 @@ function New-SafetyRestorePoint {
 
         Checkpoint-Computer -Description 'Before Trim' `
                             -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
+        $script:RestorePointCreated = $true
         Write-Log -Level OK -Message 'System restore point created.'
     } catch {
+        $script:RestorePointCreated = $false
         Write-Log -Level WARN -Message "Could not create a restore point: $($_.Exception.Message)"
         Write-Log -Level WARN -Message 'Continuing. The undo script is still your rollback path.'
     }

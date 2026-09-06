@@ -207,11 +207,19 @@ if (-not @($items | Where-Object { $_.Tier -eq 'trade' }).Count) {
     }
 }
 
-Write-Host "  manifest: $($items.Count) items" -ForegroundColor DarkGray
+# The two numbers the site quotes under the overview shot. Both come from the
+# dry run above, on whichever machine generated these images.
+#
+# The already-set count used to be the literal 38, passed straight into the
+# window and then quoted on the page as something the tool had found. It had
+# not found it; somebody had typed it. It is read off the run now, and stamped
+# below so the prose can be checked against it.
+$alreadySet = @($script:AlreadySet).Count
+Write-Host "  manifest: $($items.Count) items, $alreadySet already set" -ForegroundColor DarkGray
 
 # --- the window ------------------------------------------------------------
 
-$win = Initialize-TrimWindow -Items $items -Facts $facts -AlreadyCorrect 38
+$win = Initialize-TrimWindow -Items $items -Facts $facts -AlreadyCorrect $alreadySet
 $script:GuiScanning = $false
 
 # Off-screen, not hidden: WPF will not render a window it has never laid out.
@@ -298,7 +306,12 @@ if (-not $Real) {
         '# The window these screenshots were taken of.',
         '# Regenerate them with test\Export-GuiScreenshots.ps1 when this stops matching.',
         '# Line-ending normalised, so a fresh clone and a working copy agree.',
-        "13-gui.ps1 $(Get-GuiFingerprint -Path $guiSrc)"
+        "13-gui.ps1 $(Get-GuiFingerprint -Path $guiSrc)",
+        '',
+        '# What the overview pane in overview.png actually says. The site quotes',
+        '# both numbers as things the tool found, so the harness checks them.',
+        "changes $($items.Count)",
+        "alreadyset $alreadySet"
     )
     Write-Host "  stamped generated-from.txt" -ForegroundColor DarkGray
 }

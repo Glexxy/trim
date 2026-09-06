@@ -314,7 +314,7 @@ $script:GuiXaml = @'
         </StackPanel>
         <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center" TextAlignment="Right"
                    Foreground="{StaticResource Soft}" FontSize="12" LineHeight="17"
-                   Text="Nothing is changed until you press Apply.&#x0a;A restore point is taken first, and every change can be undone."/>
+                   Text="Nothing is changed until you press Apply.&#x0a;A restore point is taken first where Windows allows one, and every change is written down so it can be undone."/>
       </Grid>
     </Border>
 
@@ -736,10 +736,11 @@ function Show-GuiOverview {
         -Colour '#E6EDEB' -Size 14.5 -Top 20
 
     Add-GuiParagraph -Text 'Before anything is changed, a backup is made' -Colour '#E6EDEB' -Size 13 -Weight 'SemiBold' -Top 22
-    Add-GuiParagraph -Text ("Trim creates a Windows System Restore point before it touches anything, so the whole " +
-        "machine can be rolled back to how it is right now. On top of that, every single setting it changes is " +
-        "written down beforehand, and you get a script that puts each one back exactly as it was. " +
-        "You are never stuck with a change you did not want.") -Top 5
+    Add-GuiParagraph -Text ("Trim asks Windows for a System Restore point before it touches anything, so the whole " +
+        "machine can be rolled back to how it is right now. Some machines have System Protection switched off by " +
+        "policy and refuse; if that happens it says so rather than pretending otherwise. Either way, every single " +
+        "setting it changes is written down beforehand, and you get a script that puts each one back exactly as " +
+        "it was. You are never stuck with a change you did not want.") -Top 5
 
     Add-GuiParagraph -Text 'How it works' -Colour '#E6EDEB' -Size 13 -Weight 'SemiBold' -Top 22
     Add-GuiParagraph -Text ("Recommended ticks only what is safe on any system. Advanced adds everything marked " +
@@ -2102,7 +2103,16 @@ function Invoke-WithProgress {
         $bar.Foreground = [Windows.Media.BrushConverter]::new().ConvertFrom('#E4785C')
     } else {
         $heading.Text = 'Finished'
-        $sub.Text     = 'A restore point was taken, and an undo script is waiting if you need it.'
+        # Not a foregone conclusion: Checkpoint-Computer fails on machines
+        # where System Protection is blocked by policy, and this screen used to
+        # promise a restore point on those runs too. Telling someone they have
+        # a rollback they do not have is the worst thing on this screen to get
+        # wrong.
+        $sub.Text     = if ($script:RestorePointCreated -eq $false) {
+            'Windows would not make a restore point, so the undo script is your way back.'
+        } else {
+            'A restore point was taken, and an undo script is waiting if you need it.'
+        }
         $status.Text  = "$($script:Applied) change(s) applied."
         $counter.Text = "Undo script: $($script:UndoPath)"
     }

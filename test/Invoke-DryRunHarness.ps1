@@ -1972,6 +1972,197 @@ Test-Phase 'The documented numbers are the real ones' {
         $problems.Add("only $claims stated count(s) found across the README and the site - this guard has stopped finding them") | Out-Null
     }
 
+    # The two numbers quoted under the overview screenshot. They are presented
+    # as things the tool found on the machine in the picture, and one of them
+    # was not: the already-set count was a literal 38 typed into the exporter
+    # and passed to the window. The exporter reads it off the run now and
+    # stamps both, so the caption can be checked rather than believed.
+    $stamp = Join-Path $root 'docs\screenshots\generated-from.txt'
+    if (Test-Path -LiteralPath $stamp) {
+        $stampText = Get-Content -Raw -Encoding UTF8 -LiteralPath $stamp
+        $site      = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'hosting\site\index.html')
+        $shot = @{}
+        foreach ($k in @('changes', 'alreadyset')) {
+            $sm = [regex]::Match($stampText, "(?m)^$k\s+(\d+)\s*$")
+            if ($sm.Success) { $shot[$k] = [int]$sm.Groups[1].Value }
+        }
+        # And the number in the picture has to come off the run rather than out
+        # of somebody's head, or the stamp faithfully records a figure that was
+        # invented. -AlreadyCorrect was the literal 38 for as long as the
+        # caption quoting it existed.
+        $expPath = Join-Path $root 'test\Export-GuiScreenshots.ps1'
+        if (Test-Path -LiteralPath $expPath) {
+            $exp = Get-Content -Raw -Encoding UTF8 -LiteralPath $expPath
+            $ac  = [regex]::Match($exp, '-AlreadyCorrect\s+(\S+)')
+            if (-not $ac.Success) {
+                $problems.Add('the exporter no longer passes -AlreadyCorrect - this check has stopped reading it') | Out-Null
+            } elseif ($ac.Groups[1].Value -match '^\d+$') {
+                $problems.Add(("the exporter hard-codes -AlreadyCorrect $($ac.Groups[1].Value); the site quotes that number " +
+                               'as something the tool found, so it has to be read off the run')) | Out-Null
+            } else {
+                # Passed as a variable. Follow it: assigning a literal to the
+                # variable instead is the same lie one step further back, and
+                # would otherwise only surface at the next re-render.
+                $var = $ac.Groups[1].Value.TrimStart('$')
+                $asn = [regex]::Match($exp, "(?m)^\s*\`$$([regex]::Escape($var))\s*=\s*(.+)$")
+                if (-not $asn.Success) {
+                    $problems.Add("the exporter passes -AlreadyCorrect `$$var but never assigns it - this check has stopped reading it") | Out-Null
+                } elseif ($asn.Groups[1].Value -notmatch 'AlreadySet') {
+                    $problems.Add(("the exporter sets `$$var to '$($asn.Groups[1].Value.Trim())', which does not come from the run. " +
+                                   'The site quotes that number as something the tool found.')) | Out-Null
+                }
+            }
+        }
+
+        if ($shot.Count -ne 2) {
+            $problems.Add('the screenshot stamp no longer records what the overview pane says - re-run test\Export-GuiScreenshots.ps1') | Out-Null
+        } else {
+            $cap = [regex]::Match($site, 'it found (\d+)[\s]{0,40}things worth changing and (\d+) already set')
+            if (-not $cap.Success) {
+                $problems.Add('cannot find the overview caption on the site - this check has stopped reading it') | Out-Null
+            } else {
+                if ([int]$cap.Groups[1].Value -ne $shot['changes']) {
+                    $problems.Add("the site says the screenshot shows $($cap.Groups[1].Value) changes; it shows $($shot['changes'])") | Out-Null
+                }
+                if ([int]$cap.Groups[2].Value -ne $shot['alreadyset']) {
+                    $problems.Add("the site says the screenshot shows $($cap.Groups[2].Value) already set; it shows $($shot['alreadyset'])") | Out-Null
+                }
+            }
+            # The hero stat quotes the same change count.
+            $hero = [regex]::Match($site, '<li><strong>(\d+)</strong><span>things to change')
+            if (-not $hero.Success) {
+                $problems.Add('cannot find the hero change-count stat - this check has stopped reading it') | Out-Null
+            } elseif ([int]$hero.Groups[1].Value -ne $shot['changes']) {
+                $problems.Add("the hero says $($hero.Groups[1].Value) things to change; the run behind the screenshots found $($shot['changes'])") | Out-Null
+            }
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
+Test-Phase 'The pages promise what the code actually does' {
+    # Two claims on the landing page were false, and they were the two in the
+    # sections whose whole job is persuading a sceptic to pipe this into an
+    # elevated shell. Reading the rest of the page the same way turned up four
+    # more, including one the window itself was making: the finish screen said
+    # "a restore point was taken" on every successful run, including the ones
+    # where Windows had refused to make one.
+    #
+    # Each check below reads the code first to establish what is true, then
+    # asserts the prose matches. A claim nobody can check is a claim nobody
+    # should believe, and that includes ours.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    $readme = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'README.md')
+    $site   = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'hosting\site\index.html')
+    $docs   = @{ 'README.md' = $readme; 'the landing page' = $site }
+
+    # --- sentences that were removed because they were not true ------------
+    #
+    # Each of these was on a page at some point today. Named individually
+    # rather than checked for by paraphrase, because the failure mode is not
+    # somebody inventing a new false claim - it is somebody restoring a deleted
+    # one from an older copy, or an editor tightening the wording back to what
+    # it used to say.
+    $retired = @(
+        @{ Text = 'fetched later'
+           Why  = 'it fetches WinUtil and NVIDIA Profile Inspector while it runs, and executes both' },
+        @{ Text = 'nothing staged'
+           Why  = 'the published screenshots substitute a demo machine, sample game paths and a sample startup list' },
+        @{ Text = 'needs no admin rights and changes nothing'
+           Why  = 'every run but -DryRun elevates before the window opens' },
+        @{ Text = 'reverses every single one'
+           Why  = 'Store apps, WinUtil tweaks and netsh settings are not in the undo script, as the same page says' },
+        @{ Text = 'The only files it writes'
+           Why  = 'it writes a log, a ledger and an undo script, and stages a copy of itself in temp to elevate' },
+        @{ Text = 'only thing it ever fetches'
+           Why  = 'it also fetches its fingerprint, its tweak config, WinUtil and NVIDIA Profile Inspector' }
+    )
+    foreach ($doc in $docs.Keys) {
+        foreach ($claim in $retired) {
+            if ($docs[$doc] -match [regex]::Escape($claim.Text)) {
+                $problems.Add("$doc says '$($claim.Text)' again - $($claim.Why)") | Out-Null
+            }
+        }
+    }
+
+    # --- the restore point is best-effort, and both pages have to say so ----
+    $core = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '02-core.ps1')
+    $fn = [regex]::Match($core, '(?s)function New-SafetyRestorePoint \{.*?\r?\n\}')
+    if (-not $fn.Success -or $fn.Value -notmatch 'Checkpoint-Computer') {
+        throw 'cannot find New-SafetyRestorePoint - this guard has stopped reading the code it checks'
+    }
+
+    # It swallows the failure and carries on, which is the right behaviour and
+    # the reason no page may state the restore point as a certainty.
+    if ($fn.Value -match 'Could not create a restore point') {
+        foreach ($doc in $docs.Keys) {
+            if ($docs[$doc] -notmatch '(?i)restore point') {
+                $problems.Add("$doc no longer mentions the restore point, so this guard is checking nothing") | Out-Null
+                continue
+            }
+            if ($docs[$doc] -notmatch '(?i)(Windows refuses|Windows would not|refuses to make one|where Windows allows|unless Windows refuses|System Protection)') {
+                $problems.Add(("$doc states the restore point without saying it can be refused. " +
+                               'Checkpoint-Computer fails where System Protection is off by policy and the run continues anyway, ' +
+                               'so anyone reading this believes they have a rollback they may not have.')) | Out-Null
+            }
+        }
+
+        # And the window must not be promising one either. It did.
+        $gui = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '13-gui.ps1')
+        if ($gui -notmatch 'RestorePointCreated') {
+            $problems.Add(('the window never checks the restore point result, so its finish screen tells everyone ' +
+                           'a restore point was taken - including the runs where Windows refused')) | Out-Null
+        }
+        if ($core -notmatch 'RestorePointCreated\s*=\s*\$false') {
+            $problems.Add('nothing records a failed restore point, so the window cannot tell the difference') | Out-Null
+        }
+    }
+
+    # --- it runs somebody else's code, so the page cannot imply otherwise ---
+    $remoteExec = @()
+    foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1')) {
+        $t = Get-Content -Raw -Encoding UTF8 -LiteralPath $f.FullName
+        if ($t -match '\[ScriptBlock\]::Create\(\(Invoke-RestMethod') { $remoteExec += $f.Name }
+    }
+    if ($remoteExec.Count) {
+        # The "Read it" card invites people to read the whole script. What they
+        # read does not include WinUtil, and the card has to admit that.
+        if ($site -notmatch '(?i)fetches while it runs') {
+            $problems.Add(("$($remoteExec -join ', ') downloads and executes code from another host, and the site's " +
+                           "'Read it' card does not say so. Someone who takes it up on reading the script finds that out themselves.")) | Out-Null
+        }
+    }
+
+    # --- the published screenshots are of a machine that does not exist -----
+    $exporter = Join-Path $root 'test\Export-GuiScreenshots.ps1'
+    if (Test-Path -LiteralPath $exporter) {
+        $ex = Get-Content -Raw -Encoding UTF8 -LiteralPath $exporter
+        if ($ex -notmatch 'if \(-not \$Real\)') {
+            throw 'the screenshot exporter no longer has a demo-machine branch - this guard has stopped reading it'
+        }
+        foreach ($doc in $docs.Keys) {
+            if ($docs[$doc] -notmatch '(?i)(demo machine|stand-in)') {
+                $problems.Add(("$doc shows the exported screenshots without saying the machine in them is not real. " +
+                               'The window is genuine; the motherboard, disks, game paths and startup list are substituted.')) | Out-Null
+            }
+        }
+    }
+
+    # --- a bare run elevates before it shows anything ----------------------
+    $header = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '01-header.ps1')
+    if ($header -notmatch '-Verb RunAs') {
+        throw 'cannot find the self-elevation call - this guard has stopped reading the code it checks'
+    }
+    if ($header -match 'if \(-not \$isAdmin -and \$DryRun\)') {
+        foreach ($doc in $docs.Keys) {
+            if ($docs[$doc] -match '(?i)(scan|dry run)[^.]{0,60}no admin[^.]{0,40}changes nothing') {
+                $problems.Add("$doc describes an unelevated scan; only -DryRun is unelevated") | Out-Null
+            }
+        }
+    }
+
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 

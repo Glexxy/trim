@@ -190,8 +190,10 @@
     <div class="band-head">
       <p class="eyebrow">The actual app</p>
       <h2 id="tour-h">Here&rsquo;s what you get.</h2>
-      <p class="band-sub">Straight screenshots, nothing staged. This is a normal
-         desktop with an RTX 4070 in it.</p>
+      <p class="band-sub">The real window, rendered by the app itself &mdash; no mockups.
+         The machine it describes is a stand-in: publishing our own would publish a
+         motherboard, disk models, drive labels, installed games and startup programs,
+         which is nobody else&rsquo;s business.</p>
     </div>
 
     <div class="tourbox">
@@ -228,8 +230,8 @@
                  alt="Overview screen explaining what Trim is, that a restore point is taken first, and showing the SAFE, CAUTION and RISKY labels.">
           </div>
           <p class="shot-cap">It explains itself in plain English, then prints a full
-             spec sheet of your machine. On this PC it found 60 things worth changing,
-             and 38 already set the way it would set them.</p>
+             spec sheet of your machine. On the PC that generated this, it found 60
+             things worth changing and 39 already set the way it would set them.</p>
         </div>
 
         <div role="tabpanel" id="panel-changes" aria-labelledby="tab-changes" tabindex="0" hidden>
@@ -317,9 +319,11 @@
       <li>
         <span class="step-n">3</span>
         <h3>Apply, or undo</h3>
-        <p>Click Apply and it makes the changes you kept. A restore point goes first,
-           and an undo script lands in <code>C:\ProgramData\Trim\undo</code> that
-           reverses every single one.</p>
+        <p>Click Apply and it makes the changes you kept. It asks Windows for a restore
+           point first &mdash; and tells you if Windows refuses, which happens where
+           System Protection is off by policy. An undo script lands in
+           <code>C:\ProgramData\Trim\undo</code> and reverses every setting it wrote,
+           bar the three exceptions below.</p>
       </li>
     </ol>
   </section>
@@ -337,7 +341,10 @@
       <article class="check">
         <h3><span class="chk-n">01</span> Read it</h3>
         <p>It is served as plain text, not a download. Open it in a tab and read the
-           whole thing &mdash; nothing is minified, obfuscated or fetched later.</p>
+           whole thing &mdash; one file, nothing minified or obfuscated. Two things it
+           fetches while it runs are somebody else&rsquo;s code: WinUtil, if you keep
+           that phase, and NVIDIA Profile Inspector, if you have the card. Both are
+           named below, and you can read the lines that go and get them.</p>
         <a class="link" href="/go">Open the script</a>
       </article>
 
@@ -412,7 +419,9 @@ cd trim
         <li>
           <h3>A restore point goes first</h3>
           <p>Before anything is touched, so you can roll back the whole machine and not
-             just the settings Trim happens to know about.</p>
+             just the settings Trim happens to know about. Where System Protection is
+             switched off by policy Windows refuses, and the run says so on screen
+             instead of leaving you to assume otherwise.</p>
         </li>
         <li>
           <h3>The round trip is tested</h3>
@@ -440,10 +449,11 @@ cd trim
       <details>
         <summary>Will it break my PC?</summary>
         <div><p>That is the thing it is built to avoid. Only the changes marked SAFE are
-           ticked when it opens, a restore point is taken before anything runs, and
-           every registry change is written down so it can be put back exactly. It also
-           stays away from the things that actually kill machines: BIOS, fan curves,
-           overclocking, and the Windows components other software depends on.</p></div>
+           ticked when it opens, a restore point is taken before anything runs unless
+           Windows refuses to make one, and every registry change is written down so it
+           can be put back exactly. It also stays away from the things that actually kill
+           machines: BIOS, fan curves, overclocking, and the Windows components other
+           software depends on.</p></div>
       </details>
       <details>
         <summary>Does it work on Windows 10?</summary>
@@ -452,16 +462,21 @@ cd trim
       </details>
       <details>
         <summary>Do I have to install anything?</summary>
-        <div><p>No. It runs from PowerShell and leaves no program behind. The only files
-           it writes are its own log and the undo script, both in
-           <code>C:\ProgramData\Trim</code>.</p></div>
+        <div><p>No. It runs from PowerShell and leaves no program behind. It does write
+           files: its log, its ledger and the undo script, all three in
+           <code>C:\ProgramData\Trim</code>, plus a copy of itself in your temp folder
+           when it needs admin rights &mdash; because handing an elevated shell a file it
+           can check beats re-downloading one it cannot.</p></div>
       </details>
       <details>
         <summary>Why does it want admin rights?</summary>
         <div><p>Because half of what it changes is machine-wide: scheduled tasks,
-           services, and registry keys under HKEY_LOCAL_MACHINE. A dry run needs no
-           admin at all, so you can look at the entire plan before granting
-           anything.</p></div>
+           services, and registry keys under HKEY_LOCAL_MACHINE &mdash; several of which
+           cannot even be read without it, which is why the one-liner asks once at the
+           start rather than mid-run. Nothing is changed until you click Apply. If you
+           would rather grant nothing at all, <code>-DryRun</code> runs unelevated and
+           prints the plan; it says so at the top, because the handful of values it
+           cannot read are missing from it.</p></div>
       </details>
       <details>
         <summary>Will it give me more FPS?</summary>
@@ -492,8 +507,8 @@ cd trim
   <!-- ══ close ══════════════════════════════════════════════════════════ -->
   <section class="closer" aria-labelledby="close-h">
     <h2 id="close-h">Go and look at your own PC.</h2>
-    <p>The scan needs no admin rights and changes nothing. Worst case you close the
-       window, having found out what Windows has been up to.</p>
+    <p>Windows asks for admin, a window opens, and nothing changes until you click
+       Apply. Worst case you close it, having found out what Windows has been up to.</p>
     <div class="cmd solo">
       <span class="cmd-prompt" aria-hidden="true">PS&gt;</span>
       <code class="cmd-text">irm https://trimbloat.com/go | iex</code>
@@ -578,13 +593,13 @@ cd trim
         { "@type": "Question", "name": "Is Trim actually free?",
           "acceptedAnswer": { "@type": "Answer", "text": "Yes. MIT licensed, open source, no paid tier, no account, and nothing to buy later." } },
         { "@type": "Question", "name": "Will Trim break my PC?",
-          "acceptedAnswer": { "@type": "Answer", "text": "That is the thing it is built to avoid. Only changes marked SAFE are ticked when it opens, a restore point is taken before anything runs, and every registry change is written down so it can be put back exactly. It also stays away from BIOS, fan curves, overclocking and the Windows components other software depends on." } },
+          "acceptedAnswer": { "@type": "Answer", "text": "That is the thing it is built to avoid. Only changes marked SAFE are ticked when it opens, a restore point is taken before anything runs unless Windows refuses to make one, and every registry change is written down so it can be put back exactly. It also stays away from BIOS, fan curves, overclocking and the Windows components other software depends on." } },
         { "@type": "Question", "name": "Does it work on Windows 10?",
           "acceptedAnswer": { "@type": "Answer", "text": "Yes, Windows 10 and 11. It works out which one you are on and skips whatever does not apply to your build." } },
         { "@type": "Question", "name": "Do I have to install anything?",
-          "acceptedAnswer": { "@type": "Answer", "text": "No. It runs from PowerShell and leaves no program behind. The only files it writes are its own log and the undo script, both in C:\\ProgramData\\Trim." } },
+          "acceptedAnswer": { "@type": "Answer", "text": "No. It runs from PowerShell and leaves no program behind. It does write files: its log, its ledger and the undo script, all in C:\\ProgramData\\Trim, plus a copy of itself in the temp folder when it needs admin rights." } },
         { "@type": "Question", "name": "Why does Trim need administrator rights?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Because much of what it changes is machine-wide: scheduled tasks, services and registry keys under HKEY_LOCAL_MACHINE. A dry run needs no admin at all, so the entire plan can be inspected before granting anything." } },
+          "acceptedAnswer": { "@type": "Answer", "text": "Because much of what it changes is machine-wide: scheduled tasks, services and registry keys under HKEY_LOCAL_MACHINE, several of which cannot be read without it. It asks once at the start, and nothing is changed until you click Apply. A dry run needs no admin at all, though the values it cannot read are missing from that plan." } },
         { "@type": "Question", "name": "Will Trim give me more FPS?",
           "acceptedAnswer": { "@type": "Answer", "text": "Sometimes a bit, often nothing you would notice. Killing background telemetry and pointing games at the right GPU does real work on a cluttered laptop and almost nothing on a clean, well-specced desktop. Anyone promising a specific frame-rate gain from registry edits is guessing or lying." } },
         { "@type": "Question", "name": "Can I undo it weeks later?",
