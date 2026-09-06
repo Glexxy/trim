@@ -522,6 +522,12 @@ Test-Phase 'All remote fetches are https and modern TLS' {
         }
     }
 
+    # If the scan finds no hosts at all, everything below passes and the
+    # promise it defends is unguarded. Three are known to be there.
+    if ($seen.Count -lt 3) {
+        throw "found only $($seen.Count) host(s) in the source; the URL scan has stopped working and this guard is checking nothing"
+    }
+
     $unexpected = @($seen.Keys | Where-Object { -not $allowed.ContainsKey($_) })
     if ($unexpected.Count) {
         $detail = ($unexpected | ForEach-Object { "$_ ($($seen[$_]))" }) -join '; '
@@ -1643,6 +1649,7 @@ Test-Phase 'No external program can block the run forever' {
     # gives up, because the thing they force-kill is midway through changing
     # their machine.
     $problems = [System.Collections.Generic.List[string]]::new()
+    $waitsFound = 0
 
     foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1' -File)) {
         $lines  = Get-Content -LiteralPath $f.FullName
@@ -1656,6 +1663,7 @@ Test-Phase 'No external program can block the run forever' {
             $unbounded = ($line -match 'Start-Process' -and $line -match '-Wait\b') -or
                          ($line -match 'WaitForExit\(\s*\)')
             if (-not $unbounded) { continue }
+            $waitsFound++
 
             # Some of these should wait without end, and a blanket timeout
             # would make the tool less safe rather than more. Killing DISM
@@ -1675,6 +1683,12 @@ Test-Phase 'No external program can block the run forever' {
                 $problems.Add("$($f.Name) line $($i + 1) waits with no timeout and no stated reason") | Out-Null
             }
         }
+    }
+
+    # Five blocking waits are known to be in the source. Finding none means
+    # the scan broke, not that the danger went away.
+    if ($waitsFound -lt 5) {
+        throw "found only $waitsFound blocking wait(s); the scan has stopped working and this guard is checking nothing"
     }
 
     # And the bounded helper has to still be bounded.
@@ -1712,6 +1726,7 @@ Test-Phase 'Anything that runs the script says which mode it wants' {
 
     # Invocations of the compiled script, however they are spelled.
     $invokes = '&\s*(\$ScriptPath|["'']?[^"'']*trim\.ps1["'']?)'
+    $filesInvoking = 0
 
     foreach ($f in (Get-ChildItem (Join-Path $root 'test') -Filter '*.ps1' -File)) {
         $lines = Get-Content -LiteralPath $f.FullName
@@ -1725,6 +1740,7 @@ Test-Phase 'Anything that runs the script says which mode it wants' {
             if ($line -match $invokes) { $hits += ($i + 1) }
         }
         if (-not $hits.Count) { continue }
+        $filesInvoking++
 
         # Asked of each invocation, not of the file. "Somewhere in this file the
         # word -DryRun appears" is satisfied by a comment, by help text, or by a
@@ -1757,6 +1773,13 @@ Test-Phase 'Anything that runs the script says which mode it wants' {
 
             $problems.Add("$($f.Name) line $n runs the script without naming a mode") | Out-Null
         }
+    }
+
+    # Two scripts invoke the compiled script. If the scan sees neither, every
+    # file is skipped as uninteresting and this reports success having looked
+    # at nothing.
+    if ($filesInvoking -lt 2) {
+        throw "only $filesInvoking file(s) were seen invoking the script; the detection has stopped working and this guard is checking nothing"
     }
 
     if ($problems.Count) { throw ($problems -join '; ') }
