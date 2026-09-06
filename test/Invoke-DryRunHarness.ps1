@@ -3159,6 +3159,102 @@ Test-Phase 'Documented commands are commands that work' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+Test-Phase 'Skipping a phase actually skips it' {
+    # -Skip and -Only were set to @() in every test in this project. The names
+    # they accept are checked, and every phase is known to be gated on
+    # Test-PhaseEnabled - but the predicate itself had never been asked a
+    # question with an answer.
+    #
+    # The README sells both: "-Skip Appx,Network - leave phases out" and
+    # "-Only Gaming,Graphics - run only those phases". Get that wrong and
+    # somebody who said "not Appx" has their Store apps removed anyway, which
+    # is the worst class of fault this tool has: it did the thing you told it
+    # not to do.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    $main = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '99-main.ps1')
+    $phases = @([regex]::Matches($main, "Test-PhaseEnabled\s+'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
+    if ($phases.Count -lt 5) { throw "found only $($phases.Count) phases - this guard has stopped finding them" }
+
+    # The real variables the function reads. Restored whatever happens: leaving
+    # -Only set would make every phase after this point silently not run.
+    $wasSkip = $Skip; $wasOnly = $Only
+    try {
+        # Nothing set: everything runs. Without this the checks below are
+        # satisfied by a predicate that always says no.
+        Set-Variable -Name Skip -Value @() -Scope Script
+        Set-Variable -Name Only -Value @() -Scope Script
+        $off = @($phases | Where-Object { -not (Test-PhaseEnabled $_) })
+        if ($off.Count) { $problems.Add("with no filters, $($off -join ', ') did not run") | Out-Null }
+
+        # -Skip leaves exactly those out and nothing else.
+        Set-Variable -Name Skip -Value @('Appx','Network') -Scope Script
+        foreach ($p in $phases) {
+            $enabled = Test-PhaseEnabled $p
+            $shouldRun = $p -notin @('Appx','Network')
+            if ($enabled -ne $shouldRun) {
+                $problems.Add("-Skip Appx,Network: '$p' $(if ($enabled) { 'ran' } else { 'did not run' }) and should have been the other way") | Out-Null
+            }
+        }
+
+        # -Only runs exactly those and nothing else.
+        Set-Variable -Name Skip -Value @() -Scope Script
+        Set-Variable -Name Only -Value @('Gaming','Graphics') -Scope Script
+        foreach ($p in $phases) {
+            $enabled = Test-PhaseEnabled $p
+            $shouldRun = $p -in @('Gaming','Graphics')
+            if ($enabled -ne $shouldRun) {
+                $problems.Add("-Only Gaming,Graphics: '$p' $(if ($enabled) { 'ran' } else { 'did not run' }) and should have been the other way") | Out-Null
+            }
+        }
+
+        # The help says -Only overrides -Skip. Both naming the same phase is
+        # the case where a reader has to know which one wins.
+        Set-Variable -Name Skip -Value @('Gaming') -Scope Script
+        Set-Variable -Name Only -Value @('Gaming') -Scope Script
+        if (-not (Test-PhaseEnabled 'Gaming')) {
+            $problems.Add('-Only does not override -Skip, which is what the help says it does') | Out-Null
+        }
+
+        # Case: the parameter's ValidateSet accepts what the user typed, and
+        # PowerShell's -contains is case-insensitive, so a phase named in a
+        # different case has to behave the same rather than silently run.
+        Set-Variable -Name Skip -Value @() -Scope Script
+        Set-Variable -Name Only -Value @('gaming') -Scope Script
+        if (-not (Test-PhaseEnabled 'Gaming')) {
+            $problems.Add("-Only 'gaming' did not match the phase 'Gaming'") | Out-Null
+        }
+        if (Test-PhaseEnabled 'Privacy') {
+            $problems.Add("-Only 'gaming' still ran Privacy") | Out-Null
+        }
+    }
+    finally {
+        Set-Variable -Name Skip -Value $wasSkip -Scope Script
+        Set-Variable -Name Only -Value $wasOnly -Scope Script
+    }
+
+    # And the filters must still be what the run consults. A phase called
+    # without going through the predicate cannot be skipped at all, whatever
+    # the predicate says.
+    $allPhases = [regex]::Match($main, '(?s)function Invoke-AllPhases \{.*?\r?\n\}')
+    if (-not $allPhases.Success) {
+        throw 'cannot find Invoke-AllPhases - this guard has stopped reading the code it checks'
+    }
+    # [ \t]* rather than \s*: \s matches newlines, so a match could begin on the
+    # line above and swallow its "if (Test-PhaseEnabled ...)" - which made an
+    # ungated call look gated and left this unable to fail at all. Found by the
+    # mutation that removes a gate surviving.
+    foreach ($m in [regex]::Matches($allPhases.Value, '(?m)^[ \t]*(?:if \([^\r\n]*\)[ \t]*\{[ \t]*)?(Invoke-\w+Phase)\b')) {
+        $call = $m.Groups[1].Value
+        $line = $m.Value
+        if ($line -notmatch 'Test-PhaseEnabled') {
+            $problems.Add("$call runs unconditionally, so -Skip and -Only cannot leave it out") | Out-Null
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'Every feature is reachable' {
     # Get-LargeFileScan shipped as dead code: written, unit-checked in isolation,
     # wired to nothing, and reported as delivered. This asserts that anything
