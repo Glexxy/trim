@@ -249,6 +249,50 @@ Case '-ApplySelection refuses a file that is not there' @{ ApplySelection = (Joi
     if ($t.Count) { throw "a missing selection file still did: $($t -join ', ')" }
 }
 
+# Everything above hands -ApplySelection a file this test wrote itself, which
+# tests the reader against this test's idea of the format rather than against
+# the writer. If Invoke-Selection stopped writing Key, or wrote it under another
+# name, every case above would still pass and the elevated apply would silently
+# do nothing.
+#
+# So: the real writer produces the file, and the real reader is given that.
+$roundTripKey = 'reg|HKCU:\Software\Trim\RoundTrip|Value'
+$script:SelectionFilter = $null
+$written = $null
+try {
+    $null = Invoke-Selection -Selection @([pscustomobject]@{
+        Key = $roundTripKey; Kind = 'reg'; Phase = 'Privacy'
+        Title = 'written by the real writer'; Tier = 'safe' })
+    $written = Get-ChildItem (Join-Path $script:RunRoot 'selection') -Filter 'selection_*.json' `
+               -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+} catch { }
+
+# Invoke-Selection sets the filter itself on the elevated branch. Cleared here
+# on purpose: leaving it set would let the case below pass without the file
+# being read at all, which is the shape of half the faults this project has
+# found in its own tests.
+$script:SelectionFilter = $null
+$script:DryRun = $false
+
+if (-not $written) {
+    $failures.Add('Invoke-Selection wrote no selection file, so the round trip could not be checked') | Out-Null
+    Write-Host 'FAIL  a selection written by the window is readable by the elevated run' -ForegroundColor Red
+} else {
+    Case 'a selection written by the window is readable by the elevated run' `
+         @{ ApplySelection = $written.FullName } {
+        param($t)
+        if ($t -notcontains 'phases(APPLY)') {
+            throw 'the file the writer produced was rejected by the reader'
+        }
+        if (-not $script:SelectionFilter -or $script:SelectionFilter.Count -ne 1) {
+            throw "the round-tripped selection did not reach the filter (count: $(@($script:SelectionFilter).Count))"
+        }
+        if (-not $script:SelectionFilter.ContainsKey($roundTripKey)) {
+            throw "the key came back as '$($script:SelectionFilter.Keys -join ', ')' rather than what was written"
+        }
+    }
+}
+
 Case '-Cleanup runs the sweep and nothing else' @{ Cleanup = $true } {
     param($t)
     if ($t -notcontains 'cleanup')    { throw '-Cleanup did not run the sweep' }
