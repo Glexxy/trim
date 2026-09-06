@@ -453,6 +453,117 @@ function Get-AppLeftovers {
         }) | Out-Null
     }
 
+    # --- candidate services --------------------------------------------
+    #
+    # An uninstaller that removes its files and leaves its service behind is
+    # common: the service then fails to start on every boot, forever, and the
+    # only trace is an event-log entry nobody reads.
+    #
+    # Every one goes through Test-SafeToRemoveService, and what it refuses is
+    # recorded rather than dropped.
+    try {
+        foreach ($svc in @(Get-CimInstance -ClassName Win32_Service -ErrorAction Stop)) {
+            $exe = Get-ServiceImageFile -PathName $svc.PathName
+
+            # Only consider it at all if something connects it to this app.
+            # Without this every service on the machine is put through the
+            # guard on every scan, which is slow and reads like a fishing trip.
+            $related = $false
+            if (Test-LeftoverNameMatch -Candidate $svc.Name -AppName $App.Name -Publisher $pub) { $related = $true }
+            if (-not $related -and (Test-LeftoverNameMatch -Candidate $svc.DisplayName -AppName $App.Name -Publisher $pub)) { $related = $true }
+            if (-not $related -and $exe -and $App.InstallDir) {
+                $inst = "$($App.InstallDir)".TrimEnd('\')
+                if ($inst -and $exe.StartsWith("$inst\", [StringComparison]::OrdinalIgnoreCase)) { $related = $true }
+            }
+            if (-not $related) { continue }
+
+            if (-not (Test-SafeToRemoveService -Name $svc.Name -DisplayName $svc.DisplayName `
+                                               -ImagePath $svc.PathName -AppName $App.Name -Publisher $pub)) {
+                $script:LeftoversWithheld.Add([pscustomobject]@{
+                    Kind = 'service'; Path = $svc.Name
+                    Why  = 'shared, protected, still depended on, or not clearly this app'
+                }) | Out-Null
+                continue
+            }
+
+            # Whether the binary is still there is the difference between "this
+            # is definitely dead" and "this still runs", and the person ticking
+            # the box deserves to know which.
+            $orphaned = -not ($exe -and (Test-Path -LiteralPath $exe))
+            $found.Add([pscustomobject]@{
+                Kind = 'service'; Path = $svc.Name; Bytes = 0
+                Size = $(if ($orphaned) { 'binary missing' } else { 'binary present' })
+                # Off by default. A folder left behind wastes space; a service
+                # removed by mistake stops something working, so this one is
+                # ticked by a person or not at all.
+                Selected = $false
+                Detail = "$($svc.DisplayName)"
+                Key  = "left|service|$($svc.Name)"
+            }) | Out-Null
+        }
+    } catch {
+        Write-Log -Level WARN -Message "Could not read the service list: $($_.Exception.Message.Trim())"
+    }
+
+    # --- candidate scheduled tasks --------------------------------------
+    try {
+        $sched = New-Object -ComObject Schedule.Service
+        $sched.Connect()
+
+        $folders = [System.Collections.Generic.List[object]]::new()
+        $folders.Add($sched.GetFolder('\')) | Out-Null
+        $i = 0
+        while ($i -lt $folders.Count) {
+            $f = $folders[$i]; $i++
+            # \Microsoft is Windows' own, and walking into it only produces
+            # candidates the guard will refuse. Skipped at the source.
+            try {
+                foreach ($sub in $f.GetFolders(0)) {
+                    if ("$($sub.Path)" -like '\Microsoft*') { continue }
+                    $folders.Add($sub) | Out-Null
+                }
+            } catch { }
+
+            try { $tasks = @($f.GetTasks(1)) } catch { $tasks = @() }   # 1: include hidden
+            foreach ($t in $tasks) {
+                $action = ''
+                try { $action = @($t.Definition.Actions | ForEach-Object { $_.Path } | Where-Object { $_ })[0] } catch { }
+
+                $related = $false
+                foreach ($seg in @("$($t.Path)" -split '\\' | Where-Object { $_ })) {
+                    if (Test-LeftoverNameMatch -Candidate $seg -AppName $App.Name -Publisher $pub) { $related = $true; break }
+                }
+                if (-not $related -and $action -and $App.InstallDir) {
+                    $inst = "$($App.InstallDir)".TrimEnd('\')
+                    try {
+                        $ap = [IO.Path]::GetFullPath($action.Trim('"'))
+                        if ($inst -and $ap.StartsWith("$inst\", [StringComparison]::OrdinalIgnoreCase)) { $related = $true }
+                    } catch { }
+                }
+                if (-not $related) { continue }
+
+                if (-not (Test-SafeToRemoveTask -TaskPath $t.Path -ActionPath $action `
+                                                -AppName $App.Name -Publisher $pub)) {
+                    $script:LeftoversWithheld.Add([pscustomobject]@{
+                        Kind = 'task'; Path = "$($t.Path)"
+                        Why  = 'a Windows task, or not clearly this app'
+                    }) | Out-Null
+                    continue
+                }
+
+                $found.Add([pscustomobject]@{
+                    Kind = 'task'; Path = "$($t.Path)"; Bytes = 0
+                    Size = $(if ($t.Enabled) { 'enabled' } else { 'disabled' })
+                    Selected = $false
+                    Detail = $action
+                    Key  = "left|task|$($t.Path)"
+                }) | Out-Null
+            }
+        }
+    } catch {
+        Write-Log -Level WARN -Message "Could not read the scheduled tasks: $($_.Exception.Message.Trim())"
+    }
+
     return @($found | Sort-Object Bytes -Descending)
 }
 
@@ -519,6 +630,259 @@ function Test-SafeToRemoveKey {
     }
 
     return ($appN -and ($leafN -eq $appN -or $leafN.Contains($appN) -or $appN.Contains($leafN)))
+}
+
+<#
+.SYNOPSIS
+    Does this name look like the application being removed?
+
+.DESCRIPTION
+    The evidence rule the folder and key guards each spell out inline, written
+    once for the two guards added after them. Same normalisation, same minimum
+    length, same "a two-character match is a coincidence, not evidence".
+
+    The older two are deliberately left alone: they are load-bearing, they have
+    a test asserting they agree with each other, and rewriting them to call this
+    is a separate change with its own risk. Four copies would be worse than
+    three, which is why the new pair share one.
+#>
+function Test-LeftoverNameMatch {
+    param(
+        [AllowEmptyString()][AllowNull()][string]$Candidate = '',
+        [AllowEmptyString()][string]$AppName = '',
+        [AllowEmptyString()][string]$Publisher = ''
+    )
+    if ([string]::IsNullOrWhiteSpace($Candidate)) { return $false }
+    if ([string]::IsNullOrWhiteSpace($AppName))   { return $false }
+
+    $norm = { param($t) ($t -replace '[^A-Za-z0-9]', '').ToLower() }
+    $c    = & $norm $Candidate
+    $appN = & $norm $AppName
+    $pubN = & $norm $Publisher
+
+    # Too short to be evidence of anything.
+    if (-not $c -or $c.Length -lt 3) { return $false }
+    if (-not $appN -or $appN.Length -lt 3) { return $false }
+
+    if ($c -eq $appN -or $c.Contains($appN) -or $appN.Contains($c)) { return $true }
+    if ($pubN -and $pubN.Length -ge 4 -and ($c -eq $pubN -or $c.Contains($pubN))) { return $true }
+    return $false
+}
+
+<#
+.SYNOPSIS
+    The executable a service actually runs, out of its command line.
+
+.DESCRIPTION
+    Win32_Service.PathName is a command line, not a path: it may be quoted, it
+    may carry arguments, and svchost-hosted services share one binary with half
+    of Windows. Returns the executable alone, or '' when it cannot be read -
+    never a guess, because everything downstream decides whether to delete
+    something based on where this points.
+#>
+function Get-ServiceImageFile {
+    param([AllowEmptyString()][AllowNull()][string]$PathName = '')
+    if ([string]::IsNullOrWhiteSpace($PathName)) { return '' }
+
+    $p = $PathName.Trim()
+    if ($p.StartsWith('"')) {
+        $end = $p.IndexOf('"', 1)
+        if ($end -gt 1) { $p = $p.Substring(1, $end - 1) } else { return '' }
+    } else {
+        # Unquoted with arguments. Take everything up to the first .exe, which
+        # is the only reliable boundary when the path itself contains spaces.
+        $m = [regex]::Match($p, '^(?<exe>.*?\.exe)(\s|$)', 'IgnoreCase')
+        if ($m.Success) { $p = $m.Groups['exe'].Value } else { $p = ($p -split '\s+')[0] }
+    }
+
+    try { return [IO.Path]::GetFullPath($p) } catch { return '' }
+}
+
+<#
+.SYNOPSIS
+    A service's ImagePath, read fresh from the registry.
+
+.DESCRIPTION
+    The re-check before deletion must not take the image path from the list it
+    was handed: that list is the thing being distrusted. Read at the moment it
+    matters, from the only place that decides what the service actually runs.
+#>
+function Get-ServiceImagePathFromRegistry {
+    param([AllowEmptyString()][AllowNull()][string]$Name = '')
+    if ([string]::IsNullOrWhiteSpace($Name)) { return '' }
+    try {
+        $k = "HKLM:\SYSTEM\CurrentControlSet\Services\$Name"
+        return "$((Get-ItemProperty -LiteralPath $k -Name ImagePath -ErrorAction Stop).ImagePath)"
+    } catch { return '' }
+}
+
+<#
+.SYNOPSIS
+    Does this executable live in a folder that belongs to somebody protected?
+
+.DESCRIPTION
+    Independent of any name. Pointing the service guard at every service on a
+    real machine, with the app name set to each service own name - the most
+    favourable evidence there is - allowed AUEPLauncher, which runs out of
+    C:\Program Files\AMD\Performance Profile Client. It qualified on the name route while its binary sat in a vendor
+    folder the folder guard refuses outright.
+
+    The same lesson Test-SafeToRemovePath already carries in a comment: guards
+    should not depend on their callers being careful. Evidence of a name is not
+    permission to touch somebody else directory.
+#>
+function Test-PathUnderProtectedOwner {
+    param([AllowEmptyString()][AllowNull()][string]$Path = '')
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+    $full = ''
+    try { $full = [IO.Path]::GetFullPath($Path) } catch { return $false }
+    if (-not $full) { return $false }
+
+    foreach ($seg in @($full -split '\\' | Where-Object { $_ })) {
+        $s = $seg.ToLower()
+        foreach ($p in $script:UninstallProtectedPublishers) {
+            if ($s -eq $p.ToLower()) { return $true }
+        }
+        if ($s -eq 'windowsapps') { return $true }
+    }
+    return $false
+}
+
+<#
+.SYNOPSIS
+    Is this service safe to delete as a leftover of the app being removed?
+
+.DESCRIPTION
+    Default no, like its two older siblings, and empty-tolerant for the same
+    reason: a guard that throws instead of refusing is a guard that fails open.
+
+    A service is worse to get wrong than a folder. Deleting one takes its
+    configuration with it, anything depending on it stops, and the machine may
+    need a reboot to be consistent again. So the evidence has to be positive:
+    either the binary lives somewhere this application owns, or the service
+    names itself after the application.
+#>
+function Test-SafeToRemoveService {
+    param(
+        [AllowEmptyString()][AllowNull()][string]$Name = '',
+        [AllowEmptyString()][AllowNull()][string]$DisplayName = '',
+        [AllowEmptyString()][AllowNull()][string]$ImagePath = '',
+        [AllowEmptyString()][string]$AppName = '',
+        [AllowEmptyString()][string]$Publisher = ''
+    )
+    if ([string]::IsNullOrWhiteSpace($AppName)) { return $false }
+    if ([string]::IsNullOrWhiteSpace($Name))    { return $false }
+
+    # A protected publisher's service is never a leftover, for the same reason
+    # its folders are not.
+    foreach ($p in $script:UninstallProtectedPublishers) {
+        if ($Publisher -and $Publisher -like "*$p*") { return $false }
+    }
+
+    # Windows' own services, whatever they are called. Anything running out of
+    # the Windows directory belongs to Windows, and svchost hosts dozens of
+    # services at once - deleting one because its shared host matched would be
+    # catastrophic and is the obvious way to get this wrong.
+    $exe = Get-ServiceImageFile -PathName $ImagePath
+    if ($exe) {
+        $win = "$env:WinDir".TrimEnd('\')
+        if ($win -and $exe.StartsWith("$win\", [StringComparison]::OrdinalIgnoreCase)) { return $false }
+        if ([IO.Path]::GetFileName($exe).ToLower() -in @('svchost.exe','rundll32.exe','dllhost.exe')) { return $false }
+    # Whoever owns the folder owns the service in it, whatever it is called.
+        if (Test-PathUnderProtectedOwner -Path $exe) { return $false }
+    }
+
+    # Names Windows and its drivers rely on, refused outright whatever they
+    # claim to be. Prefix-matched: a name is enough to refuse on, and asking
+    # for an exact match invites 'WinDefend2'.
+    $protectedServices = @(
+        'windefend','wuauserv','bits','winmgmt','rpcss','dcomlaunch','lsm','schedule',
+        'eventlog','plugplay','power','profsvc','themes','audiosrv','audioendpointbuilder',
+        'dhcp','dnscache','lanmanserver','lanmanworkstation','netlogon','nsi','trustedinstaller',
+        'wscsvc','sense','wdnissvc','securityhealthservice','msiserver','cryptsvc','termservice',
+        'nvidia','amd','intel','realtek','xbl','xbox','wlansvc','spooler','sysmain','wsearch'
+    )
+    $n = $Name.ToLower()
+    foreach ($p in $protectedServices) {
+        if ($n.StartsWith($p)) { return $false }
+    }
+
+    # Something else still needs it. Whatever the evidence says, this is not a
+    # leftover.
+    try {
+        $svc = Get-Service -Name $Name -ErrorAction Stop
+        if (@($svc.DependentServices).Count -gt 0) { return $false }
+    } catch {
+        # No such service, or it cannot be read. Nothing to delete either way.
+        return $false
+    }
+
+    # Positive evidence, one of two kinds.
+    if ($exe -and (Test-SafeToRemovePath -Path (Split-Path $exe -Parent) -AppName $AppName -Publisher $Publisher)) {
+        return $true
+    }
+    if (Test-LeftoverNameMatch -Candidate $Name -AppName $AppName -Publisher $Publisher) { return $true }
+    if (Test-LeftoverNameMatch -Candidate $DisplayName -AppName $AppName -Publisher $Publisher) { return $true }
+
+    return $false
+}
+
+<#
+.SYNOPSIS
+    Is this scheduled task safe to delete as a leftover of the app being removed?
+
+.DESCRIPTION
+    Default no. The task folder is the strongest signal there is: everything
+    under \Microsoft\ belongs to Windows, and nothing under it is ever a
+    leftover of a third-party application no matter what it is called.
+#>
+function Test-SafeToRemoveTask {
+    param(
+        [AllowEmptyString()][AllowNull()][string]$TaskPath = '',
+        [AllowEmptyString()][AllowNull()][string]$ActionPath = '',
+        [AllowEmptyString()][string]$AppName = '',
+        [AllowEmptyString()][string]$Publisher = ''
+    )
+    if ([string]::IsNullOrWhiteSpace($AppName))  { return $false }
+    if ([string]::IsNullOrWhiteSpace($TaskPath)) { return $false }
+    if (-not $TaskPath.StartsWith('\')) { return $false }
+
+    foreach ($p in $script:UninstallProtectedPublishers) {
+        if ($Publisher -and $Publisher -like "*$p*") { return $false }
+    }
+
+    # Windows' own tasks live under \Microsoft\. Never ours to remove.
+    if ($TaskPath -like '\Microsoft\*') { return $false }
+
+    # The task root itself, or anything that is only one segment deep with no
+    # name, is not a task.
+    $segments = @($TaskPath -split '\\' | Where-Object { $_ })
+    if ($segments.Count -lt 1) { return $false }
+
+    # Anything driven out of the Windows directory is Windows' business.
+    if ($ActionPath) {
+        $exe = ''
+        try { $exe = [IO.Path]::GetFullPath($ActionPath.Trim('"')) } catch { $exe = '' }
+        if ($exe) {
+            $win = "$env:WinDir".TrimEnd('\')
+            if ($win -and $exe.StartsWith("$win\", [StringComparison]::OrdinalIgnoreCase)) { return $false }
+
+            if (Test-PathUnderProtectedOwner -Path $exe) { return $false }
+        }
+    }
+
+    # Positive evidence: the binary it runs lives somewhere this application
+    # owns, or the task or its folder is named after the application.
+    if ($ActionPath) {
+        $dir = ''
+        try { $dir = Split-Path ([IO.Path]::GetFullPath($ActionPath.Trim('"'))) -Parent } catch { $dir = '' }
+        if ($dir -and (Test-SafeToRemovePath -Path $dir -AppName $AppName -Publisher $Publisher)) { return $true }
+    }
+    foreach ($seg in $segments) {
+        if (Test-LeftoverNameMatch -Candidate $seg -AppName $AppName -Publisher $Publisher) { return $true }
+    }
+
+    return $false
 }
 
 <#
@@ -592,6 +956,86 @@ function Remove-AppLeftovers {
 
         if ($DryRun) {
             Write-Log -Level DRY -Message "would remove $($l.Kind): $($l.Path)"
+            continue
+        }
+
+        if ($l.Kind -eq 'service') {
+            # Belt and braces, the same as the folder and key branches. Five
+            # rules once existed in one half of this module and not the other;
+            # a new kind arriving without its second check is how that happens
+            # again.
+            if (-not (Test-SafeToRemoveService -Name $l.Path -DisplayName $l.Detail `
+                                               -ImagePath (Get-ServiceImagePathFromRegistry -Name $l.Path) `
+                                               -AppName $AppName -Publisher $Publisher)) {
+                $skipped++
+                Write-Log -Level WARN -Message "refusing to remove service '$($l.Path)': it does not pass the safety check"
+                continue
+            }
+            try {
+                New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+                # The service's whole definition, exported before it is gone.
+                # Importing this back and rebooting is what restores it.
+                $safe   = ($l.Path -replace '[^A-Za-z0-9]', '_')
+                $file   = Join-Path $backupDir "service_$safe.reg"
+                $native = "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\$($l.Path)"
+                & (Get-SystemTool 'reg.exe') export "$native" "$file" /y 2>&1 | Out-Null
+                if (-not (Test-Path -LiteralPath $file)) {
+                    throw 'the service definition could not be exported, so it is being left alone'
+                }
+
+                $sc = Get-SystemTool 'sc.exe'
+                & $sc stop   "$($l.Path)" 2>&1 | Out-Null
+                & $sc delete "$($l.Path)" 2>&1 | Out-Null
+
+                # sc.exe reports success by exit code, and a service with a
+                # handle still open is only marked for deletion. Say which
+                # happened rather than claiming it is gone.
+                if (Get-Service -Name $l.Path -ErrorAction SilentlyContinue) {
+                    Write-Log -Level WARN -Message "service '$($l.Path)' is marked for deletion and goes on the next restart  (backed up to $file)"
+                } else {
+                    Write-Log -Level OK -Message "removed service: $($l.Path)  (backed up to $file)"
+                }
+                $removed++
+            } catch {
+                $skipped++
+                Write-Log -Level WARN -Message "could not remove service '$($l.Path)': $($_.Exception.Message.Trim())"
+            }
+            continue
+        }
+
+        if ($l.Kind -eq 'task') {
+            if (-not (Test-SafeToRemoveTask -TaskPath $l.Path -ActionPath $l.Detail `
+                                            -AppName $AppName -Publisher $Publisher)) {
+                $skipped++
+                Write-Log -Level WARN -Message "refusing to remove task '$($l.Path)': it does not pass the safety check"
+                continue
+            }
+            try {
+                New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+                $sched = New-Object -ComObject Schedule.Service
+                $sched.Connect()
+                $parent = Split-Path $l.Path -Parent
+                if (-not $parent) { $parent = '\' }
+                $leaf   = Split-Path $l.Path -Leaf
+                $folder = $sched.GetFolder($parent)
+
+                # The task's own XML, which is exactly what schtasks /create
+                # /xml takes to put it back.
+                $safe = ($l.Path -replace '[^A-Za-z0-9]', '_')
+                $file = Join-Path $backupDir "task_$safe.xml"
+                $xml  = $folder.GetTask($leaf).Xml
+                Set-Content -LiteralPath $file -Value $xml -Encoding Unicode
+                if (-not (Test-Path -LiteralPath $file)) {
+                    throw 'the task definition could not be exported, so it is being left alone'
+                }
+
+                $folder.DeleteTask($leaf, 0)
+                Write-Log -Level OK -Message "removed task: $($l.Path)  (backed up to $file)"
+                $removed++
+            } catch {
+                $skipped++
+                Write-Log -Level WARN -Message "could not remove task '$($l.Path)': $($_.Exception.Message.Trim())"
+            }
             continue
         }
 

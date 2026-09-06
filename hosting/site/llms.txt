@@ -19,8 +19,11 @@ Run it with one line in PowerShell:
 - Disk cleanup across every drive: 13 categories, each itemised with its size
   and location before anything is deleted.
 - Deep uninstall: runs an app's own uninstaller, then finds and offers the
-  folders and registry keys it left behind. Anything it finds but its safety
-  rules refuse to remove is listed as left alone, not silently dropped.
+  folders, registry keys, orphaned services and scheduled tasks it left behind.
+  Services and tasks are never selected by default. Registry keys and service
+  definitions are exported to .reg first and tasks to .xml, so both can be put
+  back. Anything it finds but its safety rules refuse to remove is listed as
+  left alone, not silently dropped.
 
 ## What makes it different
 

@@ -78,7 +78,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path $script:UndoPath) | Out-Nu
 #>
 function Get-SystemTool {
     param([Parameter(Mandatory)][ValidateSet(
-        'powercfg.exe','netsh.exe','reg.exe','sfc.exe','DISM.exe','shutdown.exe','winget.exe'
+        'powercfg.exe','netsh.exe','reg.exe','sfc.exe','DISM.exe','shutdown.exe','winget.exe','sc.exe'
     )][string]$Name)
 
     if ($Name -eq 'winget.exe') {

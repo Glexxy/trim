@@ -1565,11 +1565,13 @@ function Show-GuiUninstall {
 
     if (-not $script:GuiAppsLoaded) {
         Add-GuiParagraph -Text 'Remove an app properly' -Colour '#E6EDEB' -Size 14.5 -Weight 'SemiBold'
-        Add-GuiParagraph -Text ('Windows uninstallers routinely leave folders and registry keys behind. ' +
-            'Trim runs the app''s own uninstaller, then shows you exactly what survived it - every folder ' +
-            'and every registry key, with its full path - and removes only what you tick.') -Top 6
-        Add-GuiParagraph -Text ('Registry keys are exported to a .reg file before they are deleted, and ' +
-            'anything that does not clearly belong to the app you removed is left alone and reported.') `
+        Add-GuiParagraph -Text ('Windows uninstallers routinely leave things behind. Trim runs the app''s ' +
+            'own uninstaller, then shows you what survived it - folders, registry keys, services that no ' +
+            'longer have a binary, tasks that still run - and removes only what you tick. Services and ' +
+            'scheduled tasks are never ticked for you.') -Top 6
+        Add-GuiParagraph -Text ('Registry keys and service definitions are exported to .reg files before ' +
+            'they are deleted, and scheduled tasks to .xml, so all three can be put back. Anything that does ' +
+            'not clearly belong to the app you removed is left alone and reported.') `
             -Colour '#8C9A97' -Size 12 -Top 10
 
         $b = New-Object Windows.Controls.Button
@@ -1766,7 +1768,8 @@ function Show-GuiLeftovers {
     # survived the uninstaller": whatever the deletion guards veto never
     # reached this list. It is named below now instead of vanishing.
     Add-GuiParagraph -Text ('These survived the uninstaller and Trim is willing to remove them. Each is shown ' +
-        'with its full path. Registry keys are exported to a .reg file before removal.') -Colour '#98A6A3' -Size 12
+        'in full. Registry keys and services are exported to .reg before removal and tasks to .xml.') `
+        -Colour '#98A6A3' -Size 12
     Add-GuiParagraph -Text ' ' -Size 4
 
     $brInk   = Get-GuiBrush '#E6EDEB'
@@ -1795,16 +1798,32 @@ function Show-GuiLeftovers {
         [Windows.Controls.Grid]::SetColumn($cb, 0)
 
         $kind = New-Object Windows.Controls.TextBlock
-        $kind.Text = if ($l.Kind -eq 'registry') { 'REGISTRY' } else { 'FOLDER' }
+        $kind.Text = switch ($l.Kind) {
+            'registry' { 'REGISTRY' }
+            'service'  { 'SERVICE' }
+            'task'     { 'TASK' }
+            default    { 'FOLDER' }
+        }
         $kind.FontSize = 9.5
         $kind.FontWeight = 'Bold'
         $kind.Width = 68
-        $kind.Foreground = if ($l.Kind -eq 'registry') { Get-GuiBrush '#D4A23E' } else { Get-GuiBrush '#4FBFA4' }
+        # Services and tasks are the two that stop something working rather than
+        # take up space, so they are the two that get the warning colour.
+        $kind.Foreground = switch ($l.Kind) {
+            'registry' { Get-GuiBrush '#D4A23E' }
+            'service'  { Get-GuiBrush '#E4785C' }
+            'task'     { Get-GuiBrush '#E4785C' }
+            default    { Get-GuiBrush '#4FBFA4' }
+        }
         $kind.VerticalAlignment = 'Center'
         [Windows.Controls.Grid]::SetColumn($kind, 1)
 
         $path = New-Object Windows.Controls.TextBlock
-        $path.Text = $l.Path
+        # A service name on its own says nothing. What it is called and what it
+        # runs is the difference between an informed tick and a guess.
+        $detail = ''
+        if ($l.PSObject.Properties['Detail']) { $detail = "$($l.Detail)" }
+        $path.Text = if ($detail -and $l.Kind -in @('service','task')) { "$($l.Path)   -   $detail" } else { $l.Path }
         $path.FontFamily = New-Object Windows.Media.FontFamily 'Cascadia Mono, Consolas'
         $path.FontSize = 11.5
         $path.Foreground = $brInk
@@ -1848,12 +1867,29 @@ function Invoke-GuiRemoveLeftovers {
     if ($sel.Count -eq 0) { return }
     $app = $script:GuiUninstallTarget
 
-    $folders = @($sel | Where-Object { $_.Kind -eq 'folder' }).Count
-    $keys    = @($sel | Where-Object { $_.Kind -eq 'registry' }).Count
+    $folders  = @($sel | Where-Object { $_.Kind -eq 'folder' }).Count
+    $keys     = @($sel | Where-Object { $_.Kind -eq 'registry' }).Count
+    $services = @($sel | Where-Object { $_.Kind -eq 'service' }).Count
+    $tasks    = @($sel | Where-Object { $_.Kind -eq 'task' }).Count
+
+    $what = @()
+    if ($folders)  { $what += "$folders folder(s)" }
+    if ($keys)     { $what += "$keys registry key(s)" }
+    if ($services) { $what += "$services service(s)" }
+    if ($tasks)    { $what += "$tasks scheduled task(s)" }
+
+    # Spelled out per kind: "3 items" tells somebody nothing about whether they
+    # are about to free some disk space or stop something from running.
+    $detail = 'Registry keys are exported to .reg files first. Folders are not recoverable.'
+    if ($services -or $tasks) {
+        $detail += [Environment]::NewLine + [Environment]::NewLine +
+                   'Services are exported to .reg and scheduled tasks to .xml before they go, so both can be ' +
+                   'put back from the backup folder - a restored service needs a restart to run again.'
+    }
+
     $answer = [Windows.MessageBox]::Show(
-        "Permanently remove $folders folder(s) and $keys registry key(s) belonging to $($app.DisplayName)?" +
-        [Environment]::NewLine + [Environment]::NewLine +
-        'Registry keys are exported to .reg files first. Folders are not recoverable.',
+        "Permanently remove $($what -join ', ') belonging to $($app.DisplayName)?" +
+        [Environment]::NewLine + [Environment]::NewLine + $detail,
         'Trim - confirm removal', 'YesNo', 'Warning', 'No')
     if ($answer -ne 'Yes') { return }
 

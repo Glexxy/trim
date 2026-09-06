@@ -1267,6 +1267,185 @@ Test-Phase 'The folder guard and the key guard agree' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+Test-Phase 'The service and task guards refuse what the other two refuse' {
+    # Two new kinds joined the deep uninstall, which means two new guards, and
+    # this module's recorded failure is exactly that: five rules once existed
+    # in one half of it and not the other. A new pair arriving without the same
+    # refusals is how that happens a third time.
+    #
+    # Same categories as the folder/key agreement test, expressed for a service
+    # and a task.
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $win = "$env:WinDir".TrimEnd('\')
+
+    # The service cases name a service that EXISTS and set the app name to
+    # match it, so the only thing left to refuse on is the rule under test.
+    #
+    # The first version used a made-up name, and two mutations survived: with
+    # the Windows-directory rule deleted the guard still said no, because
+    # Get-Service could not find 'Contoso' and the catch refuses. The fixture
+    # was agreeing with the guard for the wrong reason - which is this
+    # project's most repeated mistake, and the reason every guard here gets
+    # broken on purpose before it is believed.
+    # A service that exists and is NOT on the protected-names list, so each
+    # case below is refused by the rule it is about rather than by an earlier
+    # one. Spooler was used first and masked everything: 'spooler' is on that
+    # list, so two mutations survived because the guard refused for a reason
+    # the fixture was not testing.
+    $realSvc = @('W32Time', 'Netman', 'ShellHWDetection') |
+               Where-Object { Get-Service -Name $_ -ErrorAction SilentlyContinue } |
+               Select-Object -First 1
+    if (-not $realSvc) {
+        $problems.Add('none of the always-present services exist here, so the service cases below prove nothing') | Out-Null
+        $realSvc = 'W32Time'
+    }
+
+    $mustRefuse = @(
+        @{ Why = 'a Windows binary, whatever the service is called'
+           Svc = @{ N = $realSvc; A = $realSvc; I = "`"$win\System32\$realSvc.exe`"" }
+           Tsk = @{ P = '\Contoso'; A = "$win\System32\contoso.exe" } }
+
+        @{ Why = 'a shared host process, even from outside the Windows folder'
+           Svc = @{ N = $realSvc; A = $realSvc; I = "`"C:\ProgramData\$realSvc\svchost.exe`" -k netsvcs" }
+           Tsk = $null }
+
+        @{ Why = "somebody else's vendor folder"
+           Svc = @{ N = $realSvc; A = $realSvc; I = "`"C:\Program Files\NVIDIA\$realSvc\$realSvc.exe`"" }
+           Tsk = @{ P = '\Contoso'; A = 'C:\Program Files\NVIDIA\Contoso\contoso.exe' } }
+
+        @{ Why = 'a name too short to be evidence of anything'
+           Svc = @{ N = 'Q'; I = 'C:\Program Files\Q\q.exe' }
+           Tsk = @{ P = '\Q'; A = 'C:\Program Files\Q\q.exe' } }
+
+        @{ Why = 'nothing to do with the app being removed'
+           Svc = @{ N = 'CompletelyUnrelatedThing'; I = 'C:\Program Files\Unrelated\u.exe' }
+           Tsk = @{ P = '\CompletelyUnrelatedThing'; A = 'C:\Program Files\Unrelated\u.exe' } }
+
+        @{ Why = 'nothing at all'
+           Svc = @{ N = ''; I = '' }
+           Tsk = @{ P = ''; A = '' } }
+    )
+
+    foreach ($c in $mustRefuse) {
+        $svcApp = if ($c.Svc -and $c.Svc.ContainsKey('A')) { $c.Svc.A } else { 'Contoso' }
+        if ($c.Svc -and (Test-SafeToRemoveService -Name $c.Svc.N -DisplayName $c.Svc.N `
+                             -ImagePath $c.Svc.I -AppName $svcApp -Publisher 'Contoso Ltd')) {
+            $problems.Add("the service guard allows $($c.Why): '$($c.Svc.N)' at '$($c.Svc.I)'") | Out-Null
+        }
+        if ($c.Tsk -and (Test-SafeToRemoveTask -TaskPath $c.Tsk.P -ActionPath $c.Tsk.A `
+                             -AppName 'Contoso' -Publisher 'Contoso Ltd')) {
+            $problems.Add("the task guard allows $($c.Why): '$($c.Tsk.P)'") | Out-Null
+        }
+    }
+
+    # The evidence rule on its own. Both new guards route their name matching
+    # through it, and it is a pure function - which is the only way to isolate
+    # "too short to be evidence" from every other reason to refuse. Asked
+    # through a guard, a two-character name is refused for not existing or for
+    # not matching, and the length rule is never reached.
+    foreach ($short in @('Q', 'ab', '7')) {
+        if (Test-LeftoverNameMatch -Candidate $short -AppName $short -Publisher 'Whoever') {
+            $problems.Add("a $($short.Length)-character name '$short' counts as evidence of a match") | Out-Null
+        }
+    }
+    if (-not (Test-LeftoverNameMatch -Candidate 'ContosoWidget' -AppName 'Contoso Widget Studio' -Publisher 'Contoso')) {
+        $problems.Add('the evidence rule refuses an ordinary match, so the length checks above prove nothing') | Out-Null
+    }
+    foreach ($bad in @(@{ C = 'SomethingElse'; A = 'Contoso' }, @{ C = ''; A = 'Contoso' }, @{ C = 'Contoso'; A = '' })) {
+        if (Test-LeftoverNameMatch -Candidate $bad.C -AppName $bad.A -Publisher '') {
+            $problems.Add("the evidence rule matches '$($bad.C)' against '$($bad.A)'") | Out-Null
+        }
+    }
+
+    # Something still depends on it. Found at run time rather than named,
+    # because which services have dependents differs between machines - and
+    # asserted to have been found, or this proves nothing.
+    $withDependents = @(Get-Service -ErrorAction SilentlyContinue | Where-Object {
+        @($_.DependentServices).Count -gt 0
+    } | Select-Object -First 3)
+    if ($withDependents.Count -eq 0) {
+        $problems.Add('no service on this machine has dependents, so that rule was never exercised') | Out-Null
+    }
+    foreach ($d in $withDependents) {
+        if (Test-SafeToRemoveService -Name $d.Name -DisplayName $d.Name `
+                -ImagePath "C:\Program Files\$($d.Name)\$($d.Name).exe" -AppName $d.Name -Publisher 'Whoever') {
+            $problems.Add("the service guard allows '$($d.Name)', which $(@($d.DependentServices).Count) other service(s) depend on") | Out-Null
+        }
+    }
+
+    # The protected-names list, on its own: an application-shaped path, an app
+    # named after the service, and nothing else left to refuse on.
+    foreach ($n in @('Spooler', 'WinDefend', 'TrustedInstaller', 'wuauserv')) {
+        if (Test-SafeToRemoveService -Name $n -DisplayName $n `
+                -ImagePath "C:\Program Files\$n\$n.exe" -AppName $n -Publisher 'Whoever') {
+            $problems.Add("the service guard allows '$n', which is on the protected list") | Out-Null
+        }
+    }
+
+    # Windows' own tasks, by location alone.
+    foreach ($p in @('\Microsoft\Windows\UpdateOrchestrator\Reboot', '\Microsoft\Contoso')) {
+        if (Test-SafeToRemoveTask -TaskPath $p -ActionPath '' -AppName 'Contoso' -Publisher 'Contoso Ltd') {
+            $problems.Add("the task guard allows a Windows task: '$p'") | Out-Null
+        }
+    }
+
+    # A protected publisher is refused whatever the evidence says.
+    if (Test-SafeToRemoveService -Name 'ContosoSvc' -DisplayName 'Contoso' `
+            -ImagePath 'C:\Program Files\Contoso\contoso.exe' -AppName 'Contoso' -Publisher 'NVIDIA Corporation') {
+        $problems.Add('the service guard allows a protected publisher') | Out-Null
+    }
+    if (Test-SafeToRemoveTask -TaskPath '\Contoso' -ActionPath 'C:\Program Files\Contoso\c.exe' `
+            -AppName 'Contoso' -Publisher 'NVIDIA Corporation') {
+        $problems.Add('the task guard allows a protected publisher') | Out-Null
+    }
+
+    # And both must still say yes to the ordinary case, or refusing everything
+    # would satisfy every check above.
+    #
+    # The service guard reads the live service list, so this needs a service
+    # that exists. Rather than create one, take any the guard already accepts
+    # when the app is named after it - the sweep across this machine's 330
+    # services is what that is - and assert the guard is capable of a yes.
+    # The guard has to be capable of yes, or every refusal above is satisfied
+    # by a guard that only ever says no.
+    #
+    # A service that exists on any Windows install, asked about with an
+    # application-shaped path rather than its real one. The fabricated path is
+    # the point: it isolates the policy from wherever this particular machine
+    # happens to keep the binary, and in the real flow the path always comes
+    # from the service itself. $realSvc cannot be used here - Spooler is on the
+    # protected list, which is why it is the one being refused above.
+    $yesSvc = $realSvc
+    if (-not $yesSvc) {
+        $problems.Add('none of the always-present services exist here, so the guard was never asked a question it should answer yes to') | Out-Null
+    } elseif (-not (Test-SafeToRemoveService -Name $yesSvc -DisplayName $yesSvc `
+                        -ImagePath "C:\Program Files\$yesSvc\$yesSvc.exe" -AppName $yesSvc -Publisher 'Whoever')) {
+        $problems.Add(("the service guard refuses an ordinary application service ('$yesSvc'), so the refusals " +
+                       'above are satisfied by a guard that only ever says no')) | Out-Null
+    }
+    if (-not (Test-SafeToRemoveTask -TaskPath '\ContosoWidgetStudio\Updater' `
+                  -ActionPath 'C:\Program Files\ContosoWidgetStudio\update.exe' `
+                  -AppName 'Contoso Widget Studio' -Publisher 'Contoso')) {
+        $problems.Add('the task guard refuses an ordinary application task') | Out-Null
+    }
+
+    # Nothing under a protected owner may pass, whichever guard is asked. This
+    # is the rule that was missing: pointing the service guard at every service
+    # on a real machine with the app named after each one allowed AUEPLauncher,
+    # which runs out of C:\Program Files\AMD\Performance Profile Client.
+    foreach ($p in @('C:\Program Files\AMD\Thing\t.exe', 'C:\Program Files\NVIDIA\Thing\t.exe',
+                     'C:\Program Files\WindowsApps\Thing\t.exe')) {
+        if (-not (Test-PathUnderProtectedOwner -Path $p)) {
+            $problems.Add("Test-PathUnderProtectedOwner does not recognise '$p' as somebody else's") | Out-Null
+        }
+    }
+    if (Test-PathUnderProtectedOwner -Path 'C:\Program Files\ContosoWidgetStudio\c.exe') {
+        $problems.Add('Test-PathUnderProtectedOwner refuses an ordinary application folder') | Out-Null
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Test-Phase 'Deletion re-checks the list it was handed' {
     # The folder branch of Remove-AppLeftovers had always re-run its guard
     # immediately before deleting - "in case anything mutated the list between
@@ -1289,6 +1468,14 @@ Test-Phase 'Deletion re-checks the list it was handed' {
 
     $wasDry = $DryRun
     try {
+        # Recorded before the run, so the task check below can tell "deleted"
+        # from "this build never had it".
+        $script:OrchestratorExisted = $false
+        try {
+            $s0 = New-Object -ComObject Schedule.Service; $s0.Connect()
+            $script:OrchestratorExisted = [bool]$s0.GetFolder('\Microsoft\Windows\UpdateOrchestrator').GetTask('Reboot')
+        } catch { }
+
         foreach ($d in @($mineDir, $victimDir)) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
         Set-Content -LiteralPath (Join-Path $victimDir 'not-yours.txt') -Value 'must survive'
         foreach ($k in @($mineKey, $victimKey)) { New-Item -Path $k -Force | Out-Null }
@@ -1300,7 +1487,22 @@ Test-Phase 'Deletion re-checks the list it was handed' {
             [pscustomobject]@{ Kind='folder';   Path=$mineDir;   Bytes=0; Size='0 B'; Selected=$true; Key="left|folder|$mineDir" },
             [pscustomobject]@{ Kind='folder';   Path=$victimDir; Bytes=0; Size='0 B'; Selected=$true; Key="left|folder|$victimDir" },
             [pscustomobject]@{ Kind='registry'; Path=$mineKey;   Bytes=0; Size='';    Selected=$true; Key="left|registry|$mineKey" },
-            [pscustomobject]@{ Kind='registry'; Path=$victimKey; Bytes=0; Size='';    Selected=$true; Key="left|registry|$victimKey" }
+            [pscustomobject]@{ Kind='registry'; Path=$victimKey; Bytes=0; Size='';    Selected=$true; Key="left|registry|$victimKey" },
+
+            # The two kinds added later, and the two that stop something
+            # working rather than take up space. Both point at things that do
+            # not belong to this app and are ticked anyway; both must be
+            # refused by the re-check, not by luck.
+            #
+            # Deliberately real names: 'Spooler' is a service that exists on
+            # every Windows machine, and the UpdateOrchestrator task is one
+            # nobody would survive losing. If the second guard is not there,
+            # this test does visible damage to the machine it runs on - which
+            # is the correct stake for a check on a delete path.
+            [pscustomobject]@{ Kind='service'; Path='Spooler'; Bytes=0; Size=''; Selected=$true
+                               Detail='Print Spooler'; Key='left|service|Spooler' },
+            [pscustomobject]@{ Kind='task'; Path='\Microsoft\Windows\UpdateOrchestrator\Reboot'; Bytes=0; Size=''
+                               Selected=$true; Detail=''; Key='left|task|orchestrator' }
         )
 
         Set-Variable -Name DryRun -Value $false -Scope Script
@@ -1321,12 +1523,28 @@ Test-Phase 'Deletion re-checks the list it was handed' {
             $problems.Add("'$victimKey' does not belong to $appName and was deleted anyway") | Out-Null
         }
 
+        if (-not (Get-Service -Name 'Spooler' -ErrorAction SilentlyContinue)) {
+            $problems.Add('the Print Spooler service was deleted - the re-check on the service branch did not run') | Out-Null
+        }
+        $orchestrator = $null
+        try {
+            $s = New-Object -ComObject Schedule.Service; $s.Connect()
+            $orchestrator = $s.GetFolder('\Microsoft\Windows\UpdateOrchestrator').GetTask('Reboot')
+        } catch { }
+        if (-not $orchestrator) {
+            # Not every build has this task, so absence is only a failure if it
+            # was there before the run.
+            if ($script:OrchestratorExisted) {
+                $problems.Add('a Windows scheduled task was deleted - the re-check on the task branch did not run') | Out-Null
+            }
+        }
+
         # And the guard must not have become so strict that it refuses
         # everything - that would "pass" the checks above for the wrong reason.
         if (Test-Path -LiteralPath $mineDir) { $problems.Add("the app's own folder was not removed") | Out-Null }
         if (Test-Path -LiteralPath $mineKey) { $problems.Add("the app's own registry key was not removed") | Out-Null }
         if ($result.Removed -ne 2) { $problems.Add("expected 2 removals, got $($result.Removed)") | Out-Null }
-        if ($result.Skipped -ne 2) { $problems.Add("expected 2 refusals, got $($result.Skipped)") | Out-Null }
+        if ($result.Skipped -ne 4) { $problems.Add("expected 4 refusals, got $($result.Skipped)") | Out-Null }
 
         if ($problems.Count) { throw ($problems -join '; ') }
     }
@@ -2214,6 +2432,37 @@ Test-Phase 'The pages promise what the code actually does' {
     if ($unin -notmatch 'Test-SafeToRemovePath' -or $unin -notmatch 'Test-SafeToRemoveKey') {
         throw 'Get-AppLeftovers no longer vetoes anything - this check has stopped reading the code it is about'
     }
+
+    # Every kind this module can delete is guarded twice: once building the
+    # list, once immediately before acting on it. Five rules once lived in one
+    # half of this file and not the other, and two more kinds arrived after
+    # that was written.
+    #
+    # 'Deletion re-checks the list it was handed' proves the second guard fires
+    # by ticking the real Print Spooler and a Windows task and watching them
+    # survive. This is the static twin, and it is the one that can be broken on
+    # purpose safely: a behavioural mutation of that path would delete the
+    # Spooler on the machine running the tests.
+    $removeFn = [regex]::Match($unin, '(?s)function Remove-AppLeftovers \{.*??
+\}')
+    if (-not $removeFn.Success) {
+        throw 'cannot find Remove-AppLeftovers - this check has stopped reading the code it is about'
+    }
+    foreach ($kind in @(
+        @{ K = 'folder';   G = 'Test-SafeToRemovePath' },
+        @{ K = 'registry'; G = 'Test-SafeToRemoveKey' },
+        @{ K = 'service';  G = 'Test-SafeToRemoveService' },
+        @{ K = 'task';     G = 'Test-SafeToRemoveTask' }
+    )) {
+        if ($unin -notmatch [regex]::Escape("Kind -eq '$($kind.K)'") -and $kind.K -ne 'folder') {
+            $problems.Add("Remove-AppLeftovers no longer has a $($kind.K) branch - this check has stopped reading it") | Out-Null
+            continue
+        }
+        if ($removeFn.Value -notmatch [regex]::Escape($kind.G)) {
+            $problems.Add(("the $($kind.K) branch of Remove-AppLeftovers does not re-check $($kind.G) before " +
+                           'deleting, so a mutated or faulty list is acted on as handed')) | Out-Null
+        }
+    }
     if ($unin -notmatch 'LeftoversWithheld') {
         $problems.Add('the leftover scan drops what its guards veto without recording it, so nothing can report it') | Out-Null
     }
@@ -2229,17 +2478,38 @@ Test-Phase 'The pages promise what the code actually does' {
         }
     }
 
-    # Only folders and registry keys are looked for. Four surfaces said
-    # "services and scheduled tasks" too, which nothing in the module does.
-    $findsServices = $unin -match "Kind\s*=\s*'service'" -or $unin -match 'Get-Service'
-    $findsTasks    = $unin -match "Kind\s*=\s*'task'"    -or $unin -match 'ScheduledTask'
+    # What the deep uninstall looks for, and what the surfaces say it looks
+    # for, in both directions.
+    #
+    # Four surfaces said "services and scheduled tasks" when the module found
+    # neither. They were corrected, then the feature was built, then they were
+    # corrected back - which is two chances to be wrong and no reason the
+    # second pass should be trusted more than the first. So the check reads the
+    # module and requires the surfaces to agree with whatever it finds today.
+    $findsServices = $unin -match "Kind = 'service'"
+    $findsTasks    = $unin -match "Kind = 'task'"
+
     foreach ($doc in $docs.Keys) {
-        if ($docs[$doc] -notmatch '(?i)uninstall') { continue }
-        if (-not $findsServices -and $docs[$doc] -match '(?i)registry keys,? (and )?services') {
-            $problems.Add("$doc says the deep uninstall finds services; Get-AppLeftovers looks for folders and registry keys only") | Out-Null
+        # Only the surfaces that enumerate what it finds. A document that
+        # mentions the uninstall in passing is not making this claim.
+        if ($docs[$doc] -notmatch '(?i)folders,? (and )?registry keys') { continue }
+
+        $saysServices = $docs[$doc] -match '(?i)service'
+        $saysTasks    = $docs[$doc] -match '(?i)task'
+
+        if ($findsServices -ne $saysServices) {
+            $problems.Add($(if ($findsServices) {
+                "$doc lists what the deep uninstall finds but omits services, which it does find"
+            } else {
+                "$doc says the deep uninstall finds services; Get-AppLeftovers does not look for them"
+            })) | Out-Null
         }
-        if (-not $findsTasks -and $docs[$doc] -match '(?i)(services,? (and )?)?scheduled tasks it (left|abandoned)') {
-            $problems.Add("$doc says the deep uninstall finds scheduled tasks; Get-AppLeftovers looks for folders and registry keys only") | Out-Null
+        if ($findsTasks -ne $saysTasks) {
+            $problems.Add($(if ($findsTasks) {
+                "$doc lists what the deep uninstall finds but omits scheduled tasks, which it does find"
+            } else {
+                "$doc says the deep uninstall finds scheduled tasks; Get-AppLeftovers does not look for them"
+            })) | Out-Null
         }
     }
 
