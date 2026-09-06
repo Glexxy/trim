@@ -2223,6 +2223,29 @@ Test-Phase 'The pages promise what the code actually does' {
                        'shown as a complete one')) | Out-Null
     }
 
+    # And a long scan on the UI thread has to keep the window answering. The
+    # walk runs on whichever thread calls it; the window calls it directly. At
+    # ninety seconds that was rude, and the budget is minutes now - long enough
+    # that Windows greys the title bar and writes "(Not Responding)", which
+    # people rationally respond to by killing it.
+    $budget = [regex]::Match($clean, '\[int\]\$TimeoutSeconds\s*=\s*(\d+)')
+    if (-not $budget.Success) {
+        throw 'cannot read the large-file scan budget - this check has stopped reading the code it is about'
+    }
+    if ([int]$budget.Groups[1].Value -gt 60) {
+        # Assigning something, not merely mentioning the name. The first
+        # version of this looked for the word 'ScanHook' and passed against a
+        # caller that had stopped setting it - 16-cleanup.ps1 names the hook
+        # anyway, because the walk is what reads it.
+        foreach ($caller in @(@{ N = 'the window'; T = $gui }, @{ N = 'the cleanup phase'; T = $clean })) {
+            if ($caller.T -notmatch 'Get-LargeFileScan') { continue }
+            if ($caller.T -notmatch 'ScanHook\s*=\s*(\{|\$(?!null))') {
+                $problems.Add(("$($caller.N) runs a $($budget.Groups[1].Value)-second scan without setting " +
+                               '$script:ScanHook to anything, so there is nothing to show while it works')) | Out-Null
+            }
+        }
+    }
+
     # --- three ways to switch off a startup item, not one ------------------
     #
     # "Switch one off and it uses the same switch Task Manager does, so it

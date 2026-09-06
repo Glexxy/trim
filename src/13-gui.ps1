@@ -1137,9 +1137,27 @@ $script:LargeScanSeconds   = 0
     are shown and never selected.
 #>
 function Invoke-GuiLargeFileScan {
-    $script:GuiUi.TxtPhaseSub.Text = 'Looking for large files across every drive. This can take a minute...'
+    $script:GuiUi.TxtPhaseSub.Text = 'Looking for large files across every drive. This can take a few minutes...'
     $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
-    $script:GuiLargeFiles = @(Get-LargeFileScan)
+
+    # The walk runs on this thread, so without pumping the queue the window is
+    # frozen for the whole scan. At ninety seconds that was rude; at five
+    # minutes Windows greys the title bar, writes "(Not Responding)" and
+    # invites people to kill it - which is a worse answer than the short list
+    # this was meant to fix.
+    #
+    # Background priority lets everything above it - input, render, layout -
+    # run first, which is what keeps the window answering.
+    $script:ScanHook = {
+        param($elapsed, $budget, $found)
+        $script:GuiUi.TxtPhaseSub.Text = "Looking for large files - ${elapsed}s of ${budget}s, $found found so far..."
+        $script:GuiWin.Dispatcher.Invoke([action]{}, [Windows.Threading.DispatcherPriority]::Background)
+    }
+    try {
+        $script:GuiLargeFiles = @(Get-LargeFileScan)
+    } finally {
+        $script:ScanHook = $null
+    }
     Update-GuiItems
 }
 

@@ -348,7 +348,11 @@ function Get-LargeFileScan {
         [string[]]$Roots = @(),
         [int]$MinimumMB = 256,
         [int]$Top = 60,
-        [int]$TimeoutSeconds = 90
+        # Five minutes, raised from ninety seconds on 6 September 2026. Ninety
+        # was not enough to finish a four-drive desktop, so the list was always
+        # partial and the window said nothing about it. Anything that still
+        # cannot finish in five minutes reports itself as incomplete.
+        [int]$TimeoutSeconds = 300
     )
 
     if (-not $Roots -or $Roots.Count -eq 0) {
@@ -376,6 +380,7 @@ function Get-LargeFileScan {
     # over which directories are entered at all.
     $found = [System.Collections.Generic.List[object]]::new()
     $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    $lastTick = [int64]0
     $now = Get-Date
     $pruned = 0
     $timedOut = $false
@@ -388,6 +393,15 @@ function Get-LargeFileScan {
 
         while ($stack.Count -gt 0) {
             if ($clock.Elapsed.TotalSeconds -gt $TimeoutSeconds) { $timedOut = $true; break }
+
+            # Whoever is showing this gets a chance to stay alive. Costs a
+            # comparison per directory when nothing is listening, which is the
+            # same deal $script:ProgressHook makes.
+            if ($script:ScanHook -and ($clock.ElapsedMilliseconds - $lastTick) -gt 400) {
+                $lastTick = $clock.ElapsedMilliseconds
+                try { & $script:ScanHook ([int]$clock.Elapsed.TotalSeconds) $TimeoutSeconds $found.Count } catch { }
+            }
+
             $dir = $stack.Pop()
 
             $skipThis = $false
@@ -569,7 +583,22 @@ function Invoke-CleanupPhase {
     # Printed before the cleanup list and never mixed into it: these are
     # reported, not removed.
     if ($ReportLargeFiles) {
-        $big = @(Get-LargeFileScan)
+        # Five minutes of nothing on a console reads as a hang too, and the
+        # window is not the only way in here. One line, rewritten in place, and
+        # only when there is a console to write it to.
+        $spinner = $null
+        if (-not $script:Quiet) {
+            $spinner = {
+                param($elapsed, $budget, $found)
+                Write-Host ("`r  scanning... {0}s of {1}s, {2} file(s) so far   " -f $elapsed, $budget, $found) -NoNewline -ForegroundColor DarkGray
+            }
+        }
+        $script:ScanHook = $spinner
+        try   { $big = @(Get-LargeFileScan) }
+        finally {
+            $script:ScanHook = $null
+            if ($spinner) { Write-Host ("`r" + (' ' * 60) + "`r") -NoNewline }
+        }
         if ($big.Count) {
             Write-Host ''
             Write-Log "Largest files (reported only, nothing here is deleted):"

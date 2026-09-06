@@ -52,6 +52,11 @@ $script:ProgressHook  = $null
 $script:ProgressTotal = 0
 $script:ProgressDone  = 0
 
+# The same deal for a long walk with no total to divide by: set by whatever is
+# on screen while Get-LargeFileScan is running, so a five-minute scan does not
+# look like a hung window. $null when nobody is listening.
+$script:ScanHook = $null
+
 New-Item -ItemType Directory -Force -Path (Split-Path $script:LogPath)  | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path $script:UndoPath) | Out-Null
 
