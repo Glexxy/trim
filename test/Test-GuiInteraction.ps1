@@ -490,6 +490,157 @@ Check 'startup pane renders a row per item once asked' {
     $script:GuiStartupItems  = @()
 }
 
+Check 'the leftovers pane renders all four kinds' {
+    # Four kinds arrived on this pane today and none of them had ever been
+    # drawn. The kind label is a switch, the path line appends a detail for two
+    # of them, and a broken branch here fails at the moment somebody is
+    # deleting things.
+    $script:GuiUninstallTarget = [pscustomobject]@{ DisplayName = 'Contoso Widget Studio'; Name = 'Contoso Widget Studio' }
+    $script:GuiLeftovers = @(
+        [pscustomobject]@{ Kind='folder';   Path='C:\Program Files\ContosoWidgetStudio'; Bytes=1024; Size='1 KB'; Selected=$true;  Key='left|folder|x' },
+        [pscustomobject]@{ Kind='registry'; Path='HKCU:\Software\ContosoWidgetStudio';   Bytes=0;    Size='';     Selected=$true;  Key='left|registry|x' },
+        [pscustomobject]@{ Kind='service';  Path='ContosoSvc'; Bytes=0; Size='binary missing'; Selected=$false; Detail='Contoso Updater'; Key='left|service|x' },
+        [pscustomobject]@{ Kind='task';     Path='\Contoso\Updater'; Bytes=0; Size='enabled'; Selected=$false; Detail='C:\Program Files\ContosoWidgetStudio\u.exe'; Key='left|task|x' }
+    )
+    $script:LeftoversWithheld = [System.Collections.Generic.List[object]]::new()
+    $script:GuiUninstallStage = 'leftovers'
+    Set-GuiPhase 'Uninstall apps'
+
+    $labels = @($script:GuiUi.PanelItems.Children |
+                Where-Object { $_ -is [Windows.Controls.Border] } |
+                ForEach-Object { @($_.Child.Children | Where-Object { $_ -is [Windows.Controls.TextBlock] })[0].Text })
+    foreach ($want in @('FOLDER','REGISTRY','SERVICE','TASK')) {
+        if ($labels -notcontains $want) { throw "no row was labelled $want; rendered: $($labels -join ', ')" }
+    }
+
+    # The two that stop something working must arrive unticked, on screen and
+    # not merely in the object handed to the renderer.
+    $boxes = @($script:GuiUi.PanelItems.Children |
+               Where-Object { $_ -is [Windows.Controls.Border] } |
+               ForEach-Object { @($_.Child.Children | Where-Object { $_ -is [Windows.Controls.CheckBox] })[0] })
+    $ticked = @($boxes | Where-Object { $_ -and $_.IsChecked })
+    if ($ticked.Count -ne 2) { throw "expected 2 ticked rows (folder and registry), found $($ticked.Count)" }
+}
+
+Check 'the leftovers pane names what it will not touch' {
+    # Get-AppLeftovers records whatever its guards veto. If this pane does not
+    # draw it, the list is filtered and presented as everything that survived.
+    $script:GuiUninstallTarget = [pscustomobject]@{ DisplayName = 'Contoso Widget Studio'; Name = 'Contoso Widget Studio' }
+    $script:GuiLeftovers = @(
+        [pscustomobject]@{ Kind='folder'; Path='C:\Program Files\ContosoWidgetStudio'; Bytes=0; Size='0 B'; Selected=$true; Key='left|folder|x' }
+    )
+    $script:LeftoversWithheld = [System.Collections.Generic.List[object]]::new()
+    $script:LeftoversWithheld.Add([pscustomobject]@{
+        Kind = 'folder'; Path = 'C:\Program Files\WindowsApps\Contoso_1.0'
+        Why  = 'shared, protected, or not clearly this app' }) | Out-Null
+    $script:GuiUninstallStage = 'leftovers'
+    Set-GuiPhase 'Uninstall apps'
+
+    $text = ($script:GuiUi.PanelItems.Children |
+             Where-Object { $_ -is [Windows.Controls.TextBlock] } |
+             ForEach-Object { $_.Text }) -join ' | '
+    if ($text -notmatch 'Left alone') { throw 'the withheld item was not shown under a heading' }
+    if ($text -notmatch 'WindowsApps') { throw 'the withheld path itself was never drawn' }
+
+    # And nothing withheld may have acquired a way to be selected.
+    $withheldRows = @($script:GuiUi.PanelItems.Children | Where-Object {
+        $_ -is [Windows.Controls.TextBlock] -and "$($_.Text)" -match 'WindowsApps' })
+    if ($withheldRows.Count -eq 0) { throw 'the withheld row is not a plain TextBlock any more - check it cannot be ticked' }
+}
+
+Check 'an empty leftovers list still says what was left alone' {
+    # "Nothing left behind" was said even when the guards had refused to offer
+    # things that were still there - including the protected-publisher case,
+    # which returns before it looks at anything.
+    $script:GuiUninstallTarget = [pscustomobject]@{ DisplayName = 'Microsoft Edge'; Name = 'Microsoft Edge' }
+    $script:GuiLeftovers = @()
+    $script:LeftoversWithheld = [System.Collections.Generic.List[object]]::new()
+    $script:LeftoversWithheld.Add([pscustomobject]@{
+        Kind = 'publisher'; Path = 'Microsoft Corporation'
+        Why  = 'the publisher is on the protected list, so leftovers are not offered for it at all' }) | Out-Null
+    $script:GuiUninstallStage = 'leftovers'
+    Set-GuiPhase 'Uninstall apps'
+
+    $text = ($script:GuiUi.PanelItems.Children |
+             Where-Object { $_ -is [Windows.Controls.TextBlock] } |
+             ForEach-Object { $_.Text }) -join ' | '
+    if ($text -match 'Nothing left behind') {
+        throw 'the pane claimed nothing was left behind while holding something it had refused to touch'
+    }
+    if ($text -notmatch 'Left alone') { throw 'nothing told the user what was found and not offered' }
+
+    $script:GuiLeftovers = @()
+    $script:LeftoversWithheld = [System.Collections.Generic.List[object]]::new()
+    $script:GuiUninstallStage = 'list'
+}
+
+Check 'a tidy PC reaches the message that says so' {
+    # Scan, find nothing, and the pane threw on the line above the one reading
+    # "Nothing to clean. This PC is already tidy." Measure-Object over an empty
+    # collection returns an object with no Sum property, and reading it under
+    # StrictMode is a terminating error - so the empty case crashed on exactly
+    # the branch written for it.
+    $before = $script:GuiCleanItems
+    try {
+        $script:GuiCleanItems   = @()
+        $script:GuiCleanScanned = $true
+        Set-GuiPhase 'Disk cleanup'
+
+        $text = ($script:GuiUi.PanelItems.Children |
+                 Where-Object { $_ -is [Windows.Controls.TextBlock] } |
+                 ForEach-Object { $_.Text }) -join ' | '
+        if ($text -notmatch 'already tidy') {
+            throw "a scan that found nothing did not say so; the pane read: $text"
+        }
+    } finally {
+        $script:GuiCleanItems   = $before
+        $script:GuiCleanScanned = $false
+        Set-GuiPhase 'Privacy'
+    }
+}
+
+Check 'a truncated large-file scan says so on screen' {
+    # The walk gives up after a fixed time and used to say so only in the log.
+    # On a four-drive machine the ordinary run reached that limit, so the
+    # window showed a partial answer as a complete one.
+    # Restored in a finally. The first version threw before its cleanup lines,
+    # left GuiCleanScanned set, and took two later checks down with it - which
+    # reads as three failures and is one.
+    try {
+        $script:GuiLargeFiles = @(
+            [pscustomobject]@{ Path='D:\big.iso'; Size='4 GB'; Bytes=4GB; Kind='disc image'; Age=30 }
+        )
+        $script:LargeScanTruncated = $true
+        $script:LargeScanSeconds   = 300
+        $script:GuiCleanScanned    = $true
+        Set-GuiPhase 'Disk cleanup'
+        Show-GuiLargeFiles
+
+        $text = ($script:GuiUi.PanelItems.Children |
+                 Where-Object { $_ -is [Windows.Controls.TextBlock] } |
+                 ForEach-Object { $_.Text }) -join ' | '
+        if ($text -notmatch 'incomplete') { throw 'a partial list was drawn without saying it was partial' }
+        if ($text -notmatch '300') { throw 'the notice does not say how long the scan had' }
+
+        # A complete scan must not carry the warning, or it means nothing.
+        # Re-entered through Set-GuiPhase so the pane is rebuilt rather than
+        # appended to: the first version read the previous render back and
+        # reported a warning that was no longer being drawn.
+        $script:LargeScanTruncated = $false
+        Set-GuiPhase 'Disk cleanup'
+        Show-GuiLargeFiles
+        $text2 = ($script:GuiUi.PanelItems.Children |
+                  Where-Object { $_ -is [Windows.Controls.TextBlock] } |
+                  ForEach-Object { $_.Text }) -join ' | '
+        if ($text2 -match 'incomplete') { throw 'a complete list was labelled incomplete' }
+    } finally {
+        $script:GuiLargeFiles      = @()
+        $script:LargeScanTruncated = $false
+        $script:GuiCleanScanned    = $false
+        Set-GuiPhase 'Privacy'
+    }
+}
+
 Check 'presets never reach uninstall or cleanup items' {
     foreach ($p in @('recommended','advanced','everything')) {
         Set-GuiPreset $p

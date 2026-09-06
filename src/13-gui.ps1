@@ -984,8 +984,8 @@ function Show-GuiCleanup {
         return
     }
 
-    $total = ([double](($script:GuiCleanItems | Measure-Object Bytes -Sum).Sum))
-    $sel   = ([double](($script:GuiCleanItems | Where-Object { $_.Selected } | Measure-Object Bytes -Sum).Sum))
+    $total = Get-SumOrZero -Items $script:GuiCleanItems -Property Bytes
+    $sel   = Get-SumOrZero -Items @($script:GuiCleanItems | Where-Object { $_.Selected }) -Property Bytes
     $ui.TxtPhaseSub.Text = "$(Format-Bytes $sel) selected of $(Format-Bytes $total) found"
 
     $bar = New-Object Windows.Controls.StackPanel
@@ -1019,7 +1019,7 @@ function Show-GuiCleanup {
     $tierBrush = @{ safe = Get-GuiBrush '#4FBFA4'; op = Get-GuiBrush '#D4A23E'; trade = Get-GuiBrush '#E4785C' }
 
     foreach ($grp in ($script:GuiCleanItems | Group-Object Category)) {
-        $gsum = [double](($grp.Group | Measure-Object Bytes -Sum).Sum)
+        $gsum = Get-SumOrZero -Items $grp.Group -Property Bytes
 
         $head = New-Object Windows.Controls.StackPanel
         $head.Margin = New-Object Windows.Thickness 0,14,0,4
@@ -1109,8 +1109,8 @@ function Show-GuiCleanup {
 }
 
 function Update-GuiCleanTotals {
-    $total = [double](($script:GuiCleanItems | Measure-Object Bytes -Sum).Sum)
-    $sel   = [double](($script:GuiCleanItems | Where-Object { $_.Selected } | Measure-Object Bytes -Sum).Sum)
+    $total = Get-SumOrZero -Items $script:GuiCleanItems -Property Bytes
+    $sel   = Get-SumOrZero -Items @($script:GuiCleanItems | Where-Object { $_.Selected }) -Property Bytes
     $script:GuiUi.TxtPhaseSub.Text = "$(Format-Bytes $sel) selected of $(Format-Bytes $total) found"
 }
 
@@ -1120,6 +1120,32 @@ function Invoke-GuiCleanScan {
     $script:GuiCleanItems = @(Get-CleanupScan -Quiet)
     $script:GuiCleanScanned = $true
     Update-GuiItems
+}
+
+<#
+.SYNOPSIS
+    Total a property across a collection that may be empty.
+
+.DESCRIPTION
+    Measure-Object over nothing returns an object with no Sum property, and
+    reading it under Set-StrictMode -Version 2.0 is a terminating error - so
+    "$(($items | Measure-Object Bytes -Sum).Sum)" crashes on exactly the case it
+    is meant to describe.
+
+    The disk cleanup pane did that. Scan a machine with nothing to clean and it
+    threw on the line above the one that says "Nothing to clean. This PC is
+    already tidy." - a message that could never be reached, on the pane whose
+    whole job is to be careful.
+
+    Six places computed a sum this way. One helper, so the next one cannot get
+    it wrong on its own.
+#>
+function Get-SumOrZero {
+    param([AllowNull()][object[]]$Items, [Parameter(Mandatory)][string]$Property)
+    if (-not $Items -or @($Items).Count -eq 0) { return [double]0 }
+    $m = $Items | Measure-Object -Property $Property -Sum -ErrorAction SilentlyContinue
+    if (-not $m -or $null -eq $m.PSObject.Properties['Sum'] -or $null -eq $m.Sum) { return [double]0 }
+    return [double]$m.Sum
 }
 
 $script:GuiLargeFiles = @()
@@ -1249,8 +1275,8 @@ function Invoke-GuiCleanDelete {
     $sel = @($script:GuiCleanItems | Where-Object { $_.Selected })
     if ($sel.Count -eq 0) { return }
 
-    $bytes = [double](($sel | Measure-Object Bytes -Sum).Sum)
-    $files = ($sel | Measure-Object Count -Sum).Sum
+    $bytes = Get-SumOrZero -Items $sel -Property Bytes
+    $files = Get-SumOrZero -Items $sel -Property Count
     $answer = [Windows.MessageBox]::Show(
         "Delete $files file(s) from $($sel.Count) location(s), freeing about $(Format-Bytes $bytes)?" +
         [Environment]::NewLine + [Environment]::NewLine +
@@ -1761,7 +1787,7 @@ function Show-GuiLeftovers {
         return
     }
 
-    $total = [double](($script:GuiLeftovers | Measure-Object Bytes -Sum).Sum)
+    $total = Get-SumOrZero -Items $script:GuiLeftovers -Property Bytes
     $ui.TxtPhaseSub.Text = "$($script:GuiLeftovers.Count) item(s), $(Format-Bytes $total)"
 
     # "Every one is shown in full" described a different set from "these
