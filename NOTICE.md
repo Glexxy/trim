@@ -11,20 +11,29 @@ projects it depends on and go use them directly.
 
 ## WinUtil — Chris Titus Tech
 
-**The single largest dependency.** The debloat, telemetry and tweak engine is
-WinUtil. This tool does not reimplement it: it invokes the official hosted script
-at `https://christitus.com/win` with a generated selection config, and WinUtil does
-the work.
+**The single largest dependency.** One of Trim's twelve phases is WinUtil's tweak
+set, applied by WinUtil rather than reimplemented: Trim invokes the official hosted
+script at `https://christitus.com/win` with a generated selection config, and
+WinUtil does that part of the work.
+
+Being precise about the share, because being vague in the generous direction is
+still being inaccurate: the remaining eleven — Fixes, Performance, Gaming,
+Graphics, Privacy, Background, Appx, Network, Security, Extras and
+Personalisation — are Trim's own registry writes, as are the disk cleanup, the
+deep uninstall and the startup manager, which sit outside the phase list
+entirely. The WinUtil phase can be skipped with `-Skip WinUtil`, and the rest of
+the run is unaffected.
 
 - Project: <https://github.com/ChrisTitusTech/winutil>
 - Author: Chris Titus (@christitustech), CT Tech Group LLC
 - Site: <https://christitus.com/win>
 - Runspace author: @DeveloperDurp
 
-**If you want a Windows utility, go use WinUtil.** It is more capable than this,
-it is better maintained than this, and it has an enormous amount of careful work in
-it. This project exists to wrap it in a specific, opinionated, reversible workflow —
-not to compete with it.
+**If you want a general Windows utility, go use WinUtil.** It is more capable than
+this, it is better maintained than this, and it has an enormous amount of careful
+work in it. This project is a narrower thing — a reversible clean-up with a plan you
+approve first — and it uses WinUtil for the part WinUtil already does well rather
+than competing with it.
 
 What this project takes from WinUtil:
 

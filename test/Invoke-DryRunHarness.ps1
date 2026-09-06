@@ -499,7 +499,7 @@ Test-Phase 'All remote fetches are https and modern TLS' {
     $allowed = @{
         'trimbloat.com'   = 'itself: the script, its published fingerprint, and the winutil config'
         'christitus.com'  = 'the WinUtil handoff, credited in the README and NOTICE'
-        'github.com'      = 'the NVIDIA Profile Inspector release, pinned by version and SHA256'
+        'github.com'      = 'the NVIDIA Profile Inspector release (pinned by version and SHA256) and the opt-in CTT PowerShell profile (not pinned)'
     }
 
     $seen = @{}
@@ -1951,8 +1951,13 @@ Test-Phase 'The documented numbers are the real ones' {
                      'eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen',
                      'eighteen','nineteen','twenty')) { $words[$w] = $i; $i++ }
 
+    # Every surface that states a count, not just the two public pages.
+    # llms.txt and the window both name the phase count now, and a file that
+    # exists to be read by models repeating it to people is the last place a
+    # stale number should survive.
     $claims = 0
-    foreach ($rel in @('README.md', 'hosting\site\index.html')) {
+    foreach ($rel in @('README.md', 'hosting\site\index.html',
+                       'hosting\site\llms.txt', 'src\13-gui.ps1')) {
         $path = Join-Path $root $rel
         if (-not (Test-Path -LiteralPath $path)) { continue }
         $text = Get-Content -Raw -Encoding UTF8 -LiteralPath $path
@@ -2056,7 +2061,32 @@ Test-Phase 'The pages promise what the code actually does' {
 
     $readme = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'README.md')
     $site   = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'hosting\site\index.html')
-    $docs   = @{ 'README.md' = $readme; 'the landing page' = $site }
+    $llms   = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'hosting\site\llms.txt')
+    # Comment lines dropped: this checks what the window SAYS, and a comment
+    # recording why a sentence was removed has to be able to quote it. Leaving
+    # them in made the guard fail on its own explanation.
+    $gui = (Get-Content -Encoding UTF8 -LiteralPath (Join-Path $root 'src\13-gui.ps1') |
+            Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+
+    # Four surfaces make claims about this tool, not two. Checking the two
+    # public pages and leaving the others alone is how llms.txt spent months
+    # telling every model that reads it that WinUtil is "the debloat and tweak
+    # engine" and Trim "the reversible wrapper around it", and how the window
+    # itself named one of the three things the undo script cannot put back and
+    # called everything else reversible.
+    #
+    # $docs is every surface. $pages is the two that show the screenshots.
+    $notice = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'NOTICE.md')
+    $sec    = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'SECURITY.md')
+    $docs  = @{
+        'README.md'          = $readme
+        'the landing page'   = $site
+        'llms.txt'           = $llms
+        'the window'         = $gui
+        'NOTICE.md'          = $notice
+        'SECURITY.md'        = $sec
+    }
+    $pages = @{ 'README.md' = $readme; 'the landing page' = $site }
 
     # --- sentences that were removed because they were not true ------------
     #
@@ -2077,14 +2107,98 @@ Test-Phase 'The pages promise what the code actually does' {
         @{ Text = 'The only files it writes'
            Why  = 'it writes a log, a ledger and an undo script, and stages a copy of itself in temp to elevate' },
         @{ Text = 'only thing it ever fetches'
-           Why  = 'it also fetches its fingerprint, its tweak config, WinUtil and NVIDIA Profile Inspector' }
+           Why  = 'it also fetches its fingerprint, its tweak config, WinUtil and NVIDIA Profile Inspector' },
+        @{ Text = 'Debloat and tweak engine'
+           Why  = 'WinUtil is one phase of twelve and can be skipped; it is not the engine, and saying so credits somebody else with the whole tool' },
+        @{ Text = 'adds the reversible wrapper around it'
+           Why  = 'the other eleven phases are not a wrapper around WinUtil' },
+        @{ Text = 'debloat, telemetry and tweak engine'
+           Why  = 'the privacy, personalisation, network, AppX and security phases are Trim own registry writes, not WinUtil' }
     )
+
+    # --- and NOTICE.md has to name the right eleven ------------------------
+    #
+    # It credits WinUtil with one phase and lists the rest by name. A phase
+    # added or renamed makes that list quietly wrong, in the file whose whole
+    # job is being accurate about who wrote what.
+    $mainSrc = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '99-main.ps1')
+    $allPhases = @([regex]::Matches($mainSrc, "Test-PhaseEnabled\s+'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
+    if ($allPhases.Count -lt 5) {
+        throw 'cannot read the phase list out of Invoke-AllPhases - this guard has stopped checking NOTICE.md'
+    }
+    $others = @($allPhases | Where-Object { $_ -ne 'WinUtil' } | Sort-Object)
+    # Any surface that lists them, not just NOTICE.md: llms.txt names them too,
+    # and a file written to be read back by models is the last place a stale
+    # list should survive.
+    $listing = @($docs.Keys | Where-Object { $docs[$_] -match '(?i)remaining eleven' })
+    if ($listing.Count -eq 0) {
+        $problems.Add('no surface lists the non-WinUtil phases by name any more - this check has stopped reading them') | Out-Null
+    }
+    foreach ($doc in $listing) {
+        $nm = [regex]::Match($docs[$doc], '(?is)remaining eleven\s*[-–—]\s*(.+?)\s*[-–—]\s*are')
+        if (-not $nm.Success) {
+            $problems.Add("$doc says 'the remaining eleven' but this check cannot read the list that follows") | Out-Null
+        } else {
+            # Whitespace collapsed first: the list wraps across lines, so the
+            # separator before the last name is a newline rather than a space.
+            $flat  = ($nm.Groups[1].Value -replace '\s+', ' ').Trim()
+            $named = @($flat -split ',|\s+and\s+' | ForEach-Object { $_.Trim() } |
+                       Where-Object { $_ } | Sort-Object)
+            $missing = @($others | Where-Object { $named -notcontains $_ })
+            $extra   = @($named  | Where-Object { $others -notcontains $_ })
+            if ($missing.Count) { $problems.Add("$doc does not name the $($missing -join ', ') phase(s) as Trim's own") | Out-Null }
+            if ($extra.Count)   { $problems.Add("$doc names $($extra -join ', '), which is not a phase") | Out-Null }
+            if ($named.Count -ne $others.Count) {
+                $problems.Add("$doc lists $($named.Count) phases beside WinUtil; there are $($others.Count)") | Out-Null
+            }
+        }
+    }
     foreach ($doc in $docs.Keys) {
         foreach ($claim in $retired) {
             if ($docs[$doc] -match [regex]::Escape($claim.Text)) {
                 $problems.Add("$doc says '$($claim.Text)' again - $($claim.Why)") | Out-Null
             }
         }
+    }
+
+    # --- three things the undo script cannot put back, not one -------------
+    #
+    # The window said "Apps that get removed are not put back ... Everything
+    # else is reversible", which is the screen somebody reads immediately
+    # before pressing Apply. WinUtil's own tweaks and the netsh TCP settings
+    # are not in the undo script either, and the README and the site had said
+    # so for weeks.
+    #
+    # The exceptions are real: an AppX package removal is not a registry write
+    # and never enters the ledger, WinUtil applies its own changes in its own
+    # process, and the netsh settings are restored by a printed command rather
+    # than by the script. Confirmed against the source first, so a surface is
+    # not made to promise something that has stopped being true.
+    $appx = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '09-appx.ps1')
+    $net  = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '10-network.ps1')
+    if ($appx -notmatch 'Remove-AppxPackage' -or $net -notmatch 'netsh') {
+        throw 'cannot find the AppX removal or the netsh calls - this guard has stopped reading the code it checks'
+    }
+
+    $exceptions = @{
+        'removed Store apps'  = '(?i)(store app|appx|apps that get removed|removed store)'
+        "WinUtil's changes"   = '(?i)winutil'
+        'the netsh settings'  = '(?i)netsh'
+    }
+    $sawOne = $false
+    foreach ($doc in $docs.Keys) {
+        # Only surfaces that actually raise the subject. A page that never
+        # mentions the undo script is not making an incomplete promise.
+        if ($docs[$doc] -notmatch '(?i)(cannot|can.t|not put back|does not put back|will not put back)[^.]{0,80}(undo|put back|take back|reversible)|(?i)(undo script|take back)[^.]{0,60}(cannot|can.t)') { continue }
+        $sawOne = $true
+        $missing = @($exceptions.Keys | Where-Object { $docs[$doc] -notmatch $exceptions[$_] } | Sort-Object)
+        if ($missing.Count) {
+            $problems.Add(("$doc says there is something the undo script cannot put back but never mentions " +
+                           "$($missing -join ' or '). There are three, and naming fewer reads as a complete list.")) | Out-Null
+        }
+    }
+    if (-not $sawOne) {
+        $problems.Add('no surface admits there is anything the undo script cannot put back - this check has stopped finding them') | Out-Null
     }
 
     # --- the restore point is best-effort, and both pages have to say so ----
@@ -2097,16 +2211,22 @@ Test-Phase 'The pages promise what the code actually does' {
     # It swallows the failure and carries on, which is the right behaviour and
     # the reason no page may state the restore point as a certainty.
     if ($fn.Value -match 'Could not create a restore point') {
+        # Only the surfaces that raise it. NOTICE.md is an attribution file and
+        # has no business mentioning a restore point; requiring it to would push
+        # an unrelated sentence into a file to satisfy a test.
+        $sawRestorePoint = $false
         foreach ($doc in $docs.Keys) {
-            if ($docs[$doc] -notmatch '(?i)restore point') {
-                $problems.Add("$doc no longer mentions the restore point, so this guard is checking nothing") | Out-Null
-                continue
-            }
+            if ($docs[$doc] -notmatch '(?i)restore point') { continue }
+            $sawRestorePoint = $true
             if ($docs[$doc] -notmatch '(?i)(Windows refuses|Windows would not|refuses to make one|where Windows allows|unless Windows refuses|System Protection)') {
                 $problems.Add(("$doc states the restore point without saying it can be refused. " +
                                'Checkpoint-Computer fails where System Protection is off by policy and the run continues anyway, ' +
                                'so anyone reading this believes they have a rollback they may not have.')) | Out-Null
             }
+        }
+
+        if (-not $sawRestorePoint) {
+            $problems.Add('no surface mentions the restore point any more, so this check has stopped finding the claim it guards') | Out-Null
         }
 
         # And the window must not be promising one either. It did.
@@ -2142,8 +2262,8 @@ Test-Phase 'The pages promise what the code actually does' {
         if ($ex -notmatch 'if \(-not \$Real\)') {
             throw 'the screenshot exporter no longer has a demo-machine branch - this guard has stopped reading it'
         }
-        foreach ($doc in $docs.Keys) {
-            if ($docs[$doc] -notmatch '(?i)(demo machine|stand-in)') {
+        foreach ($doc in $pages.Keys) {
+            if ($pages[$doc] -notmatch '(?i)(demo machine|stand-in)') {
                 $problems.Add(("$doc shows the exported screenshots without saying the machine in them is not real. " +
                                'The window is genuine; the motherboard, disks, game paths and startup list are substituted.')) | Out-Null
             }
@@ -2160,6 +2280,130 @@ Test-Phase 'The pages promise what the code actually does' {
             if ($docs[$doc] -match '(?i)(scan|dry run)[^.]{0,60}no admin[^.]{0,40}changes nothing') {
                 $problems.Add("$doc describes an unelevated scan; only -DryRun is unelevated") | Out-Null
             }
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
+Test-Phase 'No preset can reach the two features that destroy data' {
+    # SECURITY.md says of disk cleanup and deep uninstall: "Neither feature is
+    # reachable from any preset. Tested." Nothing tested it. The property was
+    # true - Set-GuiPreset only touches $script:GuiItems, and the two
+    # destructive panes keep their own selections - but it was true by accident
+    # of how the code happens to be arranged, which is the kind of thing a
+    # refactor removes without anyone noticing.
+    #
+    # It is the strongest claim in the security document about the two features
+    # that can delete somebody's files, so it gets a test rather than a
+    # sentence.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    $gui  = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '13-gui.ps1')
+    $main = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '99-main.ps1')
+
+    $fn = [regex]::Match($gui, '(?s)function Set-GuiPreset \{.*?\r?\n\}')
+    if (-not $fn.Success) {
+        throw 'cannot find Set-GuiPreset - this guard has stopped reading the code it checks'
+    }
+    # The backstop: it must still be the thing that ticks rows, or an empty
+    # function would sail through every check below.
+    if ($fn.Value -notmatch '\.Selected\s*=' -or $fn.Value -notmatch 'recommended') {
+        throw 'Set-GuiPreset no longer selects anything - this guard is checking nothing'
+    }
+
+    # Nothing belonging to either destructive feature may be named inside it.
+    $offLimits = @{
+        'GuiCleanup'   = 'the disk cleanup selection'
+        'GuiLeftovers' = 'the uninstall leftovers list'
+        'GuiApps'      = 'the installed-applications list'
+        'GuiLargeFile' = 'the large-file report'
+        'CleanupSel'   = 'a cleanup selection file'
+    }
+    foreach ($token in $offLimits.Keys) {
+        if ($fn.Value -match [regex]::Escape($token)) {
+            $problems.Add("Set-GuiPreset touches $($offLimits[$token]) - a preset must never tick something that deletes files") | Out-Null
+        }
+    }
+
+    # And the rows it does tick have to be the change list, nothing else.
+    foreach ($m in [regex]::Matches($fn.Value, '(?m)^\s*\$(\w+)\.Selected\s*=')) {
+        if ($m.Groups[1].Value -ne 'i') {
+            $problems.Add("Set-GuiPreset assigns .Selected on `$$($m.Groups[1].Value), which is not the change list") | Out-Null
+        }
+    }
+    if ($fn.Value -notmatch '\$script:GuiItems') {
+        $problems.Add('Set-GuiPreset no longer iterates $script:GuiItems - check what it selects instead') | Out-Null
+    }
+
+    # The command line says the same thing: the cleanup sweep is never part of
+    # a preset, so the phase list must not carry it either.
+    foreach ($banned in @('Invoke-CleanupPhase', 'Invoke-UninstallPhase', 'Get-LargeFileScan')) {
+        $inAllPhases = [regex]::Match($main, '(?s)function Invoke-AllPhases \{.*?\r?\n\}')
+        if ($inAllPhases.Success -and $inAllPhases.Value -match [regex]::Escape($banned)) {
+            $problems.Add("Invoke-AllPhases calls $banned - a plain run would then delete files without being asked") | Out-Null
+        }
+    }
+
+    # SECURITY.md has to still be making the claim, or this guard defends
+    # nothing.
+    $sec = Join-Path $root 'SECURITY.md'
+    if (Test-Path -LiteralPath $sec) {
+        $t = Get-Content -Raw -Encoding UTF8 -LiteralPath $sec
+        if ($t -notmatch '(?i)reachable from any preset') {
+            $problems.Add('SECURITY.md no longer claims the destructive features are unreachable from a preset - restore the claim or remove this guard') | Out-Null
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
+Test-Phase 'The sandbox figure in SECURITY.md is the one it verified' {
+    # SECURITY.md's strongest evidence is a count: "66 changes applied, all 66
+    # present, all 66 restored exactly". The real figure was 114. Nobody had
+    # lied - the sentence was typed once, the tool kept growing, and nothing
+    # tied one to the other. A number in a security document that nothing
+    # regenerates is a number that is eventually wrong, and it is quoted there
+    # precisely because it is meant to be convincing.
+    #
+    # A passing sandbox run now writes docs\sandbox-verification.txt. This
+    # compares the sentence against it.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    $secPath   = Join-Path $root 'SECURITY.md'
+    $stampPath = Join-Path $root 'docs\sandbox-verification.txt'
+    if (-not (Test-Path -LiteralPath $secPath)) { return }
+
+    $sec = Get-Content -Raw -Encoding UTF8 -LiteralPath $secPath
+
+    # The claim has to still be there, or this guard defends nothing.
+    $claim = [regex]::Match($sec, '(?i)(\d+)\s+changes\s+applied,\s+all\s+(\d+)\s+present,\s+all\s+(\d+)\s+restored')
+    if (-not $claim.Success) {
+        $problems.Add('SECURITY.md no longer states what the sandbox verified - restore the claim or remove this guard') | Out-Null
+        if ($problems.Count) { throw ($problems -join '; ') }
+        return
+    }
+
+    # Its own three numbers have to agree with each other first.
+    # Re-wrapped in @(): Select-Object -Unique on three identical strings
+    # returns one string, not a one-element array, and .Count on a string is a
+    # terminating error under Set-StrictMode -Version 2.0.
+    $n = @(@($claim.Groups[1].Value, $claim.Groups[2].Value, $claim.Groups[3].Value) | Select-Object -Unique)
+    if ($n.Count -ne 1) {
+        $problems.Add("SECURITY.md says $($claim.Groups[1].Value) applied but $($claim.Groups[2].Value) present and $($claim.Groups[3].Value) restored") | Out-Null
+    }
+
+    if (-not (Test-Path -LiteralPath $stampPath)) {
+        $problems.Add(('SECURITY.md quotes a sandbox figure but docs\sandbox-verification.txt does not exist. ' +
+                       'Run test\Invoke-SandboxTest.ps1, which writes it when the run passes.')) | Out-Null
+    } else {
+        $stamp = Get-Content -Raw -Encoding UTF8 -LiteralPath $stampPath
+        $sm = [regex]::Match($stamp, '(?m)^changes\s+(\d+)\s*$')
+        if (-not $sm.Success) {
+            $problems.Add('docs\sandbox-verification.txt records no change count - re-run test\Invoke-SandboxTest.ps1') | Out-Null
+        } elseif ([int]$sm.Groups[1].Value -ne [int]$claim.Groups[1].Value) {
+            $problems.Add(("SECURITY.md says the sandbox verified $($claim.Groups[1].Value) changes; " +
+                           "the last passing run verified $($sm.Groups[1].Value)")) | Out-Null
         }
     }
 

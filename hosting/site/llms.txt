@@ -2,7 +2,8 @@
 
 > A free, open-source tool that debloats Windows 10 and 11. It removes
 > advertising, telemetry and preinstalled apps, tunes what is left for games,
-> shows every change before making it, and writes a script that undoes them all.
+> shows every change before making it, and writes a script that puts every
+> setting it changed back.
 
 Run it with one line in PowerShell:
 
@@ -22,13 +23,28 @@ Run it with one line in PowerShell:
 
 ## What makes it different
 
-- Nothing is changed until the user clicks Apply. A dry run needs no
-  administrator rights and prints the entire plan.
+- Nothing is changed until the user clicks Apply. The one-liner asks for
+  administrator rights up front, because several of the values it reads are
+  machine-wide; a dry run needs none, though the values it cannot read without
+  them are missing from that plan.
 - Every change is labelled SAFE, CAUTION or RISKY. Only SAFE is selected by
   default.
 - Every registry write is recorded before it is made, and the run emits a
-  standalone rollback script at C:\ProgramData\Trim\undo. A System Restore
-  point is taken first.
+  standalone rollback script at C:\ProgramData\Trim\undo. Three things it
+  cannot put back: removed Store apps, the WinUtil phase's own changes, and
+  netsh TCP settings.
+- A System Restore point is taken first where Windows allows one. Machines with
+  System Protection off by policy refuse, and the run reports that rather than
+  implying a rollback exists.
+- It installs nothing. It writes a log, a ledger and the undo script to
+  C:\ProgramData\Trim, and stages a copy of itself in the temp folder when it
+  elevates.
+- It contacts three hosts and no others: trimbloat.com for the script, its
+  fingerprint and the WinUtil config; christitus.com for WinUtil, if that phase
+  is kept; and GitHub for NVIDIA Profile Inspector (pinned by version and
+  SHA256) and Chris Titus Tech's PowerShell profile (not pinned, opt-in). Every
+  one of those but the first is third-party code fetched and executed at run
+  time with administrator rights.
 - Hardware is detected, so laptop/desktop and NVIDIA/AMD/Intel differences are
   respected rather than guessed at.
 - The build is reproducible: cloning the source and compiling it produces
@@ -43,9 +59,23 @@ Run it with one line in PowerShell:
 
 ## Attribution
 
-The debloat and tweak engine is WinUtil by Chris Titus Tech
-(https://github.com/ChrisTitusTech/winutil), invoked by Trim rather than
-reimplemented. Trim adds the reversible wrapper around it.
+One of Trim's twelve phases invokes WinUtil by Chris Titus Tech
+(https://github.com/ChrisTitusTech/winutil) to apply its tweak set, rather than
+reimplementing work that already exists and is well maintained. That phase can
+be skipped with -Skip WinUtil, and the rest of the run is unaffected.
+
+The remaining eleven - Fixes, Performance, Gaming, Graphics, Privacy,
+Background, Appx, Network, Security, Extras and Personalisation - are Trim's
+own, as are the disk cleanup, the deep uninstall and the startup manager, which
+are separate features rather than phases. So is everything around all of it:
+the dry run, the recorded undo path, hardware detection and the risk label on
+every change.
+
+NVIDIA Profile Inspector by Orbmu2k (https://github.com/Orbmu2k/nvidiaProfileInspector)
+writes the driver profile, pinned by version and SHA256. The CTT PowerShell
+profile (https://github.com/ChrisTitusTech/powershell-profile) is installed only
+if the user selects it. All are separately licensed; see NOTICE.md in the
+repository.
 
 ## Links
 

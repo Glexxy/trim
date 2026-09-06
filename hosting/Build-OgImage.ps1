@@ -108,7 +108,7 @@ $g.DrawString('Debloat Windows',      $fHead, $bInk, 66, 168)
 $g.DrawString('without breaking it.', $fHead, $bInk, 66, 250)
 
 $g.DrawString('Removes the junk, tunes the rest for games, and hands you', $fSub, $bSoft, 72, 356)
-$g.DrawString('a script that puts every change back.',                    $fSub, $bSoft, 72, 392)
+$g.DrawString('a script that puts every setting back.',                   $fSub, $bSoft, 72, 392)
 
 # The command, in its own frame.
 $path = New-Object System.Drawing.Drawing2D.GraphicsPath

@@ -164,6 +164,15 @@ while ((Get-Date) -lt $deadline) {
         $code = $raw.Trim()
         Write-Host ''
         Write-Host "Sandbox verification exit code: $code" -ForegroundColor $(if ($code -eq '0') { 'Green' } else { 'Red' })
+
+        # A passing run's own account of what it verified, kept in the repo so
+        # SECURITY.md can be checked against it instead of trusted.
+        $stampSrc = Join-Path $results 'verification.txt'
+        if ($code -eq '0' -and (Test-Path -LiteralPath $stampSrc)) {
+            $stampDst = Join-Path (Split-Path $PSScriptRoot -Parent) 'docs\sandbox-verification.txt'
+            Copy-Item -LiteralPath $stampSrc -Destination $stampDst -Force
+            Write-Host "Recorded what it verified: docs\sandbox-verification.txt" -ForegroundColor DarkGray
+        }
         Write-Host "Full log: $(Get-ChildItem $results -Filter 'sandbox-run_*.log' | Select-Object -First 1 -ExpandProperty FullName)"
         Write-Host ''
         if ($KeepOpen) {
@@ -209,5 +218,45 @@ while ((Get-Date) -lt $deadline) {
 
 Write-Host ''
 Write-Host "Timed out after $TimeoutMinutes minutes with no result." -ForegroundColor Red
-Write-Host 'Check the sandbox window - it may be waiting on something, or the logon command failed to start.' -ForegroundColor Red
+Write-Host 'The guest never reported. Its log, if it got that far, is in test\results\.' -ForegroundColor Red
+
+# Close the window rather than leaving the VM sitting there.
+#
+# A guest that dies before writing its exit code leaves this waiting for a
+# result that is never coming, and then leaves a container holding a couple of
+# gigabytes until somebody notices. That happened for real: a typo in the
+# results path threw inside the verification AFTER all six checks had passed,
+# so the run had succeeded and reported nothing.
+#
+# WM_CLOSE, not Stop-Process. It is what clicking the X does, and the container
+# shuts down properly under it. Ending the client process while a VM is still
+# attached is what orphans vmmemWindowsSandbox and costs an elevated
+# Restart-Service vmcompute to get the memory back.
+try {
+    Add-Type -Namespace TrimSandbox -Name Native -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+'@ -ErrorAction Stop
+
+    $win = @(Get-Process -ErrorAction SilentlyContinue |
+             Where-Object { $_.Name -like 'WindowsSandbox*' -and $_.MainWindowHandle -ne 0 })
+    if ($win.Count) {
+        Write-Host 'Closing the sandbox window so the VM does not sit there holding memory...' -ForegroundColor Yellow
+        foreach ($w in $win) { [void][TrimSandbox.Native]::PostMessage($w.MainWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) }
+        for ($i = 0; $i -lt 45; $i++) {
+            if (-not (Get-Process -Name vmmemWindowsSandbox -ErrorAction SilentlyContinue)) { break }
+            Start-Sleep -Seconds 2
+        }
+    }
+    $stuck = Get-Process -Name vmmemWindowsSandbox -ErrorAction SilentlyContinue
+    if ($stuck) {
+        Write-Host ("The VM is still holding {0} MB. Close the Windows Sandbox window, or reclaim it with:" -f [int]($stuck.WorkingSet64/1MB)) -ForegroundColor Yellow
+        Write-Host '  Restart-Service vmcompute -Force     (elevated)' -ForegroundColor DarkGray
+    } else {
+        Write-Host 'Sandbox closed and its memory released.' -ForegroundColor DarkGray
+    }
+} catch {
+    Write-Host "Could not close the sandbox window automatically: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host 'Close it by hand - do not end the process, that strands the VM.' -ForegroundColor Yellow
+}
+
 exit 3

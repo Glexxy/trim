@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 
 <title>Trim — debloat Windows 10 and 11 without breaking it</title>
-<meta name="description" content="Free, open-source Windows debloater. Strips ads, telemetry and preinstalled junk, tunes the rest for games, and hands you one file that undoes all of it.">
+<meta name="description" content="Free, open-source Windows debloater. Strips ads, telemetry and preinstalled junk, tunes the rest for games, and hands you one file that puts every setting it changed back.">
 <link rel="canonical" href="https://trimbloat.com/">
 <meta name="theme-color" content="#080B0C">
 <meta name="color-scheme" content="dark">
@@ -14,14 +14,14 @@
 <meta property="og:site_name" content="Trim">
 <meta property="og:url" content="https://trimbloat.com/">
 <meta property="og:title" content="Trim — debloat Windows without breaking it">
-<meta property="og:description" content="Rips out the ads and telemetry, tunes the rest for games, and hands you one file that puts it all back. Free and open source.">
+<meta property="og:description" content="Rips out the ads and telemetry, tunes the rest for games, and hands you one file that puts every setting back. Free and open source.">
 <meta property="og:image" content="https://trimbloat.com/img/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Trim — debloat Windows without breaking it">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Trim — debloat Windows without breaking it">
-<meta name="twitter:description" content="Rips out the ads and telemetry, tunes the rest for games, and hands you one file that puts it all back.">
+<meta name="twitter:description" content="Rips out the ads and telemetry, tunes the rest for games, and hands you one file that puts every setting back.">
 <meta name="twitter:image" content="https://trimbloat.com/img/og.png">
 
 <link rel="icon" href="/favicon.svg?v={{V}}" type="image/svg+xml">
@@ -83,7 +83,7 @@
       <p class="sub r" style="--d:110ms">
         Trim rips out the ads, telemetry and preinstalled junk, then tunes what&rsquo;s
         left for games. You see the whole list before anything happens. Hate the
-        result? One file puts it all back.
+        result? One file puts every setting back.
       </p>
 
       <div class="cta r" style="--d:170ms">
@@ -341,10 +341,11 @@
       <article class="check">
         <h3><span class="chk-n">01</span> Read it</h3>
         <p>It is served as plain text, not a download. Open it in a tab and read the
-           whole thing &mdash; one file, nothing minified or obfuscated. Two things it
-           fetches while it runs are somebody else&rsquo;s code: WinUtil, if you keep
-           that phase, and NVIDIA Profile Inspector, if you have the card. Both are
-           named below, and you can read the lines that go and get them.</p>
+           whole thing &mdash; one file, nothing minified or obfuscated. What it
+           fetches while it runs is somebody else&rsquo;s code: WinUtil, if you keep
+           that phase; NVIDIA Profile Inspector, if you have the card; and Chris Titus
+           Tech&rsquo;s PowerShell profile, if you tick it. All three are named below,
+           and you can read the lines that go and get them.</p>
         <a class="link" href="/go">Open the script</a>
       </article>
 
@@ -385,11 +386,13 @@ cd trim
         <li><b>Guesswork about your PC.</b> Laptop or desktop, NVIDIA or AMD or Intel,
             SSD or spinning disk. It checks first and skips what does not apply.</li>
         <li><b>You.</b> No analytics, no account, no telemetry of its own. It talks to
-            three places and no others: this site, for the script, its fingerprint and
+            three hosts and no others: this site, for the script, its fingerprint and
             its tweak list; <a href="https://christitus.com/win" rel="noopener">christitus.com</a>
-            for WinUtil, if you keep that phase; and GitHub for NVIDIA Profile Inspector,
-            if you have an NVIDIA card &mdash; pinned to one version and one SHA256.
-            Read the script and you will find those three and nothing else.</li>
+            for WinUtil, if you keep that phase; and GitHub for two things &mdash; NVIDIA
+            Profile Inspector if you have the card, pinned to one version and one SHA256,
+            and Chris Titus Tech&rsquo;s PowerShell profile if you tick it, which is not
+            pinned and is a Caution row for that reason. Read the script and you will
+            find those three hosts and nothing else.</li>
       </ul>
     </div>
   </section>
@@ -565,7 +568,7 @@ cd trim
       "applicationSubCategory": "System optimisation",
       "operatingSystem": "Windows 10, Windows 11",
       "softwareRequirements": "Windows PowerShell 5.1 or later",
-      "description": "Free, open-source Windows debloater. Strips ads, telemetry and preinstalled junk, tunes the rest for games, shows every change before it makes one, and writes a script that undoes all of them.",
+      "description": "Free, open-source Windows debloater. Strips ads, telemetry and preinstalled junk, tunes the rest for games, shows every change before it makes one, and writes a script that puts every setting it changed back.",
       "license": "https://opensource.org/licenses/MIT",
       "isAccessibleForFree": true,
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -583,7 +586,7 @@ cd trim
         "Deep uninstall including leftover files and registry keys",
         "Shows every change before applying it",
         "Manages which programs run at Windows sign-in",
-        "Generates an undo script for every change made"
+        "Generates an undo script that reverses every setting it changed"
       ]
     },
     {

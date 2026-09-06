@@ -748,9 +748,14 @@ function Show-GuiOverview {
         "exactly what you want. Every row shows the setting, what it is now, and what it would become. " +
         "Nothing at all happens until you press Apply.") -Top 5
 
-    Add-GuiParagraph -Text 'The one exception' -Colour '#E6EDEB' -Size 13 -Weight 'SemiBold' -Top 20
-    Add-GuiParagraph -Text ("Apps that get removed are not put back by the undo script - reinstall those from the " +
-        "Microsoft Store. Everything else is reversible.") -Top 5
+    # Three exceptions, not one. This said "apps ... everything else is
+    # reversible" while the README and the site both listed three, and this is
+    # the screen somebody reads immediately before pressing Apply.
+    Add-GuiParagraph -Text 'The three exceptions' -Colour '#E6EDEB' -Size 13 -Weight 'SemiBold' -Top 20
+    Add-GuiParagraph -Text ("Three things the undo script cannot put back. Apps that get removed - reinstall " +
+        "those from the Microsoft Store. The WinUtil phase's own changes, if you keep it - that is what the " +
+        "restore point is for. And the netsh TCP settings, which is one command, printed in the log. " +
+        "Everything else is reversible.") -Top 5
 
     Add-GuiParagraph -Text 'The labels on each row' -Colour '#E6EDEB' -Size 13 -Weight 'SemiBold' -Top 20
     foreach ($t in @('safe','op','trade')) {
@@ -792,7 +797,13 @@ function Show-GuiOverview {
 
     # Readable, and no more prominent than that. It belongs here once, not on
     # every screen and not in front of someone launching the thing.
-    Add-GuiParagraph -Text 'Debloat and tweak engine: WinUtil by Chris Titus Tech - christitus.com/win' `
+    #
+    # It used to read "Debloat and tweak engine: WinUtil", which credited Chris
+    # Titus Tech for the whole tool and told the reader something false about
+    # their own machine: that everything being changed came from WinUtil, and
+    # that skipping it would leave nothing. It is one phase of twelve, and it
+    # can be skipped.
+    Add-GuiParagraph -Text 'One of twelve phases applies WinUtil by Chris Titus Tech - christitus.com/win' `
         -Colour '#8C9A97' -Size 11 -Top 26
 }
 

@@ -130,12 +130,28 @@ open. That was a real bug, caught by its own test.
 
 Neither feature is reachable from any preset. Tested.
 
-### Everything else is reversible
+### Every setting it writes is reversible
 
 Every registry write is recorded before it is made and reversed by a generated
 undo script — including removing values that did not previously exist, rather
-than writing zero over them. Verified end to end in Windows Sandbox: 66 changes
-applied, all 66 present, all 66 restored exactly, second run a complete no-op.
+than writing zero over them.
+
+Three things the undo script cannot put back, and they are named on every page
+that mentions it: removed Store apps (reinstall them from the Store), the
+WinUtil phase's own changes, and the `netsh` TCP settings (one command, printed
+in the log). Everything the ledger records comes back exactly.
+
+The fallback for WinUtil's changes is the System Restore point taken before the
+run — with the caveat that Windows can refuse to make one, on a machine where
+System Protection is off by policy. The run says so on screen and in the log
+when that happens, rather than leaving you to assume a rollback exists. Keep
+the WinUtil phase off with `-Skip WinUtil` if that matters to you. Verified end to end in Windows Sandbox: 114 changes
+applied, all 114 present, all 114 restored exactly, second run a complete no-op.
+
+That number is not typed here by hand. `test\Invoke-SandboxTest.ps1` writes
+[`docs/sandbox-verification.txt`](docs/sandbox-verification.txt) at the end of a
+passing run, and the harness fails if this sentence and that file disagree — it
+said 66 for weeks after the real figure passed a hundred.
 
 ---
 

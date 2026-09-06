@@ -10,7 +10,7 @@ and shows you every change before it makes one.
 [![CI](https://img.shields.io/github/actions/workflow/status/Glexxy/trim/ci.yml?branch=main&style=flat-square&label=tests)](https://github.com/Glexxy/trim/actions/workflows/ci.yml)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-4FE0B0?style=flat-square)](LICENSE)
 [![Windows 10 and 11](https://img.shields.io/badge/Windows-10%20%7C%2011-4FE0B0?style=flat-square)](#requirements)
-[![Reversible](https://img.shields.io/badge/every%20change-reversible-4FE0B0?style=flat-square)](#undo)
+[![Reversible](https://img.shields.io/badge/every%20setting-reversible-4FE0B0?style=flat-square)](#undo)
 
 ```powershell
 irm https://trimbloat.com/go | iex

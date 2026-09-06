@@ -353,6 +353,38 @@ if ($skipped.Count) {
 if ($failed.Count -eq 0) {
     Write-Host "$($passed.Count) CHECKS PASSED$(if ($skipped.Count) { ", $($skipped.Count) NOT VERIFIED HERE" })" `
         -ForegroundColor $(if ($skipped.Count) { 'Yellow' } else { 'Green' })
+
+    # Stamp what was verified, so the number SECURITY.md quotes has somewhere
+    # to come from.
+    #
+    # It said "66 changes applied, all 66 present, all 66 restored" long after
+    # the real figure had moved past a hundred. Nobody had lied; the sentence
+    # was typed once and the tool kept growing. A number in a security document
+    # that nothing regenerates is a number that is eventually wrong, and the
+    # harness now checks the document against this file.
+    # Wrapped, and deliberately: everything here happens AFTER the verification
+    # has passed, and none of it may change the outcome. The first version
+    # could. A typo put a carriage return inside the path; Test-Path threw
+    # under ErrorActionPreference = Stop; and a run that had just passed all six
+    # checks died before writing its exit code, so the guest never shut down and
+    # the host sat waiting for a result that was already in the log.
+    try {
+        $out = 'C:\results'
+        if (Test-Path -LiteralPath $out) {
+            Set-Content -LiteralPath (Join-Path $out 'verification.txt') -Encoding UTF8 -Value @(
+                '# What the last Windows Sandbox verification actually did.',
+                '# Written by test\Invoke-VmVerification.ps1 and copied out by',
+                '# test\Invoke-SandboxTest.ps1. Re-run it rather than editing this.',
+                "date $(Get-Date -Format 'yyyy-MM-dd')",
+                "phases $(if ($Full) { 'all' } else { $Phases -join ',' })",
+                "changes $($entries.Count)",
+                "checks $($passed.Count)",
+                "skipped $($skipped.Count)"
+            )
+        }
+    } catch {
+        Write-Host "  (could not record what was verified: $($_.Exception.Message))" -ForegroundColor DarkYellow
+    }
     exit 0
 } else {
     Write-Host "$($failed.Count) of $($results.Count) CHECKS FAILED" -ForegroundColor Red

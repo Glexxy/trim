@@ -1,0 +1,8 @@
+﻿# What the last Windows Sandbox verification actually did.
+# Written by test\Invoke-VmVerification.ps1 and copied out by
+# test\Invoke-SandboxTest.ps1. Re-run it rather than editing this.
+date 2026-09-06
+phases Gaming,Privacy,Personalisation,Network,Performance,Background,Graphics,Security,Extras
+changes 114
+checks 6
+skipped 1
