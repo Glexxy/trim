@@ -2201,6 +2201,48 @@ Test-Phase 'The pages promise what the code actually does' {
         $problems.Add('no surface admits there is anything the undo script cannot put back - this check has stopped finding them') | Out-Null
     }
 
+    # --- the leftovers list is not the same set as "what survived" ---------
+    #
+    # Get-AppLeftovers drops anything its deletion guards veto, and the pane
+    # said "These survived the uninstaller. Every one is shown in full." Two
+    # different sets. On this machine the very first app tried leaves a folder
+    # under WindowsApps that the guards correctly refuse to touch, and the
+    # window said "Nothing left behind."
+    #
+    # The vetoes are right. Hiding what they caught is not.
+    $unin = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '17-uninstall.ps1')
+    if ($unin -notmatch 'Test-SafeToRemovePath' -or $unin -notmatch 'Test-SafeToRemoveKey') {
+        throw 'Get-AppLeftovers no longer vetoes anything - this check has stopped reading the code it is about'
+    }
+    if ($unin -notmatch 'LeftoversWithheld') {
+        $problems.Add('the leftover scan drops what its guards veto without recording it, so nothing can report it') | Out-Null
+    }
+    if ($gui -notmatch 'LeftoversWithheld') {
+        $problems.Add(('the window never reads what the leftover scan withheld, so a filtered list is shown ' +
+                       'as everything that survived the uninstaller')) | Out-Null
+    }
+    # And what is withheld must stay unselectable: no Key, no Selected, or it
+    # could reach the list the Remove button acts on.
+    foreach ($m in [regex]::Matches($unin, '(?s)LeftoversWithheld\.Add\(\[pscustomobject\]@\{(.*?)\}\)')) {
+        if ($m.Groups[1].Value -match '\bKey\s*=' -or $m.Groups[1].Value -match '\bSelected\s*=') {
+            $problems.Add('a withheld leftover carries Key or Selected, which could put it in reach of the Remove button') | Out-Null
+        }
+    }
+
+    # Only folders and registry keys are looked for. Four surfaces said
+    # "services and scheduled tasks" too, which nothing in the module does.
+    $findsServices = $unin -match "Kind\s*=\s*'service'" -or $unin -match 'Get-Service'
+    $findsTasks    = $unin -match "Kind\s*=\s*'task'"    -or $unin -match 'ScheduledTask'
+    foreach ($doc in $docs.Keys) {
+        if ($docs[$doc] -notmatch '(?i)uninstall') { continue }
+        if (-not $findsServices -and $docs[$doc] -match '(?i)registry keys,? (and )?services') {
+            $problems.Add("$doc says the deep uninstall finds services; Get-AppLeftovers looks for folders and registry keys only") | Out-Null
+        }
+        if (-not $findsTasks -and $docs[$doc] -match '(?i)(services,? (and )?)?scheduled tasks it (left|abandoned)') {
+            $problems.Add("$doc says the deep uninstall finds scheduled tasks; Get-AppLeftovers looks for folders and registry keys only") | Out-Null
+        }
+    }
+
     # --- a scan that gives up has to say so -------------------------------
     #
     # Get-LargeFileScan stops walking after a fixed number of seconds and

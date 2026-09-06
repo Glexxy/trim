@@ -1691,6 +1691,37 @@ function Invoke-GuiUninstallApp {
     Update-GuiItems
 }
 
+<#
+.SYNOPSIS
+    Name what the deletion guards refused to offer, without offering it.
+
+.DESCRIPTION
+    Read-only by construction: no checkbox, no key, nothing that reaches the
+    selection the Remove button acts on. The point is that the person looking
+    at their own disk afterwards can see why Trim did not mention something,
+    rather than concluding the scan missed it.
+#>
+function Add-GuiWithheldList {
+    param([Parameter(Mandatory)][object[]]$Items)
+
+    $brFaint = Get-GuiBrush '#8C9A97'
+
+    Add-GuiParagraph -Text "Left alone ($($Items.Count))" -Colour '#E6EDEB' -Size 13 -Weight 'SemiBold' -Top 22
+    Add-GuiParagraph -Text ('Found, and not offered for removal. Trim will not delete anything shared, ' +
+        'protected, or that does not clearly belong to the app you removed.') `
+        -Colour '#8C9A97' -Size 12 -Top 4
+
+    foreach ($w in $Items) {
+        $row = New-Object Windows.Controls.TextBlock
+        $row.Text = if ($w.Kind -eq 'publisher') { "$($w.Path)  -  $($w.Why)" } else { "$($w.Path)  -  $($w.Why)" }
+        $row.FontSize = 11.5
+        $row.Foreground = $brFaint
+        $row.TextWrapping = 'Wrap'
+        $row.Margin = New-Object Windows.Thickness 0,6,0,0
+        $script:GuiUi.PanelItems.Children.Add($row) | Out-Null
+    }
+}
+
 function Show-GuiLeftovers {
     $ui  = $script:GuiUi
     $app = $script:GuiUninstallTarget
@@ -1708,19 +1739,34 @@ function Show-GuiLeftovers {
     })
     $ui.PanelItems.Children.Add($back) | Out-Null
 
+    $withheld = @($script:LeftoversWithheld)
+
     if ($script:GuiLeftovers.Count -eq 0) {
         $ui.TxtPhaseSub.Text = ''
-        Add-GuiParagraph -Text 'Nothing left behind.' -Colour '#4FBFA4' -Size 14 -Weight 'SemiBold'
-        Add-GuiParagraph -Text ('Either the uninstaller cleaned up after itself, or anything remaining did ' +
-            'not clearly belong to this app - in which case Trim leaves it alone rather than guessing.') -Top 6
+        if ($withheld.Count) {
+            # "Nothing left behind" was said even when the guards had declined
+            # to offer things that were still there - including the case where
+            # a protected publisher stops the search before it starts.
+            Add-GuiParagraph -Text 'Nothing here for Trim to remove.' -Colour '#4FBFA4' -Size 14 -Weight 'SemiBold'
+            Add-GuiParagraph -Text ('Either the uninstaller cleaned up after itself, or what remains is not ' +
+                'safe for this tool to touch. What it found and left alone is listed below.') -Top 6
+            Add-GuiWithheldList -Items $withheld
+        } else {
+            Add-GuiParagraph -Text 'Nothing left behind.' -Colour '#4FBFA4' -Size 14 -Weight 'SemiBold'
+            Add-GuiParagraph -Text ('Either the uninstaller cleaned up after itself, or anything remaining did ' +
+                'not clearly belong to this app - in which case Trim leaves it alone rather than guessing.') -Top 6
+        }
         return
     }
 
     $total = [double](($script:GuiLeftovers | Measure-Object Bytes -Sum).Sum)
     $ui.TxtPhaseSub.Text = "$($script:GuiLeftovers.Count) item(s), $(Format-Bytes $total)"
 
-    Add-GuiParagraph -Text ('These survived the uninstaller. Every one is shown in full. ' +
-        'Registry keys are exported to a .reg file before removal.') -Colour '#98A6A3' -Size 12
+    # "Every one is shown in full" described a different set from "these
+    # survived the uninstaller": whatever the deletion guards veto never
+    # reached this list. It is named below now instead of vanishing.
+    Add-GuiParagraph -Text ('These survived the uninstaller and Trim is willing to remove them. Each is shown ' +
+        'with its full path. Registry keys are exported to a .reg file before removal.') -Colour '#98A6A3' -Size 12
     Add-GuiParagraph -Text ' ' -Size 4
 
     $brInk   = Get-GuiBrush '#E6EDEB'
@@ -1791,6 +1837,10 @@ function Show-GuiLeftovers {
     $del.Margin = New-Object Windows.Thickness 0,18,0,0
     $del.Add_Click({ Invoke-GuiRemoveLeftovers })
     $ui.PanelItems.Children.Add($del) | Out-Null
+
+    # After the button, so nothing read-only sits between the list and the
+    # thing that acts on it.
+    if ($withheld.Count) { Add-GuiWithheldList -Items $withheld }
 }
 
 function Invoke-GuiRemoveLeftovers {

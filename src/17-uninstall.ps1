@@ -352,7 +352,17 @@ function Test-SafeToRemovePath {
 
 .DESCRIPTION
     Candidates only. Every one is put through Test-SafeToRemovePath, and every
-    one that survives is shown to the user before anything happens.
+    one that survives is offered to the user before anything happens.
+
+    What the guards veto is recorded in $script:LeftoversWithheld rather than
+    dropped on the floor. The window used to say "These survived the
+    uninstaller. Every one is shown in full", which was two different sets: a
+    folder the guards refuse to offer is a folder that survived and was never
+    mentioned. Somebody checking the list against their own disk would find
+    things Trim had not named and conclude the scan was bad, when in fact it
+    had decided - correctly - not to touch them.
+
+    Recorded, not offered. Nothing here becomes deletable by being listed.
 #>
 function Get-AppLeftovers {
     param([Parameter(Mandatory)]$App)
@@ -360,8 +370,14 @@ function Get-AppLeftovers {
     $found = [System.Collections.Generic.List[object]]::new()
     $pub   = $App.Publisher
 
+    $script:LeftoversWithheld = [System.Collections.Generic.List[object]]::new()
+
     if ($pub -and @($script:UninstallProtectedPublishers | Where-Object { $pub -like "*$_*" }).Count) {
         Write-Log "Publisher '$pub' is protected. Leftover removal is not offered for it."
+        $script:LeftoversWithheld.Add([pscustomobject]@{
+            Kind = 'publisher'; Path = $pub
+            Why  = 'the publisher is on the protected list, so leftovers are not offered for it at all'
+        }) | Out-Null
         return @($found)
     }
 
@@ -390,7 +406,13 @@ function Get-AppLeftovers {
     }
 
     foreach ($path in ($candidates | Select-Object -Unique)) {
-        if (-not (Test-SafeToRemovePath -Path $path -AppName $App.Name -Publisher $pub)) { continue }
+        if (-not (Test-SafeToRemovePath -Path $path -AppName $App.Name -Publisher $pub)) {
+            $script:LeftoversWithheld.Add([pscustomobject]@{
+                Kind = 'folder'; Path = $path
+                Why  = 'shared, protected, or not clearly this app'
+            }) | Out-Null
+            continue
+        }
         $bytes = 0L
         try {
             $bytes = [long](@(Get-ChildItem -LiteralPath $path -File -Recurse -Force -ErrorAction SilentlyContinue |
@@ -410,7 +432,13 @@ function Get-AppLeftovers {
         foreach ($nameToTry in @($App.Name, $pub) | Where-Object { $_ }) {
             $k = Join-Path $root $nameToTry
             try { if (-not (Test-Path -LiteralPath $k -ErrorAction Stop)) { continue } } catch { continue }
-            if (-not (Test-SafeToRemoveKey -Key $k -AppName $App.Name -Publisher $pub)) { continue }
+            if (-not (Test-SafeToRemoveKey -Key $k -AppName $App.Name -Publisher $pub)) {
+                $script:LeftoversWithheld.Add([pscustomobject]@{
+                    Kind = 'registry'; Path = $k
+                    Why  = 'shared, protected, or not clearly this app'
+                }) | Out-Null
+                continue
+            }
             $found.Add([pscustomobject]@{
                 Kind = 'registry'; Path = $k; Bytes = 0; Size = ''
                 Selected = $true; Key = "left|registry|$k"

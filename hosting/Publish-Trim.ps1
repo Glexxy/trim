@@ -227,7 +227,7 @@ foreach ($ref in @('/styles.css', '/app.js')) {
 # JSON-LD is exempt and has to be: a script block with a non-executable type is
 # never run, so script-src does not apply to it, and the structured data has to
 # be inline for crawlers to read it.
-$inline = [regex]::Matches($page, '(?is)<script([^>]*)>\s*\S') |
+$inline = [regex]::Matches($page, '(?is)<script\b([^>]*)>\s*\S') |
           Where-Object {
               $attrs = $_.Groups[1].Value
               ($attrs -notmatch '\ssrc\s*=') -and ($attrs -notmatch 'type\s*=\s*"application/ld\+json"')

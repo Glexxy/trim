@@ -43,8 +43,8 @@ size and location before anything goes. Plus a duplicate finder and a
 report-only large-file scanner.
 
 **Uninstalls properly** — runs the app's own uninstaller, then finds the
-folders, registry keys, services and scheduled tasks it left behind. Registry
-keys are exported to `.reg` first.
+folders and registry keys it left behind, and names the ones it found but will
+not touch. Registry keys are exported to `.reg` first.
 
 **Controls startup** — everything that runs at sign-in, from the Run keys, both
 Startup folders and logon scheduled tasks, each with its publisher and where it

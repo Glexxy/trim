@@ -57,6 +57,11 @@ $script:ProgressDone  = 0
 # look like a hung window. $null when nobody is listening.
 $script:ScanHook = $null
 
+# What Get-AppLeftovers found but its guards refused to offer. Reported to the
+# user rather than dropped: the pane's claim is that it shows what survived the
+# uninstaller, and a silently filtered list does not.
+$script:LeftoversWithheld = [System.Collections.Generic.List[object]]::new()
+
 New-Item -ItemType Directory -Force -Path (Split-Path $script:LogPath)  | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path $script:UndoPath) | Out-Null
 
