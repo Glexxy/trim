@@ -119,12 +119,30 @@ if (-not $ScriptPath -or -not (Test-Path $ScriptPath)) {
 
 $results  = [System.Collections.Generic.List[object]]::new()
 function Add-Result {
-    param([string]$Check, [bool]$Pass, [string]$Detail = '')
-    $results.Add([pscustomobject]@{ Check = $Check; Pass = $Pass; Detail = $Detail }) | Out-Null
-    $tag = if ($Pass) { 'PASS' } else { 'FAIL' }
-    $col = if ($Pass) { 'Green' } else { 'Red' }
-    Write-Host ("{0}  {1}" -f $tag, $Check) -ForegroundColor $col
-    if ($Detail -and -not $Pass) { Write-Host "      $Detail" -ForegroundColor DarkRed }
+    <#
+        -Inconclusive is a third state on purpose.
+
+        A check with nothing to test reports success, and that has been the
+        most persistent fault in this project's own tests: an assertion that
+        could only ever pass, a fixture that happened to agree with the bug, a
+        filter that selected nothing, a captured stream that was empty. Every
+        one of them was green.
+
+        So when a check cannot be carried out here, it says so and is counted
+        separately. Green means verified. It does not mean nothing went wrong.
+    #>
+    param([string]$Check, [bool]$Pass, [string]$Detail = '', [switch]$Inconclusive)
+
+    $state = if ($Inconclusive) { 'SKIP' } elseif ($Pass) { 'PASS' } else { 'FAIL' }
+    $results.Add([pscustomobject]@{
+        Check = $Check; Pass = $Pass; Detail = $Detail; State = $state
+    }) | Out-Null
+
+    $col = switch ($state) { 'PASS' { 'Green' } 'SKIP' { 'Yellow' } default { 'Red' } }
+    Write-Host ("{0}  {1}" -f $state, $Check) -ForegroundColor $col
+    if ($Detail -and $state -ne 'PASS') {
+        Write-Host "      $Detail" -ForegroundColor $(if ($state -eq 'SKIP') { 'DarkYellow' } else { 'DarkRed' })
+    }
 }
 
 function Get-Actual {
@@ -280,10 +298,61 @@ if ($ThirdParty) {
 }
 
 # ---------------------------------------------------------------------------
+# 6. AppX removal - the protections, checked against a real run.
+# ---------------------------------------------------------------------------
+# The README promises that shared runtimes, winget and Xbox sign-in are
+# protected from removal. Two lists are asserted not to overlap, and the
+# removal itself has never been run. That is the same shape as the leftover
+# scan, whose two filters both had unit guards and which still offered another
+# product's folder the first time it was actually executed.
 Write-Host ''
-$failed = @($results | Where-Object { -not $_.Pass })
+Write-Host '--- AppX removal ---' -ForegroundColor Cyan
+
+$protectedNames = @('DesktopAppInstaller','VCLibs','UI.Xaml','NET.Native','WindowsAppRuntime','XboxIdentityProvider')
+$before = @()
+try { $before = @(Get-AppxPackage -ErrorAction Stop | ForEach-Object { $_.Name }) } catch { }
+
+& $ScriptPath -Apply -Only Appx -NoRestorePoint -NoRestartPrompt | Out-Null
+
+$after = @()
+try { $after = @(Get-AppxPackage -ErrorAction Stop | ForEach-Object { $_.Name }) } catch { }
+$removed = @($before | Where-Object { $after -notcontains $_ })
+
+# Whatever else happened, nothing on the protected list may have gone.
+$lostProtected = @()
+foreach ($p in $protectedNames) {
+    $had = @($before | Where-Object { $_ -like "*$p*" })
+    foreach ($h in $had) { if ($after -notcontains $h) { $lostProtected += $h } }
+}
+Add-Result 'AppX removal spared everything protected' ($lostProtected.Count -eq 0) `
+    "removed protected package(s): $($lostProtected -join ', ')"
+
+# And say plainly when that proved nothing. A Windows Sandbox image carries
+# none of the packages this phase removes, so the check above passes here
+# without the removal path ever having run.
+if ($removed.Count -eq 0) {
+    Add-Result 'AppX removal was exercised' $false -Inconclusive `
+        ("nothing on this image matched the removal list ($($before.Count) package(s) present), " +
+         'so the protections were not put to the test. Run this on an image with Store apps to verify them.')
+} else {
+    Add-Result 'AppX removal was exercised' $true "removed $($removed.Count): $($removed -join ', ')"
+}
+
+# ---------------------------------------------------------------------------
+Write-Host ''
+$failed = @($results | Where-Object { $_.State -eq 'FAIL' })
+$skipped = @($results | Where-Object { $_.State -eq 'SKIP' })
+$passed  = @($results | Where-Object { $_.State -eq 'PASS' })
+
+if ($skipped.Count) {
+    Write-Host "$($skipped.Count) check(s) could not be carried out here:" -ForegroundColor Yellow
+    foreach ($s in $skipped) { Write-Host "  - $($s.Check)" -ForegroundColor Yellow }
+    Write-Host ''
+}
+
 if ($failed.Count -eq 0) {
-    Write-Host "ALL $($results.Count) CHECKS PASSED" -ForegroundColor Green
+    Write-Host "$($passed.Count) CHECKS PASSED$(if ($skipped.Count) { ", $($skipped.Count) NOT VERIFIED HERE" })" `
+        -ForegroundColor $(if ($skipped.Count) { 'Yellow' } else { 'Green' })
     exit 0
 } else {
     Write-Host "$($failed.Count) of $($results.Count) CHECKS FAILED" -ForegroundColor Red
