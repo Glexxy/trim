@@ -546,6 +546,28 @@ Test-Phase 'All remote fetches are https and modern TLS' {
             throw "$doc no longer promises no analytics, so the host allow-list is guarding nothing. Restore the claim or remove the guard."
         }
     }
+
+    # Every host this can reach must be named on the landing page.
+    #
+    # The page used to say "the only thing it ever fetches is the script". It
+    # fetches its own fingerprint and tweak list, WinUtil from christitus.com,
+    # and NVIDIA Profile Inspector from GitHub - the last of those a binary it
+    # saves and runs. On the page whose whole job is persuading a sceptic to
+    # pipe this into an elevated shell, and which invites them to read the
+    # script, where they would have found christitus.com and concluded they had
+    # been told something untrue.
+    #
+    # The page now names three and says there are no others, so the set it
+    # names has to keep matching the set the code can reach.
+    $page = Join-Path $root 'hosting\site\index.html'
+    if (Test-Path -LiteralPath $page) {
+        $html = Get-Content -Raw -Encoding UTF8 -LiteralPath $page
+        $undisclosed = @($allowed.Keys | Where-Object { $html -notmatch [regex]::Escape($_) })
+        if ($undisclosed.Count) {
+            throw ("the site does not disclose $($undisclosed -join ', '), which this tool can fetch from. " +
+                   'Anyone reading the script would find it and conclude the page is not straight with them.')
+        }
+    }
 }
 
 # A selection file is read by an elevated process and may have been written by a

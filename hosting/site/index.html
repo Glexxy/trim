@@ -299,9 +299,13 @@
       <li>
         <span class="step-n">1</span>
         <h3>Run one line</h3>
-        <p>Nothing downloads to your disk and nothing installs. Windows asks for admin
-           rights because these settings genuinely need them, and you should be wary
-           of anything that claims otherwise.</p>
+        <p>Nothing is installed and nothing is left running. It writes its log, its
+           ledger and its undo script to <code>C:\ProgramData\Trim</code>, and puts a
+           copy of itself in your temp folder when it needs admin rights &mdash;
+           because handing an elevated shell a file it can check beats re-downloading
+           one it cannot. Windows asks for those rights because these settings
+           genuinely need them, and you should be wary of anything that claims
+           otherwise.</p>
       </li>
       <li>
         <span class="step-n">2</span>
@@ -373,8 +377,12 @@ cd trim
             like a debloat problem.</li>
         <li><b>Guesswork about your PC.</b> Laptop or desktop, NVIDIA or AMD or Intel,
             SSD or spinning disk. It checks first and skips what does not apply.</li>
-        <li><b>You.</b> No analytics, no account, no telemetry of its own. The only
-            thing it ever fetches is the script.</li>
+        <li><b>You.</b> No analytics, no account, no telemetry of its own. It talks to
+            three places and no others: this site, for the script, its fingerprint and
+            its tweak list; <a href="https://christitus.com/win" rel="noopener">christitus.com</a>
+            for WinUtil, if you keep that phase; and GitHub for NVIDIA Profile Inspector,
+            if you have an NVIDIA card &mdash; pinned to one version and one SHA256.
+            Read the script and you will find those three and nothing else.</li>
       </ul>
     </div>
   </section>
