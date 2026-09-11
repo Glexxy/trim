@@ -3657,6 +3657,137 @@ Test-Phase 'Scanning a machine with nothing to find does not throw' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+Test-Phase 'Cleanup deletes what it was asked to and nothing else' {
+    # Invoke-Cleanup is the function that deletes files for the disk cleanup
+    # feature, and no test had ever called it. The scan feeding it is covered
+    # from several directions; the deletion only ran inside the sandbox
+    # verification, which checks that something was freed, not what survived.
+    #
+    # Run for real here, against a directory built to be hostile: files the
+    # age cutoff must spare, files the filter must spare, a file held open, a
+    # duplicate whose kept copy must outlive it, and a junction leading out of
+    # the folder being cleaned. Everything that must survive is checked by
+    # name afterwards.
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $base     = Join-Path ([IO.Path]::GetTempPath()) "trim-clean-$([Guid]::NewGuid().ToString('N'))"
+    $clean    = Join-Path $base 'clean'
+    $outside  = Join-Path $base 'outside'
+    $unsel    = Join-Path $base 'unselected'
+    $dupes    = Join-Path $base 'dupes'
+    $junction = Join-Path $clean 'linked'
+    $symlink  = Join-Path $clean 'symlinked'
+    # Not $old: PowerShell names are case-insensitive, so inside New-Fixture
+    # that would be its own -Old switch.
+    $longAgo  = (Get-Date).AddDays(-30)
+    $wasDry   = $DryRun
+    $lock     = $null
+
+    function New-Fixture {
+        param([string]$Path, [int]$Bytes = 1000, [switch]$Old)
+        [IO.File]::WriteAllBytes($Path, (New-Object byte[] $Bytes))
+        if ($Old) { (Get-Item -LiteralPath $Path).LastWriteTime = $longAgo }
+        $Path
+    }
+
+    # Everything from here is inside the try, so the finally that unlinks and
+    # removes the fixture runs whatever fails - including building it.
+    try {
+        foreach ($d in @($clean, (Join-Path $clean 'sub'), (Join-Path $clean 'sub2'), $outside, $unsel, $dupes)) {
+            New-Item -ItemType Directory -Force -Path $d | Out-Null
+        }
+        $goesOld   = New-Fixture (Join-Path $clean 'old.tmp') 1000 -Old
+        $goesSub   = New-Fixture (Join-Path $clean 'sub\old2.tmp') 2000 -Old
+        $staysNew  = New-Fixture (Join-Path $clean 'new.tmp') 3000
+        $staysLog  = New-Fixture (Join-Path $clean 'keep.log') 4000 -Old
+        $staysSub2 = New-Fixture (Join-Path $clean 'sub2\new2.tmp') 5000
+        $locked    = New-Fixture (Join-Path $clean 'inuse.tmp') 6000 -Old
+        $precious  = New-Fixture (Join-Path $outside 'precious.tmp') 7000 -Old
+        $notAsked  = New-Fixture (Join-Path $unsel 'old3.tmp') 8000 -Old
+        $dupeGoes  = New-Fixture (Join-Path $dupes 'copy.bin') 9000
+        $dupeKeeps = New-Fixture (Join-Path $dupes 'original.bin') 9000
+
+        # A junction needs no privilege and is the ordinary way a folder ends
+        # up pointing somewhere else. Verified by hand on 11 September that
+        # Windows PowerShell 5.1 neither enumerates nor deletes through one;
+        # this keeps it that way.
+        cmd /c mklink /J "$junction" "$outside" | Out-Null
+        if (-not (Test-Path -LiteralPath $junction)) { throw 'fixture is wrong: the junction could not be created' }
+
+        # A directory symlink needs administrator or Developer Mode. The CI
+        # runner has the first; an ordinary desktop usually has neither, and
+        # then this half says so rather than pretending to have run. mklink's
+        # refusal arrives on stderr, which the harness's Stop preference turns
+        # into a terminating error - hence the catch.
+        $haveSymlink = $false
+        try { $null = cmd /c mklink /D "$symlink" "$outside" 2>&1; $haveSymlink = Test-Path -LiteralPath $symlink } catch { }
+        if (-not $haveSymlink) { Write-Host '      (directory symlink not exercised: this shell cannot create one)' -ForegroundColor DarkGray }
+
+        $items = @(
+            [pscustomobject]@{ Category = 'Test'; Path = $clean; Filter = '*.tmp'; OlderThanDays = 7
+                               Selected = $true; Key = "clean|$clean"; Size = '-'; Bytes = 0 }
+            [pscustomobject]@{ Category = 'Test'; Path = $unsel; Filter = '*.tmp'; OlderThanDays = 7
+                               Selected = $false; Key = "clean|$unsel"; Size = '-'; Bytes = 0 }
+            [pscustomobject]@{ Category = 'Duplicate files'; Path = $dupeGoes; Keeps = $dupeKeeps
+                               Selected = $true; Key = "dupe|$dupeGoes"; Size = '-'; Bytes = 9000 }
+        )
+
+        # A dry run first: it must touch nothing at all.
+        Set-Variable -Name DryRun -Value $true -Scope Script
+        $null = Invoke-Cleanup -Items $items
+        foreach ($p in @($goesOld, $goesSub, $dupeGoes)) {
+            if (-not (Test-Path -LiteralPath $p)) { $problems.Add("a dry run deleted '$p'") | Out-Null }
+        }
+
+        # Then for real, with one file held open the way an application holds
+        # its own temp files.
+        $lock = [IO.File]::Open($locked, 'Open', 'Read', 'None')
+        Set-Variable -Name DryRun -Value $false -Scope Script
+        $result = Invoke-Cleanup -Items $items
+
+        foreach ($p in @($goesOld, $goesSub, $dupeGoes)) {
+            if (Test-Path -LiteralPath $p) { $problems.Add("'$p' was selected, old enough and matching, and was not deleted") | Out-Null }
+        }
+        $spared = [ordered]@{
+            $staysNew  = 'newer than the age cutoff'
+            $staysLog  = 'outside the filter'
+            $staysSub2 = 'newer than the age cutoff'
+            $locked    = 'held open by another process'
+            $precious  = 'reached only through a link'
+            $notAsked  = 'in a location that was not selected'
+            $dupeKeeps = 'the copy a duplicate row said it would keep'
+        }
+        foreach ($p in $spared.Keys) {
+            if (-not (Test-Path -LiteralPath $p)) { $problems.Add("'$p' was deleted although it was $($spared[$p])") | Out-Null }
+        }
+        if (-not (Test-Path -LiteralPath $clean)) { $problems.Add('the folder being cleaned was removed itself') | Out-Null }
+        if (Test-Path -LiteralPath (Join-Path $clean 'sub')) {
+            $problems.Add('a folder emptied by the clean was left behind') | Out-Null
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $clean 'sub2'))) {
+            $problems.Add('a folder that still had a file in it was removed') | Out-Null
+        }
+
+        # What it reports is what the user is told they got back.
+        if ($result.Removed -ne 3) { $problems.Add("it reported $($result.Removed) file(s) removed; 3 were") | Out-Null }
+        if ($result.Freed -ne (1000 + 2000 + 9000)) { $problems.Add("it reported $($result.Freed) bytes freed; 12000 were") | Out-Null }
+        if ($result.Skipped -lt 1) { $problems.Add('the file held open was not reported as left alone') | Out-Null }
+    }
+    catch { $problems.Add("Invoke-Cleanup threw: $($_.Exception.Message)") | Out-Null }
+    finally {
+        if ($lock) { $lock.Dispose() }
+        Set-Variable -Name DryRun -Value $wasDry -Scope Script
+        # Unlink before removing anything, so tidying up cannot be the thing
+        # that deletes through the link.
+        foreach ($l in @($junction, $symlink)) {
+            if (Test-Path -LiteralPath $l) { cmd /c rmdir "$l" | Out-Null }
+        }
+        Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item Function:\New-Fixture -ErrorAction SilentlyContinue
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Write-Host ''
 if ($failures.Count -eq 0) {
     Write-Host "All checks passed. Log: $($script:LogPath)" -ForegroundColor Green
