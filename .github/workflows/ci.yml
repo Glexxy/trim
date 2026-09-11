@@ -18,7 +18,7 @@ jobs:
   build-and-test:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Report the shell it is actually running under
         shell: powershell
@@ -73,7 +73,7 @@ jobs:
           "Reproducible."
 
       - name: Upload the built script
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trim.ps1
           path: |
