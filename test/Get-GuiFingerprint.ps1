@@ -14,10 +14,8 @@ function Get-GuiFingerprint {
     .DESCRIPTION
         Line-ending normalised, deliberately. .gitattributes marks sources
         eol=crlf, so a fresh clone and a working copy hold identical text in
-        different bytes. Hashing the bytes made the screenshot stamp agree with
-        this machine and disagree with CI - the same LF/CRLF divergence that
-        once made the published build differ from a fresh clone of the same
-        commit.
+        different bytes. Hashing the bytes would make the screenshot stamp
+        agree with this machine and disagree with CI.
 
         ReadAllText also drops a byte order mark, so a file gains or loses one
         without changing its fingerprint. That is correct here: neither changes

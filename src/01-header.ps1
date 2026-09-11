@@ -11,12 +11,6 @@
     It detects laptop vs desktop, GPU vendor and Windows version, and skips
     anything that does not apply rather than guessing.
 
-    This block is the first thing anyone reads who takes the site up on "read the
-    whole thing before you run it", so the harness checks it against the
-    parameters below rather than trusting it. It used to say Windows 11 only, and
-    to name a phase called Nvidia that has never existed - following it produced
-    a parameter validation error.
-
 .PARAMETER Gui
     Open the window. This is what a run with no arguments does, and nothing in
     the plan is changed until Apply is pressed. The Startup, Cleanup and
@@ -50,8 +44,7 @@
 .PARAMETER Aggressive
     Widen the AppX removal list to products some people genuinely use - Teams,
     OneNote, To Do, Sticky Notes, Outlook for Windows. Nothing else in the run
-    behaves differently. It used to promise more than that, and the switch has
-    only ever reached this one list.
+    behaves differently.
 
 .PARAMETER Version
     Print the version and the SHA256 of this exact file, then exit.
@@ -171,12 +164,12 @@ try {
     Used when there is no file on disk to re-invoke - which is the normal case,
     because the documented way to run this is `irm ... | iex`.
 
-    Both elevation paths used to build a command line that downloaded and
-    executed inside the elevated process:
+    Elevating by building a command line that downloads and executes inside
+    the elevated process -
 
         -Command &([ScriptBlock]::Create((irm 'https://...')))
 
-    That is wrong twice. It runs unverified bytes with administrator rights, so
+    - is wrong twice. It runs unverified bytes with administrator rights, so
     what actually gets privilege is not provably what the user read - a second
     fetch is a second opportunity to serve something different. And it is the
     textbook fileless-downloader shape, which Microsoft Defender flags as
@@ -184,7 +177,7 @@ try {
     any file.
 
     Fetching once here, unelevated, and handing over a path plus the hash it
-    must match fixes both.
+    must match avoids both.
 #>
 function Get-StagedSelf {
     $stage = Join-Path ([System.IO.Path]::GetTempPath()) ("trim_$([Guid]::NewGuid().ToString('N')).ps1")

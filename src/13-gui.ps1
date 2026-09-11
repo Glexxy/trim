@@ -31,12 +31,9 @@ $script:GuiXaml = @'
     <SolidColorBrush x:Key="Rule"   Color="#2E3937"/>
     <SolidColorBrush x:Key="Ink"    Color="#E6EDEB"/>
     <SolidColorBrush x:Key="Soft"   Color="#98A6A3"/>
-    <!-- Was #6C7A77, which measured 3.85:1 on the window and 3.0:1 on a raised
-         panel - under AA, on the secondary line of every single row. Dim is a
-         style; unreadable is a defect. #8C9A97 clears 4.5:1 everywhere.
-         The panes kept their own hardcoded copies of the old value long after
-         this was fixed here, because the guard only ever checked the palette.
-         There is one grey now, and the guard checks every use of it. -->
+    <!-- #8C9A97 clears 4.5:1 on the window and on a raised panel, on the
+         secondary line of every row. Dim is a style; unreadable is a defect.
+         There is one grey, and the guard checks every use of it. -->
     <SolidColorBrush x:Key="Faint"  Color="#8C9A97"/>
 
     <SolidColorBrush x:Key="Accent" Color="#46C6B0"/>
@@ -70,8 +67,8 @@ $script:GuiXaml = @'
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Faint}"/>
               </Trigger>
-              <!-- A custom template replaces the focus adorner, so somebody
-                   tabbing through had no way to see where they were. -->
+              <!-- A custom template replaces the focus adorner, so this is what
+                   shows somebody tabbing through where they are. -->
               <Trigger Property="IsKeyboardFocused" Value="True">
                 <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Accent}"/>
                 <Setter TargetName="b" Property="BorderThickness" Value="2"/>
@@ -118,10 +115,9 @@ $script:GuiXaml = @'
       <Setter Property="Padding" Value="20,7"/>
     </Style>
 
-    <!-- The tick used to float free in the 21x21 grid and centre itself on its
-         own geometry bounds, which put it a fraction high and left of the box
-         it belonged to. It is now the box's child, so it is centred on the box
-         by layout rather than by coincidence. -->
+    <!-- The tick is the box's child, so it is centred on the box by layout
+         rather than on its own geometry bounds, which sit a fraction high and
+         to the left. -->
     <Style TargetType="CheckBox">
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="SnapsToDevicePixels" Value="True"/>
@@ -799,11 +795,10 @@ function Show-GuiOverview {
     # Readable, and no more prominent than that. It belongs here once, not on
     # every screen and not in front of someone launching the thing.
     #
-    # It used to read "Debloat and tweak engine: WinUtil", which credited Chris
-    # Titus Tech for the whole tool and told the reader something false about
-    # their own machine: that everything being changed came from WinUtil, and
-    # that skipping it would leave nothing. It is one phase of twelve, and it
-    # can be skipped.
+    # It is one phase of twelve and can be skipped, and says so. Calling it the
+    # engine would credit Chris Titus Tech for the whole tool and tell the
+    # reader something false about their own machine: that everything being
+    # changed comes from WinUtil, and that skipping it would leave nothing.
     Add-GuiParagraph -Text 'One of twelve phases applies WinUtil by Chris Titus Tech - christitus.com/win' `
         -Colour '#8C9A97' -Size 11 -Top 26
 }
@@ -1146,10 +1141,8 @@ function Invoke-GuiLargeFileScan {
     $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
 
     # The walk runs on this thread, so without pumping the queue the window is
-    # frozen for the whole scan. At ninety seconds that was rude; at five
-    # minutes Windows greys the title bar, writes "(Not Responding)" and
-    # invites people to kill it - which is a worse answer than the short list
-    # this was meant to fix.
+    # frozen for the whole scan - and over a five-minute scan Windows greys the
+    # title bar, writes "(Not Responding)" and invites people to kill it.
     #
     # Background priority lets everything above it - input, render, layout -
     # run first, which is what keeps the window answering.
@@ -1193,9 +1186,9 @@ function Show-GuiLargeFiles {
         'tell which is which. Windows and Program Files are left out.') `
         -Colour '#8C9A97' -Size 12 -Top 4
 
-    # The walk gives up after a fixed time, and until now said so only in the
-    # log. A partial list presented as a complete one is the wrong answer to
-    # "where did my disk go", and the person reading it has no way to tell.
+    # The walk gives up after a fixed time, and the window says so, not just
+    # the log. A partial list presented as a complete one is the wrong answer
+    # to "where did my disk go", and the person reading it has no way to tell.
     if ($script:LargeScanTruncated) {
         Add-GuiParagraph -Text ("This list is incomplete. The scan stopped after $($script:LargeScanSeconds) seconds " +
             'and these are the largest it had found by then, so there may be bigger files it never reached.') `
@@ -1255,9 +1248,8 @@ function Show-GuiLargeFiles {
     Show a dialog. Every modal in the window comes through here.
 
 .DESCRIPTION
-    So that a test can answer it. The Startup, Cleanup and Uninstall handlers
-    had never been run by any test, and part of the reason was that each one
-    stops on a MessageBox nothing can click.
+    So that a test can answer it. A handler that stops on a MessageBox cannot
+    otherwise be run by a test at all.
 #>
 function Show-GuiMessage {
     param([string]$Text, [string]$Title = 'Trim', [string]$Buttons = 'OK',
@@ -1273,10 +1265,10 @@ function Show-GuiMessage {
     The window builds its plan as a dry run and holds $DryRun true for as long
     as it is open, so nothing in the plan happens before Apply. The Startup,
     Cleanup and Uninstall panes are not the plan: each asks its own question
-    and acts on the answer. Until 11 September each acted inside that dry run -
-    a startup switch that wrote nothing, a Delete button that deleted nothing
-    and reported the space as freed, an uninstall that never started the
-    uninstaller. None of the three had ever been run by a test.
+    and acts on the answer, so each runs outside the dry run for the length of
+    its action. Inside it, a startup switch would write nothing, Delete would
+    delete nothing and report the space as freed, and uninstall would never
+    start the uninstaller.
 
     A dry run the user asked for is honoured: then nothing here acts either,
     and the caller has to say so.
@@ -1310,8 +1302,7 @@ function Invoke-GuiCleanDelete {
     $script:GuiCleanItems = @(Get-CleanupScan -Quiet)
     Update-GuiItems
 
-    # A dry run reports what it would have freed. It used to report that as
-    # freed, every time, because the window was always a dry run.
+    # A dry run reports what it would have freed, and says that is all it is.
     if ($script:UserAskedDryRun) {
         $msg = "This is a dry run, so nothing was deleted. It would have freed about $(Format-Bytes ([double]$result.Freed))."
     } else {
@@ -1512,11 +1503,10 @@ function Show-GuiStartup {
         Add-GuiParagraph -Text ('Every program that launches when you sign in, from all four places Windows ' +
             'keeps them: your account, the machine-wide list, the two Startup folders, and scheduled tasks ' +
             'that trigger at logon.') -Top 6
-        # Three mechanisms, and this used to describe them as one. "The same
-        # switch Task Manager uses" is true of the registry entries only; a
-        # Startup folder shortcut is moved, and a logon scheduled task cannot be
-        # changed from here at all - it is listed so you know it is there. The
-        # rows already show which is which; the paragraph above them did not.
+        # Three mechanisms, described as three. "The same switch Task Manager
+        # uses" is true of the registry entries only; a Startup folder shortcut
+        # is moved, and a logon scheduled task cannot be changed from here at
+        # all - it is listed so you know it is there.
         Add-GuiParagraph -Text ('Registry entries are switched off the way Task Manager does it, so they stay off ' +
             'and you can turn them back on without this tool. Startup folder shortcuts are moved into a ' +
             '"Disabled by Trim" folder rather than deleted. Both go through the undo script. Scheduled tasks ' +
@@ -2128,11 +2118,10 @@ function Set-GuiPreset {
     foreach ($i in $script:GuiItems) {
         # Three presets, three genuinely different sets.
         #
-        # Recommended used to mean safe + caution, which on a normal machine is
-        # every item there is - so it ticked everything and there was nothing
-        # left to opt into. A change labelled "proceed with caution" has no
-        # business being ticked on somebody's behalf anyway, so Caution moved up
-        # a step and Recommended is now exactly what is safe anywhere.
+        # Recommended is exactly what is safe anywhere. Safe plus Caution would
+        # be every item on a normal machine, leaving nothing to opt into - and a
+        # change labelled "proceed with caution" has no business being ticked
+        # on somebody's behalf.
         $i.Selected = switch ($Name) {
             'recommended' { $i.Tier -eq 'safe' }
             'advanced'    { $i.Tier -in @('safe','op') }
@@ -2314,10 +2303,9 @@ function Invoke-WithProgress {
     } else {
         $heading.Text = 'Finished'
         # Not a foregone conclusion: Checkpoint-Computer fails on machines
-        # where System Protection is blocked by policy, and this screen used to
-        # promise a restore point on those runs too. Telling someone they have
-        # a rollback they do not have is the worst thing on this screen to get
-        # wrong.
+        # where System Protection is blocked by policy. Telling someone they
+        # have a rollback they do not have is the worst thing on this screen to
+        # get wrong.
         $sub.Text     = if ($script:RestorePointCreated -eq $false) {
             'Windows would not make a restore point, so the undo script is your way back.'
         } else {

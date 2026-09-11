@@ -30,8 +30,7 @@ $script:StartupRunKeys = @(
 )
 # $startupHive, not $root: this runs at script scope when the module is
 # dot-sourced, so a common name here silently overwrites the caller's variable.
-# The test harness keeps the repository path in $root, and this cost it five
-# passing tests before the name was changed.
+# The test harness, for one, keeps the repository path in $root.
 foreach ($startupHive in (Get-SoftwareHivePaths 'Microsoft\Windows\CurrentVersion')) {
     $script:StartupRunKeys += @{
         Run      = "$startupHive\Run"

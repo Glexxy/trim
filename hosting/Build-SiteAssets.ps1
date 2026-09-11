@@ -86,11 +86,9 @@ foreach ($f in $files) {
 # Record which screenshots these were encoded from.
 #
 # The site holds a second copy of every screenshot, in WebP. Regenerating the
-# PNGs does not regenerate these, so the two drifted twenty hours and five
-# window changes apart, and trimbloat.com spent a day showing a version of the
-# window that no longer existed - old checkboxes, the old scroll bar, and an
-# uninstall pane from before it had icons or real application names. On a site
-# whose argument is "look at exactly what it does before you run it".
+# PNGs does not regenerate these, so without this stamp the site can show a
+# version of the window that no longer exists - on a site whose argument is
+# "look at exactly what it does before you run it".
 #
 # PNGs are marked binary in .gitattributes, so their bytes survive a clone
 # intact and hashing them raw is the right comparison here.

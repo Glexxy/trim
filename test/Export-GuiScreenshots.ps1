@@ -210,9 +210,7 @@ if (-not @($items | Where-Object { $_.Tier -eq 'trade' }).Count) {
 # The two numbers the site quotes under the overview shot. Both come from the
 # dry run above, on whichever machine generated these images.
 #
-# The already-set count used to be the literal 38, passed straight into the
-# window and then quoted on the page as something the tool had found. It had
-# not found it; somebody had typed it. It is read off the run now, and stamped
+# The already-set count is read off the run rather than typed, and stamped
 # below so the prose can be checked against it.
 $alreadySet = @($script:AlreadySet).Count
 Write-Host "  manifest: $($items.Count) items, $alreadySet already set" -ForegroundColor DarkGray
@@ -292,9 +290,7 @@ try {
 #
 # The README shows them, so when the window changes and nobody regenerates
 # them, the README quietly starts describing software that no longer exists.
-# That happened twice in one day and was caught both times by somebody
-# remembering, which is not a mechanism. The harness compares this stamp
-# against the current source and says so.
+# The harness compares this stamp against the current source and says so.
 #
 # -Real renders this machine's own data and is never what gets committed, so
 # it must not claim the committed images are current.

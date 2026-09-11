@@ -355,12 +355,11 @@ function Test-SafeToRemovePath {
     one that survives is offered to the user before anything happens.
 
     What the guards veto is recorded in $script:LeftoversWithheld rather than
-    dropped on the floor. The window used to say "These survived the
-    uninstaller. Every one is shown in full", which was two different sets: a
-    folder the guards refuse to offer is a folder that survived and was never
-    mentioned. Somebody checking the list against their own disk would find
-    things Trim had not named and conclude the scan was bad, when in fact it
-    had decided - correctly - not to touch them.
+    dropped on the floor, so the window can name what it left alone. A folder
+    the guards refuse to offer is still a folder that survived the uninstaller;
+    somebody checking the list against their own disk would otherwise find
+    things Trim had not named and conclude the scan was bad, when it had
+    decided - correctly - not to touch them.
 
     Recorded, not offered. Nothing here becomes deletable by being listed.
 #>
@@ -637,14 +636,12 @@ function Test-SafeToRemoveKey {
     Does this name look like the application being removed?
 
 .DESCRIPTION
-    The evidence rule the folder and key guards each spell out inline, written
-    once for the two guards added after them. Same normalisation, same minimum
-    length, same "a two-character match is a coincidence, not evidence".
+    The evidence rule the folder and key guards each spell out inline, shared
+    by the service and task guards. Same normalisation, same minimum length,
+    same "a two-character match is a coincidence, not evidence".
 
-    The older two are deliberately left alone: they are load-bearing, they have
-    a test asserting they agree with each other, and rewriting them to call this
-    is a separate change with its own risk. Four copies would be worse than
-    three, which is why the new pair share one.
+    The folder and key guards keep their own copies deliberately: they are
+    load-bearing, and a test asserts that they agree with each other.
 #>
 function Test-LeftoverNameMatch {
     param(
@@ -897,9 +894,8 @@ function Test-SafeToRemoveTask {
     Asked after its uninstaller has run and before anything is offered as a
     leftover. The leftover scan starts from the app's own install folder and
     folders arrive ticked, so if the uninstaller was cancelled, failed or never
-    started, the scan lists the live application as its own leftovers and one
-    click deletes it. Nothing asked this until 11 September, because until
-    then the uninstall pane never ran an uninstaller at all.
+    started, the scan would list the live application as its own leftovers and
+    one click would delete it.
 
     Conservative on purpose. An uninstall entry that is still registered and
     still points at something real counts as installed. Only an entry whose
@@ -1002,10 +998,9 @@ function Remove-AppLeftovers {
         }
 
         if ($l.Kind -eq 'service') {
-            # Belt and braces, the same as the folder and key branches. Five
-            # rules once existed in one half of this module and not the other;
-            # a new kind arriving without its second check is how that happens
-            # again.
+            # Belt and braces, the same as the folder and key branches: the
+            # service guard runs again here, immediately before anything is
+            # removed.
             if (-not (Test-SafeToRemoveService -Name $l.Path -DisplayName $l.Detail `
                                                -ImagePath (Get-ServiceImagePathFromRegistry -Name $l.Path) `
                                                -AppName $AppName -Publisher $Publisher)) {

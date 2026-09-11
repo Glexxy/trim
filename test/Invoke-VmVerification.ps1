@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     This is the test the dry-run harness cannot be: it applies the changes for
-    real and then proves two things that have only ever been asserted.
+    real and then proves two things the rest of the suite can only assert.
 
         1. LANDED  - every change the run claims to have made is actually present
                      in the registry afterwards.
@@ -48,15 +48,11 @@ param(
     [switch]$Full,
 
     # Run the WinUtil handoff for real. Off by default because it downloads and
-    # executes a third-party script and takes several noisy minutes, and on
-    # because nothing else has ever executed it: the harness only ever reaches
-    # that phase under -DryRun, which returns before the handoff.
-    #
-    # It matters. The phase failed on its first statement for every user, every
-    # run, with "The property 'runspace' cannot be found on this object" - our
-    # own Set-StrictMode -Version 2.0, inherited by anything this script
-    # invokes, against code not written for it. That was fixed and the fix was
-    # never once observed working.
+    # executes a third-party script and takes several noisy minutes, and worth
+    # having because nothing else executes it: the harness only reaches that
+    # phase under -DryRun, which returns before the handoff. The handoff has to
+    # switch this script's Set-StrictMode off for WinUtil, which is not written
+    # for it, and only a real run shows that it does.
     [switch]$ThirdParty,
 
     [string]$ScriptPath = '',
@@ -122,11 +118,9 @@ function Add-Result {
     <#
         -Inconclusive is a third state on purpose.
 
-        A check with nothing to test reports success, and that has been the
-        most persistent fault in this project's own tests: an assertion that
-        could only ever pass, a fixture that happened to agree with the bug, a
-        filter that selected nothing, a captured stream that was empty. Every
-        one of them was green.
+        A check with nothing to test would otherwise report success - an
+        assertion that can only pass, a fixture that agrees with the bug, a
+        filter that selects nothing, a captured stream that is empty.
 
         So when a check cannot be carried out here, it says so and is counted
         separately. Green means verified. It does not mean nothing went wrong.
@@ -157,19 +151,19 @@ function Get-Actual {
 # 1. Apply
 # ---------------------------------------------------------------------------
 # A HASHTABLE splat, not an array. Splatting an array onto a script passes its
-# elements POSITIONALLY, so @('-Only','Gaming,Privacy') bound the literal string
+# elements POSITIONALLY, so @('-Only','Gaming,Privacy') binds the literal string
 # "-Only" as a value for the first positional parameter instead of naming one.
 #
 # -NoRestartPrompt is not optional either. Without it the run reaches Read-Host
 # after applying and waits forever for an answer nobody is there to give, which
 # looks exactly like a hung verification.
+#
 # -Apply is not optional either, and this is the only script in the project that
-# needs it. A run with no mode switch opens the window - that is the whole point
-# of the change that introduced it, because the published one-liner passes no
-# arguments and used to apply everything unattended. Unattended in a sandbox
-# there is no window to open, so the run falls back to printing the plan and
-# this verification would sit there measuring a dry run against a claim that
-# something was applied.
+# needs it. A run with no mode switch opens the window, because the published
+# one-liner passes no arguments and must never apply unattended. In a sandbox
+# there is no window to open, so the run would fall back to printing the plan
+# and this verification would measure a dry run against a claim that something
+# was applied.
 #
 # -NoRestorePoint and -Only are filters, not instructions to change anything.
 # Only this says "do it".
@@ -301,10 +295,9 @@ if ($ThirdParty) {
 # 6. AppX removal - the protections, checked against a real run.
 # ---------------------------------------------------------------------------
 # The README promises that shared runtimes, winget and Xbox sign-in are
-# protected from removal. Two lists are asserted not to overlap, and the
-# removal itself has never been run. That is the same shape as the leftover
-# scan, whose two filters both had unit guards and which still offered another
-# product's folder the first time it was actually executed.
+# protected from removal. The harness checks the lists; this runs the removal
+# itself, because a filter can pass its unit tests and still let something
+# through when the real loop runs.
 Write-Host ''
 Write-Host '--- AppX removal ---' -ForegroundColor Cyan
 
@@ -341,14 +334,8 @@ if ($removed.Count -eq 0) {
 # ---------------------------------------------------------------------------
 # 7. Service and scheduled-task leftovers - the removal, actually run.
 # ---------------------------------------------------------------------------
-# The two guards have unit tests and were swept across every service and task
-# on a real machine. The removal branches had never executed: sc.exe delete,
-# the .reg export, the task XML export and the COM DeleteTask were all written
-# and never run.
-#
-# That is the exact shape of the fault this file was built to catch. The
-# leftover scan had unit guards on both its filters and still offered another
-# product's folder the first time it was really executed.
+# The two guards have unit tests; this runs the removal branches themselves -
+# sc.exe delete, the .reg export, the task XML export and the COM DeleteTask.
 #
 # A throwaway service and a throwaway task, belonging to an application that
 # does not exist, created here and removed by the real code path.
@@ -515,19 +502,13 @@ if ($failed.Count -eq 0) {
         -ForegroundColor $(if ($skipped.Count) { 'Yellow' } else { 'Green' })
 
     # Stamp what was verified, so the number SECURITY.md quotes has somewhere
-    # to come from.
+    # to come from: a number in a security document that nothing regenerates is
+    # eventually wrong, and the harness checks the document against this file.
     #
-    # It said "66 changes applied, all 66 present, all 66 restored" long after
-    # the real figure had moved past a hundred. Nobody had lied; the sentence
-    # was typed once and the tool kept growing. A number in a security document
-    # that nothing regenerates is a number that is eventually wrong, and the
-    # harness now checks the document against this file.
-    # Wrapped, and deliberately: everything here happens AFTER the verification
-    # has passed, and none of it may change the outcome. The first version
-    # could. A typo put a carriage return inside the path; Test-Path threw
-    # under ErrorActionPreference = Stop; and a run that had just passed all six
-    # checks died before writing its exit code, so the guest never shut down and
-    # the host sat waiting for a result that was already in the log.
+    # Wrapped, and deliberately: everything here happens after the verification
+    # has passed, and none of it may change the outcome. A failure while
+    # stamping must not stop the exit code being written, or the guest never
+    # shuts down and the host waits for a result that is already in the log.
     try {
         $out = 'C:\results'
         if (Test-Path -LiteralPath $out) {

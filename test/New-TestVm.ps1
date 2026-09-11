@@ -57,8 +57,8 @@ if (-not (Get-Module -ListAvailable Hyper-V)) {
     exit 1
 }
 # Resolved after the module check, not in the param block: asking Hyper-V where
-# it keeps its VMs needs the module loaded, and hardcoding a drive letter is how
-# this script used to be tied to one particular machine.
+# it keeps its VMs needs the module loaded, and a hardcoded drive letter would
+# tie this script to one particular machine.
 if (-not $VmPath) {
     $VmPath = (Get-VMHost).VirtualMachinePath
     if (-not $VmPath) { $VmPath = Join-Path $env:SystemDrive 'HyperV' }

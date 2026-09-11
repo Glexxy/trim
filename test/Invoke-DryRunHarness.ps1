@@ -96,17 +96,12 @@ Test-Phase 'Invoke-BackgroundPhase'  { Invoke-BackgroundPhase }
 Test-Phase 'Invoke-ExtrasPhase'   { Invoke-ExtrasPhase -Facts $script:facts }
 Test-Phase 'Invoke-SecurityPhase' { Invoke-SecurityPhase -Facts $script:facts }
 Test-Phase 'Security phase is opt-in only' {
-    # This used to run the default path against the real machine and check the
-    # ledger did not grow. Neither this machine nor the CI runner has Memory
-    # Integrity running, so Disable-MemoryIntegrity returned "already off.
-    # Nothing to do." before touching anything - and the test passed with the
-    # opt-in gate deleted outright. It could not fail for the one thing it was
-    # written to catch, which is the only thing that matters here: this is the
-    # single change in the tool that trades a kernel security feature for
-    # frames.
-    #
-    # The state is supplied now, so the dangerous path is reachable, and each
-    # route into it is exercised - including the two that must refuse.
+    # Memory Integrity's state is supplied rather than read. On a machine where
+    # it is off, the real state returns "already off. Nothing to do." before
+    # touching anything, and a test built on it passes with the opt-in gate
+    # deleted. This is the single change in the tool that trades a kernel
+    # security feature for frames, so the dangerous path is made reachable and
+    # each route into it is exercised - including the two that must refuse.
     $problems = [System.Collections.Generic.List[string]]::new()
     $key      = 'HKCU:\Software\TrimHvciGuardTest'
     $actKey   = 'act|command|Disable Memory Integrity (HVCI)'
@@ -286,10 +281,8 @@ Test-Phase 'AppX protection guard' {
 }
 
 Test-Phase 'The AppX removal loop refuses protected packages' {
-    # The protections were asserted by comparing two lists; the loop that
-    # applies them had never run. That is the shape the leftover scan had -
-    # both filters unit-guarded, and it still offered another product's folder
-    # the first time anything executed it.
+    # The protections are also asserted by comparing two lists; this runs the
+    # loop that applies them.
     #
     # A Windows Sandbox image has nothing this phase removes, so the real run
     # cannot exercise this. Get-AppxPackage is shadowed instead, and the actual
@@ -299,14 +292,13 @@ Test-Phase 'The AppX removal loop refuses protected packages' {
     # Asserted against $script:Actions - data the phase produced - rather than
     # against captured console text, because Write-Log reports through
     # Write-Host and a captured stream comes back empty.
-    # The danger has to be REACHABLE or this proves nothing. The first version
-    # of this test put protected packages in the inventory and stopped there -
-    # but no shipped removal target matches any of them, so the loop never
-    # considered them and the test passed with both protection checks deleted.
     #
-    # The targets are therefore made hostile too: one that is literally a
-    # protected package, and one that is a PREFIX of a protected package. Those
-    # are the two refusals the phase performs, and each is now reachable.
+    # The danger has to be REACHABLE or this proves nothing. No shipped removal
+    # target matches a protected package, so protected packages in the
+    # inventory alone would never be considered. The targets are therefore made
+    # hostile too: one that is literally a protected package, and one that is a
+    # PREFIX of a protected package. Those are the two refusals the phase
+    # performs, and each is reachable here.
     $stash        = @($script:Actions)
     $stashTargets = @($script:AppxRemoveStandard)
     $script:Actions.Clear()
@@ -361,11 +353,10 @@ Test-Phase 'The AppX removal loop refuses protected packages' {
 }
 
 Test-Phase 'Aggressive is the only way to reach the aggressive list' {
-    # -Aggressive was $false in every test in this project, so the widening it
-    # performs had never happened and the gate that holds it back had never
-    # been asked to. The list behind it is Teams, OneNote, To Do, Sticky Notes
-    # and Outlook for Windows - things people use daily. Lose the gate and a
-    # plain run takes them.
+    # The widening -Aggressive performs, and the gate that holds it back. The
+    # list behind it is Teams, OneNote, To Do, Sticky Notes and Outlook for
+    # Windows - things people use daily. Lose the gate and a plain run takes
+    # them.
     $problems = [System.Collections.Generic.List[string]]::new()
 
     # Pick the fixture out of the shipped lists rather than naming packages
@@ -422,11 +413,10 @@ Test-Phase 'Aggressive is the only way to reach the aggressive list' {
         foreach ($a in $stash) { $script:Actions.Add($a) | Out-Null }
     }
 
-    # And the help has to describe that and nothing more. It promised
-    # "disabling more background services" until 6 September, which the switch
-    # has never done - src\15-tasks.ps1 works off a fixed list and does not read
-    # $Aggressive at all. This block is what the site tells people to read
-    # before piping the script into an elevated shell.
+    # And the help has to describe that and nothing more: src\15-tasks.ps1
+    # works off a fixed list and does not read $Aggressive, so the help must not
+    # promise more background services. This block is what the site tells
+    # people to read before piping the script into an elevated shell.
     $header = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '01-header.ps1')
     $block  = [regex]::Match($header, '(?s)\.PARAMETER Aggressive\r?\n(.*?)(?=\r?\n\s*\.[A-Z]|\r?\n#>)')
     if (-not $block.Success) { throw 'cannot find the .PARAMETER Aggressive help - this guard has stopped reading it' }
@@ -540,10 +530,10 @@ Test-Phase 'Cleanup scan is read-only and never throws' {
     }
 
     # No folder twice. %TEMP% and %LOCALAPPDATA%\Temp are the same directory on
-    # any machine that has not moved it, and both were listed - so the pane
-    # showed one folder twice and every total counted its bytes twice. A tool
-    # that overstates what it will free is lying about the only number anyone
-    # reads on this screen.
+    # any machine that has not moved it, and both are listed - counted naively,
+    # the pane would show one folder twice and every total would count its bytes
+    # twice. A tool that overstates what it will free is lying about the only
+    # number anyone reads on this screen.
     $byResolved = @{}
     foreach ($r in $rows) {
         $full = "$($r.Path)"
@@ -657,7 +647,7 @@ Test-Phase 'System tools resolve to real system paths' {
         }
     }
 
-    # And no source file may invoke one of them by bare name any more.
+    # And no source file may invoke one of them by bare name.
     $offenders = [System.Collections.Generic.List[string]]::new()
     foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1')) {
         $lines = Get-Content -LiteralPath $f.FullName
@@ -726,11 +716,10 @@ Test-Phase 'All remote fetches are https and modern TLS' {
     # Every host this tool can reach, and why it is allowed to.
     #
     # The README and the site both end their safety list with "No analytics, no
-    # account, no telemetry". That is the strongest thing either page claims,
-    # to an audience being asked to pipe this into an elevated shell, and until
-    # now nothing made it true - only that whatever it contacted, it contacted
-    # over TLS. A beacon added by accident, by a merged contribution, or by
-    # pasting a snippet from somewhere would have shipped silently.
+    # account, no telemetry". That is the strongest thing either page claims, to
+    # an audience being asked to pipe this into an elevated shell, and this is
+    # what makes it true: a beacon added by accident, by a merged contribution,
+    # or by pasting a snippet from somewhere fails here instead of shipping.
     #
     # Adding a host here is meant to be a decision somebody makes on purpose.
     $allowed = @{
@@ -746,8 +735,8 @@ Test-Phase 'All remote fetches are https and modern TLS' {
         for ($i = 0; $i -lt $lines.Count; $i++) {
             $line = $lines[$i]
             # Comment-based help quotes URLs while explaining things - the
-            # example one-liner, and the download-and-execute shape that was
-            # removed. Neither is a fetch.
+            # example one-liner, and the download-and-execute shape the header
+            # explains avoiding. Neither is a fetch.
             if ($line -match '<#') { $inHelp = $true }
             if ($inHelp) { if ($line -match '#>') { $inHelp = $false }; continue }
             if ($line -match '^\s*#') { continue }
@@ -774,7 +763,7 @@ Test-Phase 'All remote fetches are https and modern TLS' {
     }
 
     # And the promise has to still be on the pages, or this guard is defending
-    # a claim nobody is making any more.
+    # a claim nobody is making.
     foreach ($doc in @('README.md', 'hosting\site\index.html')) {
         $p = Join-Path $root $doc
         if (-not (Test-Path -LiteralPath $p)) { continue }
@@ -784,18 +773,12 @@ Test-Phase 'All remote fetches are https and modern TLS' {
         }
     }
 
-    # Every host this can reach must be named on the landing page.
-    #
-    # The page used to say "the only thing it ever fetches is the script". It
-    # fetches its own fingerprint and tweak list, WinUtil from christitus.com,
-    # and NVIDIA Profile Inspector from GitHub - the last of those a binary it
-    # saves and runs. On the page whose whole job is persuading a sceptic to
-    # pipe this into an elevated shell, and which invites them to read the
-    # script, where they would have found christitus.com and concluded they had
-    # been told something untrue.
-    #
-    # The page now names three and says there are no others, so the set it
-    # names has to keep matching the set the code can reach.
+    # Every host this can reach must be named on the landing page. It fetches
+    # its own fingerprint and tweak list, WinUtil from christitus.com, and
+    # NVIDIA Profile Inspector from GitHub - the last of those a binary it saves
+    # and runs. The page invites people to read the script, where they would
+    # find every one of those, so the set it names has to keep matching the set
+    # the code can reach.
     $page = Join-Path $root 'hosting\site\index.html'
     if (Test-Path -LiteralPath $page) {
         $html = Get-Content -Raw -Encoding UTF8 -LiteralPath $page
@@ -997,7 +980,7 @@ Test-Phase 'Installed application list is usable' {
 # A profile curated on one card and applied to another is at best useless and at
 # worst a failed import that applies nothing. This is the table that decides
 # which settings a given card gets, so it is tested against real product names
-# rather than only against the card in this machine.
+# rather than only against whichever card the tests run on.
 Test-Phase 'GPU capability matrix' {
     $cases = @(
         @{ Name = 'NVIDIA GeForce RTX 5070 Ti';  Gen = 'blackwell';    Dlss = $true;  Fg = $true;  Mfg = $true  }
@@ -1085,9 +1068,9 @@ Test-Phase 'Portability guard' {
             #
             # Building a path with it is the fault. Testing whether a path you
             # were handed happens to be the 32-bit one is not, so a bare quoted
-            # token in a comparison is allowed - the previous rule flagged that
-            # too, which is a false positive that pushes people towards worse
-            # code to appease the test.
+            # token in a comparison is allowed - flagging that too would be a
+            # false positive that pushes people towards worse code to appease
+            # the test.
             $buildsPath = $line -match '\\WOW6432Node' -or $line -match 'WOW6432Node\\'
             if ($buildsPath -and $line -notmatch 'Get-SoftwareHivePaths|Is64BitOperatingSystem') {
                 $problems.Add("$where hardcodes WOW6432Node instead of using Get-SoftwareHivePaths") | Out-Null
@@ -1113,7 +1096,7 @@ Test-Phase 'Window is legible and keyboard-navigable' {
 
     # Custom ControlTemplates replace the default focus adorner. Every one of
     # them has to put something back, or a keyboard user cannot see where they
-    # are. All three shipped without it.
+    # are.
     foreach ($ctrl in @('Btn', 'Nav')) {
         $block = [regex]::Match($xaml, "(?s)x:Key=""$ctrl"".*?</Style>")
         if (-not $block.Success) { $problems.Add("style $ctrl not found") | Out-Null; continue }
@@ -1128,7 +1111,7 @@ Test-Phase 'Window is legible and keyboard-navigable' {
     }
 
     # Text colours, measured rather than eyeballed. Faint is the secondary line
-    # on every row and shipped at 3.0:1 on a raised panel.
+    # on every row.
     Add-Type -AssemblyName System.Drawing
     function Get-RelLum([string]$hex) {
         $c = [System.Drawing.ColorTranslator]::FromHtml($hex)
@@ -1158,12 +1141,11 @@ Test-Phase 'Window is legible and keyboard-navigable' {
         }
     }
 
-    # Checking only the palette was not enough. The palette's dim grey was
-    # fixed once and the panes kept their own hardcoded copies of the old
-    # value, so publisher, version and size - the lines somebody reads before
-    # pressing Remove - stayed at 3:1 while this guard reported everything
-    # fine. Every colour the code actually paints text with is checked now,
-    # wherever it is written.
+    # Checking only the palette is not enough: a pane can hardcode its own copy
+    # of a colour, so publisher, version and size - the lines somebody reads
+    # before pressing Remove - could fall below AA while the palette passes.
+    # Every colour the code actually paints text with is checked, wherever it
+    # is written.
     $srcGui = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '13-gui.ps1')
 
     # A disabled control is exempt: WCAG 1.4.3 excludes text that is part of an
@@ -1257,13 +1239,12 @@ Test-Phase 'Elevation never downloads and executes' {
 }
 
 Test-Phase 'The one-liner actually works' {
-    # This shipped broken. `irm | iex` is how essentially everyone runs this,
-    # and it failed on the very first statement:
-    #     Invoke-Expression: Unexpected attribute 'CmdletBinding'.
-    # Invoke-RestMethod passes a UTF-8 byte order mark through as a literal
-    # U+FEFF, and Invoke-Expression cannot parse a script starting with one.
-    # Everything else passed, because the build parsed the artefact from disk
-    # where the mark is a mark rather than a character.
+    # `irm | iex` is how essentially everyone runs this. Invoke-RestMethod
+    # passes a UTF-8 byte order mark through as a literal U+FEFF, and
+    # Invoke-Expression cannot parse a script starting with one - it fails on
+    # the very first statement with "Unexpected attribute 'CmdletBinding'".
+    # Parsing the artefact from disk does not show this, because there the mark
+    # is a mark rather than a character.
     $artefact = Join-Path $root 'trim.ps1'
     if (-not (Test-Path -LiteralPath $artefact)) { throw 'trim.ps1 has not been built' }
 
@@ -1298,13 +1279,12 @@ Test-Phase 'The one-liner actually works' {
 }
 
 Test-Phase 'A run with no arguments never applies anything' {
-    # This shipped, and it stripped the machine of the person who ran it.
-    # `irm https://trimbloat.com/go | iex` passes no parameters, so -Gui was
-    # $false, -DryRun was $false, and Invoke-Main fell past the window branch
-    # into the plain command-line branch: restore point, then every phase
-    # applied, with no window and nothing asked. The site and the README both
-    # promise the opposite - "nothing on your PC changes until you click
-    # Apply" - so this is the guard for the claim, not just for the code.
+    # `irm https://trimbloat.com/go | iex` passes no parameters, so -Gui and
+    # -DryRun are both $false. Invoke-Main must still open the window rather
+    # than fall past it into the plain command-line branch - restore point,
+    # then every phase applied, with no window and nothing asked. The site and
+    # the README both promise that nothing in the plan changes until Apply, so
+    # this is the guard for the claim, not just for the code.
     $artefact = Join-Path $root 'trim.ps1'
     if (-not (Test-Path -LiteralPath $artefact)) { throw 'trim.ps1 has not been built' }
 
@@ -1405,13 +1385,13 @@ Test-Phase 'A run with no arguments never applies anything' {
 }
 
 Test-Phase 'The winutil handoff survives our own strict mode' {
-    # The phase failed on its first statement, every time it ran, with
+    # This script sets Set-StrictMode -Version 2.0 and everything it invokes
+    # inherits it. WinUtil reads $sync.runspace on a hashtable that does not
+    # always carry the key, which is $null normally and a terminating error
+    # under strict mode -
     #   The property 'runspace' cannot be found on this object.
-    # That is not a winutil bug. This script sets Set-StrictMode -Version 2.0
-    # and everything it invokes inherits it; winutil reads $sync.runspace on a
-    # hashtable that does not always carry the key, which is $null normally and
-    # a terminating error under strict mode. The tweak set never applied, and
-    # the failure was reported as winutil's.
+    # - on the phase's first statement, reported as WinUtil's failure though it
+    # is ours. So the handoff has to turn strict mode off for WinUtil.
     $problems = [System.Collections.Generic.List[string]]::new()
 
     # 1. The mechanism, confirmed on this host rather than assumed. If a future
@@ -1444,11 +1424,10 @@ Test-Phase 'The winutil handoff survives our own strict mode' {
 }
 
 Test-Phase 'The folder guard and the key guard agree' {
-    # Four faults in this file in one day, every one of them the same shape: a
-    # rule reasoned out carefully for folders and never mirrored to keys, or
-    # the reverse. The containment rule, the re-check before deleting, the
-    # protected-publisher names, and the requirement to live under a known
-    # root. Each half was written well; neither was written twice.
+    # The failure this module is prone to has one shape: a rule reasoned out
+    # carefully for folders and never mirrored to keys, or the reverse - the
+    # containment rule, the re-check before deleting, the protected-publisher
+    # names, the requirement to live under a known root.
     #
     # So this asserts the two guards behave the same way on the cases they
     # should both refuse, rather than testing each of them alone and trusting
@@ -1505,10 +1484,9 @@ Test-Phase 'The folder guard and the key guard agree' {
 }
 
 Test-Phase 'The service and task guards refuse what the other two refuse' {
-    # Two new kinds joined the deep uninstall, which means two new guards, and
-    # this module's recorded failure is exactly that: five rules once existed
-    # in one half of it and not the other. A new pair arriving without the same
-    # refusals is how that happens a third time.
+    # Services and scheduled tasks have guards of their own, and the failure
+    # this module is prone to is a rule present in one guard and missing from
+    # another.
     #
     # Same categories as the folder/key agreement test, expressed for a service
     # and a task.
@@ -1516,19 +1494,14 @@ Test-Phase 'The service and task guards refuse what the other two refuse' {
     $win = "$env:WinDir".TrimEnd('\')
 
     # The service cases name a service that EXISTS and set the app name to
-    # match it, so the only thing left to refuse on is the rule under test.
-    #
-    # The first version used a made-up name, and two mutations survived: with
-    # the Windows-directory rule deleted the guard still said no, because
-    # Get-Service could not find 'Contoso' and the catch refuses. The fixture
-    # was agreeing with the guard for the wrong reason - which is this
-    # project's most repeated mistake, and the reason every guard here gets
-    # broken on purpose before it is believed.
+    # match it, so the only thing left to refuse on is the rule under test. A
+    # made-up name would be refused by the catch that follows a failed
+    # Get-Service, whatever the rule does - a fixture agreeing with the guard
+    # for the wrong reason, which is why every guard here gets broken on
+    # purpose before it is believed.
     # A service that exists and is NOT on the protected-names list, so each
     # case below is refused by the rule it is about rather than by an earlier
-    # one. Spooler was used first and masked everything: 'spooler' is on that
-    # list, so two mutations survived because the guard refused for a reason
-    # the fixture was not testing.
+    # one. Spooler, for instance, is on that list and would mask everything.
     $realSvc = @('W32Time', 'Netman', 'ShellHWDetection') |
                Where-Object { Get-Service -Name $_ -ErrorAction SilentlyContinue } |
                Select-Object -First 1
@@ -1641,8 +1614,7 @@ Test-Phase 'The service and task guards refuse what the other two refuse' {
     #
     # The service guard reads the live service list, so this needs a service
     # that exists. Rather than create one, take any the guard already accepts
-    # when the app is named after it - the sweep across this machine's 330
-    # services is what that is - and assert the guard is capable of a yes.
+    # when the app is named after it, and assert the guard is capable of a yes.
     # The guard has to be capable of yes, or every refusal above is satisfied
     # by a guard that only ever says no.
     #
@@ -1666,10 +1638,10 @@ Test-Phase 'The service and task guards refuse what the other two refuse' {
         $problems.Add('the task guard refuses an ordinary application task') | Out-Null
     }
 
-    # Nothing under a protected owner may pass, whichever guard is asked. This
-    # is the rule that was missing: pointing the service guard at every service
-    # on a real machine with the app named after each one allowed AUEPLauncher,
-    # which runs out of C:\Program Files\AMD\Performance Profile Client.
+    # Nothing under a protected owner may pass, whichever guard is asked. A
+    # service named after the app but running out of a protected vendor's
+    # folder - AUEPLauncher, from C:\Program Files\AMD\Performance Profile
+    # Client, for one - is not the app's to remove.
     foreach ($p in @('C:\Program Files\AMD\Thing\t.exe', 'C:\Program Files\NVIDIA\Thing\t.exe',
                      'C:\Program Files\WindowsApps\Thing\t.exe')) {
         if (-not (Test-PathUnderProtectedOwner -Path $p)) {
@@ -1793,14 +1765,11 @@ Test-Phase 'Deletion re-checks the list it was handed' {
 }
 
 Test-Phase 'Uninstalling one product never offers another product''s data' {
-    # Get-AppLeftovers had unit guards on its two filters and had never been
-    # driven end to end. Doing that found this: uninstalling one product from a
-    # vendor offered the vendor's whole folder, ticked by default, with every
-    # other product from that vendor inside it. Remove Photoshop, lose
-    # Lightroom's settings.
-    #
-    # Test-SafeToRemoveKey had refused exactly this on the registry side since
-    # it was written. The same reasoning had never reached the filesystem.
+    # Driven end to end rather than through its filters alone. Uninstalling one
+    # product from a vendor must not offer the vendor's whole folder, ticked by
+    # default, with every other product from that vendor inside it - remove
+    # Photoshop, lose Lightroom's settings. Test-SafeToRemoveKey refuses the
+    # same thing on the registry side; this holds the filesystem to it.
     $stamp   = [Guid]::NewGuid().ToString('N').Substring(0, 8)
     $vendor  = "TrimGuardVendor$stamp"
     $appOne  = "TrimGuardProductOne$stamp"
@@ -2047,17 +2016,13 @@ Test-Phase 'The duplicate finder always keeps one copy' {
 }
 
 Test-Phase 'A change that gets reverted is noticed and re-applied' {
-    # Windows can accept a write and put it back. The value that showed this is
+    # Windows can accept a write and put it back. The value that shows this is
     # HKCU:\System\GameConfigStore\GameDVR_FSEBehaviorMode: on a profile where
     # Game Bar has never initialised, setting it reports success and something
-    # in the GameDVR stack restores 0 during the same run. Reproduced twice in
-    # a clean sandbox, identically.
+    # in the GameDVR stack restores 0 during the same run.
     #
-    # Confirm-AppliedChanges exists to catch that. Its first version selected
-    # entries by the ABSENCE of an Action property, meaning to skip removals -
-    # but every entry carries Action, 'set' or 'remove', so it selected nothing
-    # and returned in silence, which read exactly like a clean result. It never
-    # ran once.
+    # Confirm-AppliedChanges exists to catch that. One that selected nothing
+    # would return in silence, which reads exactly like a clean result.
     #
     # So this asserts the function does something, against a real write to a
     # scratch key, reverted behind its back the way Windows reverts one.
@@ -2114,13 +2079,13 @@ Test-Phase 'A change that gets reverted is noticed and re-applied' {
 }
 
 Test-Phase 'No external program can block the run forever' {
-    # The NVIDIA profile import ran Start-Process -Wait with no bound. That is
-    # fine while the driver answers, and it is not fine when a machine only
-    # looks like it has an NVIDIA card - Windows Sandbox passes the host's
-    # adapter name straight through, so this ran on a reported RTX 5070 Ti with
-    # no working NVAPI behind it and never came back. Fourteen minutes later it
-    # was still there. A GPU-P virtual machine, a remote desktop session, safe
-    # mode, or a driver update caught half way through all look the same.
+    # An external program waited on with no bound blocks the run for as long as
+    # it fails to answer. The NVIDIA profile import is the clearest case: fine
+    # while the driver answers, not when a machine only looks like it has an
+    # NVIDIA card - Windows Sandbox passes the host's adapter name straight
+    # through with no working NVAPI behind it, and a GPU-P virtual machine, a
+    # remote desktop session, safe mode, or a driver update caught half way
+    # through all look the same.
     #
     # A stuck program the user has to force-kill is worse than a phase that
     # gives up, because the thing they force-kill is midway through changing
@@ -2174,9 +2139,8 @@ Test-Phase 'No external program can block the run forever' {
         $problems.Add('Invoke-ProfileInspector is gone; the NVIDIA tool is being run some other way') | Out-Null
     }
     # The variable holding the budget is not the point; that it is bounded and
-    # that the process is stopped afterwards is. This named $TimeoutSeconds
-    # until the first attempt got a shorter budget of its own, and matching the
-    # old name would have failed a change that made the bound tighter.
+    # that the process is stopped afterwards is. Matching a variable name would
+    # fail a change that made the bound tighter.
     elseif ($gpu -notmatch 'WaitForExit\(\$\w+ \* 1000\)') {
         $problems.Add('Invoke-ProfileInspector no longer waits with a timeout') | Out-Null
     }
@@ -2189,20 +2153,14 @@ Test-Phase 'No external program can block the run forever' {
 
 Test-Phase 'Anything that runs the script says which mode it wants' {
     # Invoke-VmVerification.ps1 applies for real inside a disposable VM and is
-    # the only thing in the project that ever does. It invoked the script with
-    # NoRestorePoint, NoRestartPrompt and Only - filters, none of which is an
-    # instruction to change anything.
+    # the only thing in the project that ever does. A run with no mode switch
+    # opens the window, because the published one-liner passes no arguments;
+    # in a sandbox there is no window, so without -Apply the run prints the
+    # plan and the verification would measure a dry run against a claim that
+    # something had been applied.
     #
-    # That was correct until the day the default changed. A run with no mode
-    # switch now opens the window, because the published one-liner passes no
-    # arguments and used to apply everything unattended. Unattended in a
-    # sandbox there is no window, so the run prints the plan instead and the
-    # verification would have measured a dry run against a claim that something
-    # had been applied.
-    #
-    # The docs, the flow test and this harness were all updated that day. This
-    # script was not, because it lives outside the suite and CI never runs it -
-    # which is exactly why it needs checking from in here.
+    # That script lives outside the suite and CI never runs it, which is
+    # exactly why it needs checking from in here.
     $problems = [System.Collections.Generic.List[string]]::new()
 
     # Invocations of the compiled script, however they are spelled.
@@ -2225,8 +2183,7 @@ Test-Phase 'Anything that runs the script says which mode it wants' {
 
         # Asked of each invocation, not of the file. "Somewhere in this file the
         # word -DryRun appears" is satisfied by a comment, by help text, or by a
-        # different invocation entirely - the first version of this guard passed
-        # while the apply it was written to protect had no mode at all.
+        # different invocation entirely.
         $body = ($lines -join "`n")
         foreach ($n in $hits) {
             $line = $lines[$n - 1]
@@ -2273,9 +2230,8 @@ Test-Phase 'The screenshots are of the window that exists now' {
     # asked to pipe this into an elevated shell on the strength of what they
     # can see of it.
     #
-    # This was kept in sync twice in one day by noticing, which is not a
-    # mechanism. It does not prove the images are right; it proves they were
-    # taken after the last change to the window.
+    # It does not prove the images are right; it proves they were taken after
+    # the last change to the window.
     $shots = Join-Path $root 'docs\screenshots'
     if (-not (Test-Path -LiteralPath $shots)) { return }   # nothing to keep honest
 
@@ -2312,9 +2268,8 @@ Test-Phase 'The screenshots are of the window that exists now' {
     }
 
     # The site keeps a second copy of every screenshot, as WebP. Regenerating
-    # the PNGs does not regenerate those, and for a day it did not: the site
-    # showed a window twenty hours and five changes out of date. Guarding the
-    # README's copies and not the site's is guarding the one fewer people see.
+    # the PNGs does not regenerate those, and guarding the README's copies and
+    # not the site's would be guarding the one fewer people see.
     $img  = Join-Path $root 'hosting\site\img'
     $page = Join-Path $root 'hosting\site\index.html'
     if ((Test-Path -LiteralPath $img) -and (Test-Path -LiteralPath $page)) {
@@ -2367,11 +2322,10 @@ Test-Phase 'The screenshots are of the window that exists now' {
 }
 
 Test-Phase 'The documented numbers are the real ones' {
-    # The README and the site said thirteen phases and thirteen cleanup
-    # categories. There were twelve of each. Nobody was lying - the counts were
-    # written by hand, the code changed, and nothing tied one to the other. It
-    # is a small thing that quietly makes every other number on the page worth
-    # less, on a project whose whole pitch is that you can check what it does.
+    # The README and the site quote how many phases and cleanup categories
+    # there are. Counts written by hand drift from the code, and a wrong one
+    # quietly makes every other number on the page worth less, on a project
+    # whose whole pitch is that you can check what it does.
     $problems = [System.Collections.Generic.List[string]]::new()
 
     $main    = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '99-main.ps1')
@@ -2390,7 +2344,7 @@ Test-Phase 'The documented numbers are the real ones' {
     if ($catCount -lt 5) { throw "found only $catCount cleanup categories - this guard has stopped finding them" }
 
     # -Skip and -Only must offer exactly the phases that exist, and offer each
-    # of them once. -Skip listed 'Extras' twice.
+    # of them once.
     foreach ($sw in @('Skip', 'Only')) {
         $vm = [regex]::Match($header, "\[ValidateSet\(([^)]*)\)\]\s*\r?\n\s*\[string\[\]\]\`$$sw\b")
         if (-not $vm.Success) { $problems.Add("cannot find the ValidateSet for -$sw") | Out-Null; continue }
@@ -2437,10 +2391,9 @@ Test-Phase 'The documented numbers are the real ones' {
     }
 
     # The two numbers quoted under the overview screenshot. They are presented
-    # as things the tool found on the machine in the picture, and one of them
-    # was not: the already-set count was a literal 38 typed into the exporter
-    # and passed to the window. The exporter reads it off the run now and
-    # stamps both, so the caption can be checked rather than believed.
+    # as things the tool found on the machine in the picture, so the exporter
+    # reads both off the run and stamps them, and the caption can be checked
+    # rather than believed.
     $stamp = Join-Path $root 'docs\screenshots\generated-from.txt'
     if (Test-Path -LiteralPath $stamp) {
         $stampText = Get-Content -Raw -Encoding UTF8 -LiteralPath $stamp
@@ -2452,8 +2405,7 @@ Test-Phase 'The documented numbers are the real ones' {
         }
         # And the number in the picture has to come off the run rather than out
         # of somebody's head, or the stamp faithfully records a figure that was
-        # invented. -AlreadyCorrect was the literal 38 for as long as the
-        # caption quoting it existed.
+        # invented.
         $expPath = Join-Path $root 'test\Export-GuiScreenshots.ps1'
         if (Test-Path -LiteralPath $expPath) {
             $exp = Get-Content -Raw -Encoding UTF8 -LiteralPath $expPath
@@ -2549,11 +2501,10 @@ Test-Phase 'The pages promise what the code actually does' {
 
     # --- sentences that were removed because they were not true ------------
     #
-    # Each of these was on a page at some point today. Named individually
-    # rather than checked for by paraphrase, because the failure mode is not
-    # somebody inventing a new false claim - it is somebody restoring a deleted
-    # one from an older copy, or an editor tightening the wording back to what
-    # it used to say.
+    # Named individually rather than checked for by paraphrase, because the
+    # failure mode is not somebody inventing a new false claim - it is somebody
+    # restoring a deleted one from an older copy, or an editor tightening the
+    # wording back to an old version.
     $retired = @(
         @{ Text = 'fetched later'
            Why  = 'it fetches WinUtil and NVIDIA Profile Inspector while it runs, and executes both' },
@@ -2663,16 +2614,14 @@ Test-Phase 'The pages promise what the code actually does' {
     # --- "clone it and build it" has to be a complete instruction ----------
     #
     # The compiled header stamps the commit, so identical source at a different
-    # commit produces different bytes. A test-only commit is enough: the same
-    # src gave 85E6A316 at one commit and B85EC81F at the next.
+    # commit produces different bytes - a test-only commit is enough.
     #
-    # The trust card told people to clone, build, and compare against /sha256.
-    # Do that while main is one commit ahead of what was published and the
-    # hashes differ, with nothing on the page to say why - on the one check the
-    # page exists to invite.
+    # The trust card tells people to clone, build, and compare against /sha256.
+    # Done while main is ahead of what was published, the hashes differ, so the
+    # instruction has to say which commit to build.
     # The header line is assembled, not written literally: build.ps1 has
-    # "Source: $commit" and $commit is "commit $described". Looking for the
-    # finished string found nothing and failed a check that was correct.
+    # "Source: $commit" and $commit is "commit $described", so the finished
+    # string is not in the source to be found.
     $build = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'build.ps1')
     if ($build -notmatch 'Source: \$commit' -or $build -notmatch '"commit \$described"') {
         throw 'the build no longer stamps the commit - this check has stopped reading the code it is about'
@@ -2691,11 +2640,10 @@ Test-Phase 'The pages promise what the code actually does' {
 
     # --- the leftovers list is not the same set as "what survived" ---------
     #
-    # Get-AppLeftovers drops anything its deletion guards veto, and the pane
-    # said "These survived the uninstaller. Every one is shown in full." Two
-    # different sets. On this machine the very first app tried leaves a folder
-    # under WindowsApps that the guards correctly refuse to touch, and the
-    # window said "Nothing left behind."
+    # Get-AppLeftovers drops anything its deletion guards veto - a folder under
+    # WindowsApps, for instance, which they correctly refuse to touch. A pane
+    # that shows only what is offered, as though it were everything that
+    # survived, tells somebody "Nothing left behind" when something was.
     #
     # The vetoes are right. Hiding what they caught is not.
     $unin = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '17-uninstall.ps1')
@@ -2704,17 +2652,15 @@ Test-Phase 'The pages promise what the code actually does' {
     }
 
     # Every kind this module can delete is guarded twice: once building the
-    # list, once immediately before acting on it. Five rules once lived in one
-    # half of this file and not the other, and two more kinds arrived after
-    # that was written.
+    # list, once immediately before acting on it - and a new kind has to arrive
+    # with both halves.
     #
     # 'Deletion re-checks the list it was handed' proves the second guard fires
     # by ticking the real Print Spooler and a Windows task and watching them
     # survive. This is the static twin, and it is the one that can be broken on
     # purpose safely: a behavioural mutation of that path would delete the
     # Spooler on the machine running the tests.
-    $removeFn = [regex]::Match($unin, '(?s)function Remove-AppLeftovers \{.*??
-\}')
+    $removeFn = [regex]::Match($unin, '(?s)function Remove-AppLeftovers \{.*?\r?\n\}')
     if (-not $removeFn.Success) {
         throw 'cannot find Remove-AppLeftovers - this check has stopped reading the code it is about'
     }
@@ -2756,11 +2702,9 @@ Test-Phase 'The pages promise what the code actually does' {
     # can be created to ask.
     foreach ($kind in @('service', 'task')) {
         # Anchored on $found.Add, not on the Kind line. Both the offered row
-        # and the withheld record start "Kind = 'service'; Path =", the
-        # withheld one comes first in the file, and the first version of this
-        # read that instead - then reported a missing Selected = $false that
-        # was never supposed to be there. A check looking at the wrong thing
-        # fails the same way whether or not the code is right.
+        # and the withheld record start "Kind = 'service'; Path =", and the
+        # withheld one comes first in the file - it carries no Selected, and
+        # reading it would report one missing that was never meant to be there.
         $block = @([regex]::Matches($unin, '(?s)\$found\.Add\(\[pscustomobject\]@\{(.{0,900}?)\}\) \| Out-Null') |
                    Where-Object { $_.Groups[1].Value -match "Kind = '$kind'" } |
                    Select-Object -First 1)
@@ -2821,8 +2765,7 @@ Test-Phase 'The pages promise what the code actually does' {
     #
     # Profile Inspector talks to the driver through NVAPI, and a Windows
     # Sandbox with vGPU reports the host's card by name while having no driver
-    # at all. One verification run started it nine times and was killed by the
-    # 120-second timeout every time: eighteen of twenty minutes spent waiting.
+    # at all. Asked every time, it pays the full timeout on every call.
     #
     # The timeout stays - it is what stops a stranger watching an unexplained
     # hang. This is about the check that keeps the run from reaching it.
@@ -2833,15 +2776,9 @@ Test-Phase 'The pages promise what the code actually does' {
         throw 'Invoke-ProfileInspector no longer has a timeout - this check has stopped reading the code it is about'
     }
     # The first attempt gets a short budget, and a run that never gets an
-    # answer stops asking.
-    #
-    # The first version of this checked for nvapi64.dll instead, on the theory
-    # that a machine without a driver would not have it. A Windows Sandbox has
-    # it and still never answers, so the check bought nothing in the only place
-    # it was needed - which the sandbox said plainly by timing out eight more
-    # times with the check in place.
-    $fn = [regex]::Match($gpu, '(?s)function Invoke-ProfileInspector \{.*??
-\}')
+    # answer stops asking. Checking for nvapi64.dll instead would buy nothing:
+    # a Windows Sandbox has the DLL and still never answers.
+    $fn = [regex]::Match($gpu, '(?s)function Invoke-ProfileInspector \{.*?\r?\n\}')
     if (-not $fn.Success) {
         throw 'cannot find Invoke-ProfileInspector - this check has stopped reading the code it is about'
     }
@@ -2874,11 +2811,10 @@ Test-Phase 'The pages promise what the code actually does' {
     # --- a scan that gives up has to say so -------------------------------
     #
     # Get-LargeFileScan stops walking after a fixed number of seconds and
-    # returns whatever it had. It said so in the log; the window showed
-    # "Largest files - N found" and a paragraph explaining what the list is
-    # for, with nothing to suggest it was partial. On a machine with several
-    # large drives that limit is easy to reach, and the answer to "where did my
-    # disk go" is then wrong in a way the person reading it cannot detect.
+    # returns whatever it had. On a machine with several large drives that
+    # limit is easy to reach, and a window showing "Largest files - N found"
+    # with nothing to say the list is partial answers "where did my disk go"
+    # wrongly, in a way the person reading it cannot detect.
     #
     # If the scan can still stop early, the window has to read the result.
     $clean = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '16-cleanup.ps1')
@@ -2894,19 +2830,17 @@ Test-Phase 'The pages promise what the code actually does' {
     }
 
     # And a long scan on the UI thread has to keep the window answering. The
-    # walk runs on whichever thread calls it; the window calls it directly. At
-    # ninety seconds that was rude, and the budget is minutes now - long enough
-    # that Windows greys the title bar and writes "(Not Responding)", which
-    # people rationally respond to by killing it.
+    # walk runs on whichever thread calls it, and the window calls it directly
+    # - over a scan of minutes, Windows greys the title bar and writes "(Not
+    # Responding)", which people rationally respond to by killing it.
     $budget = [regex]::Match($clean, '\[int\]\$TimeoutSeconds\s*=\s*(\d+)')
     if (-not $budget.Success) {
         throw 'cannot read the large-file scan budget - this check has stopped reading the code it is about'
     }
     if ([int]$budget.Groups[1].Value -gt 60) {
-        # Assigning something, not merely mentioning the name. The first
-        # version of this looked for the word 'ScanHook' and passed against a
-        # caller that had stopped setting it - 16-cleanup.ps1 names the hook
-        # anyway, because the walk is what reads it.
+        # Assigning something, not merely mentioning the name: 16-cleanup.ps1
+        # names the hook anyway, because the walk is what reads it, so a caller
+        # that stopped setting it would still mention it.
         foreach ($caller in @(@{ N = 'the window'; T = $gui }, @{ N = 'the cleanup phase'; T = $clean })) {
             if ($caller.T -notmatch 'Get-LargeFileScan') { continue }
             if ($caller.T -notmatch 'ScanHook\s*=\s*(\{|\$(?!null))') {
@@ -2971,7 +2905,7 @@ Test-Phase 'The pages promise what the code actually does' {
             $problems.Add('no surface mentions the restore point any more, so this check has stopped finding the claim it guards') | Out-Null
         }
 
-        # And the window must not be promising one either. It did.
+        # And the window must not be promising one either.
         $gui = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '13-gui.ps1')
         if ($gui -notmatch 'RestorePointCreated') {
             $problems.Add(('the window never checks the restore point result, so its finish screen tells everyone ' +
@@ -3101,15 +3035,13 @@ Test-Phase 'No preset can reach the two features that destroy data' {
 }
 
 Test-Phase 'The sandbox figure in SECURITY.md is the one it verified' {
-    # SECURITY.md's strongest evidence is a count: "66 changes applied, all 66
-    # present, all 66 restored exactly". The real figure was 114. Nobody had
-    # lied - the sentence was typed once, the tool kept growing, and nothing
-    # tied one to the other. A number in a security document that nothing
-    # regenerates is a number that is eventually wrong, and it is quoted there
-    # precisely because it is meant to be convincing.
+    # SECURITY.md's strongest evidence is a count of changes applied, present
+    # and restored. A number in a security document that nothing regenerates is
+    # eventually wrong, and it is quoted there precisely because it is meant to
+    # be convincing.
     #
-    # A passing sandbox run now writes docs\sandbox-verification.txt. This
-    # compares the sentence against it.
+    # A passing sandbox run writes docs\sandbox-verification.txt. This compares
+    # the sentence against it.
     $problems = [System.Collections.Generic.List[string]]::new()
 
     $secPath   = Join-Path $root 'SECURITY.md'
@@ -3159,9 +3091,6 @@ Test-Phase 'The documents point at things that exist' {
     # instructions somebody follows while editing, so a stale one sends them to
     # change the wrong thing - or to look for something that is no longer there
     # and conclude the document is fiction.
-    #
-    # Nothing checked either. Every claim in this project that nothing checked
-    # has eventually gone wrong.
     $problems = [System.Collections.Generic.List[string]]::new()
 
     # --- relative links resolve ---------------------------------------------
@@ -3318,8 +3247,7 @@ Test-Phase 'Documented commands are commands that work' {
 
         # -Skip / -Only followed by a comma-separated list of phase names.
         # Case-sensitive, and not preceded by a word character or a hyphen:
-        # "a report-only large-file scanner" is prose, not an invocation, and
-        # the first version of this read it as -Only large.
+        # "a report-only large-file scanner" is prose, not an invocation.
         foreach ($m in [regex]::Matches($text, '(?<![\w-])-(Skip|Only)\s+([A-Za-z][A-Za-z,]*)')) {
             foreach ($name in ($m.Groups[2].Value -split ',')) {
                 $name = $name.Trim()
@@ -3369,9 +3297,8 @@ Test-Phase 'Documented commands are commands that work' {
         }
     }
 
-    # And the one-liner in the help has to be the real one. It was
-    # https://example.com/opt.ps1 - a placeholder, for a filename that no
-    # longer exists, in the examples for a tool distributed as one line.
+    # And the one-liner in the help has to be the real one, not a placeholder -
+    # it is the example for a tool distributed as one line.
     foreach ($m in [regex]::Matches($help.Value, '(?i)irm\s+(\S+)')) {
         $url = $m.Groups[1].Value
         if ($url -notmatch '^https://trimbloat\.com/') {
@@ -3383,15 +3310,14 @@ Test-Phase 'Documented commands are commands that work' {
 }
 
 Test-Phase 'Skipping a phase actually skips it' {
-    # -Skip and -Only were set to @() in every test in this project. The names
-    # they accept are checked, and every phase is known to be gated on
-    # Test-PhaseEnabled - but the predicate itself had never been asked a
-    # question with an answer.
+    # The names -Skip and -Only accept are checked elsewhere, and every phase is
+    # gated on Test-PhaseEnabled; this asks the predicate questions that have
+    # answers.
     #
     # The README sells both: "-Skip Appx,Network - leave phases out" and
     # "-Only Gaming,Graphics - run only those phases". Get that wrong and
     # somebody who said "not Appx" has their Store apps removed anyway, which
-    # is the worst class of fault this tool has: it did the thing you told it
+    # is the worst class of fault this tool has: doing the thing it was told
     # not to do.
     $problems = [System.Collections.Generic.List[string]]::new()
 
@@ -3464,9 +3390,8 @@ Test-Phase 'Skipping a phase actually skips it' {
         throw 'cannot find Invoke-AllPhases - this guard has stopped reading the code it checks'
     }
     # [ \t]* rather than \s*: \s matches newlines, so a match could begin on the
-    # line above and swallow its "if (Test-PhaseEnabled ...)" - which made an
-    # ungated call look gated and left this unable to fail at all. Found by the
-    # mutation that removes a gate surviving.
+    # line above and swallow its "if (Test-PhaseEnabled ...)", making an
+    # ungated call look gated.
     foreach ($m in [regex]::Matches($allPhases.Value, '(?m)^[ \t]*(?:if \([^\r\n]*\)[ \t]*\{[ \t]*)?(Invoke-\w+Phase)\b')) {
         $call = $m.Groups[1].Value
         $line = $m.Value
@@ -3479,10 +3404,9 @@ Test-Phase 'Skipping a phase actually skips it' {
 }
 
 Test-Phase 'Every feature is reachable' {
-    # Get-LargeFileScan shipped as dead code: written, unit-checked in isolation,
-    # wired to nothing, and reported as delivered. This asserts that anything
-    # presented as a feature can actually be reached, from the window or the
-    # command line.
+    # Anything presented as a feature has to be reachable, from the window or
+    # the command line - a function can be written, unit-checked in isolation
+    # and wired to nothing.
     $problems = [System.Collections.Generic.List[string]]::new()
 
     $gui  = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '13-gui.ps1')
@@ -3596,12 +3520,10 @@ Test-Phase 'Scanning a machine with nothing to find does not throw' {
     # terminating error under Set-StrictMode -Version 2.0, which this script
     # sets and which anything it calls inherits.
     #
-    # The window's cleanup pane shipped that fault: it threw on the line above
-    # the one that says "Nothing to clean. This PC is already tidy." Six sites
-    # went through Get-SumOrZero then. Two were missed, because nothing had ever
-    # run them with nothing to find - Get-CleanupScan totals the same way when
-    # it is not -Quiet, which is the command line rather than the window, and
-    # Get-DuplicateScan totals its findings, which on most machines are none.
+    # Nothing to find is the ordinary outcome for both scans here -
+    # Get-CleanupScan totals when it is not -Quiet, which is the command line
+    # rather than the window, and Get-DuplicateScan totals its findings, which
+    # on most machines are none.
     $problems = [System.Collections.Generic.List[string]]::new()
 
     # A directory with nothing duplicated in it. -IncludeDuplicates on a tidy
@@ -3659,9 +3581,8 @@ Test-Phase 'Scanning a machine with nothing to find does not throw' {
 
 Test-Phase 'Cleanup deletes what it was asked to and nothing else' {
     # Invoke-Cleanup is the function that deletes files for the disk cleanup
-    # feature, and no test had ever called it. The scan feeding it is covered
-    # from several directions; the deletion only ran inside the sandbox
-    # verification, which checks that something was freed, not what survived.
+    # feature. The sandbox verification checks that something was freed, not
+    # what survived; this checks what survived.
     #
     # Run for real here, against a directory built to be hostile: files the
     # age cutoff must spare, files the filter must spare, a file held open, a
@@ -3707,9 +3628,8 @@ Test-Phase 'Cleanup deletes what it was asked to and nothing else' {
         $dupeKeeps = New-Fixture (Join-Path $dupes 'original.bin') 9000
 
         # A junction needs no privilege and is the ordinary way a folder ends
-        # up pointing somewhere else. Verified by hand on 11 September that
-        # Windows PowerShell 5.1 neither enumerates nor deletes through one;
-        # this keeps it that way.
+        # up pointing somewhere else. Windows PowerShell 5.1 neither enumerates
+        # nor deletes through one, and this keeps it that way.
         cmd /c mklink /J "$junction" "$outside" | Out-Null
         if (-not (Test-Path -LiteralPath $junction)) { throw 'fixture is wrong: the junction could not be created' }
 
@@ -3789,13 +3709,9 @@ Test-Phase 'Cleanup deletes what it was asked to and nothing else' {
 }
 
 Test-Phase 'Nothing claims the panes wait for Apply' {
-    # Nine places said nothing changes until you click Apply - the README
-    # twice, the site three times including its structured FAQ, llms.txt, the
-    # script's help, and the window twice. That was true of the plan and, by
-    # accident, of everything else: the Startup, Cleanup and Uninstall panes
-    # ran inside the plan's dry run and changed nothing at all. Since
-    # 11 September they act when you say yes, so the sentence has to say which
-    # part waits for Apply.
+    # "Nothing changes until you click Apply" is true of the plan, not of the
+    # Startup, Cleanup and Uninstall panes, which act when you say yes. Every
+    # page that says it has to say which part waits for Apply.
     $problems = [System.Collections.Generic.List[string]]::new()
 
     # The premise. If the panes stop acting live, the plain sentence becomes
@@ -3818,9 +3734,8 @@ Test-Phase 'Nothing claims the panes wait for Apply' {
     }
 
     # "Nothing ... changes ... until you click/press Apply", and the script
-    # help's "until Apply is pressed", allowing for the line breaks these files
-    # wrap it with. The help's word order was missed by the first version of
-    # this pattern, so a reverted help block would have passed.
+    # help's "until Apply is pressed" word order, allowing for the line breaks
+    # these files wrap it with.
     $claim = '(?is)\bnothing\b(?:(?!\.\s)[^.]){0,60}?\b(?:chang|happen)\w*(?:(?!\.\s)[^.]){0,40}?\buntil\b(?:(?!\.\s)[^.]){0,30}?(?:\b(?:click|press)\w*\s+Apply|\bApply\s+is\s+(?:pressed|clicked))'
     foreach ($name in $surfaces.Keys) {
         foreach ($m in [regex]::Matches($surfaces[$name], $claim)) {
@@ -3842,9 +3757,8 @@ Test-Phase 'Nothing claims the panes wait for Apply' {
     #
     # The window is read literal by literal rather than as source. Its text is
     # string literals with code between them, so read as source a heading and
-    # the paragraph under it run together as one "sentence" - and the
-    # heading's "plan" excused a paragraph saying "before it touches
-    # anything". A mutation found that; this is why it cannot happen now.
+    # the paragraph under it run together as one "sentence", and the heading's
+    # "plan" would excuse a paragraph saying "before it touches anything".
     $guiAst = [System.Management.Automation.Language.Parser]::ParseFile(
         (Join-Path (Join-Path $root 'src') '13-gui.ps1'), [ref]$null, [ref]$null)
     $guiStrings = @($guiAst.FindAll({

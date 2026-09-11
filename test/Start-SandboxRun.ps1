@@ -51,8 +51,8 @@ $vmArgs = @{ ScriptPath = "$work\trim.ps1" }
 if (Test-Path (Join-Path $results 'thirdparty.flag')) { $vmArgs['ThirdParty'] = $true }
 & "$work\test\Invoke-VmVerification.ps1" @vmArgs
 # A terminating error leaves $LASTEXITCODE unset, and an exit code that is never
-# written looks identical to a sandbox that is still running - which is how the
-# host harness ended up waiting on a container that had already given up.
+# written looks identical to a sandbox that is still running - the host harness
+# would wait on a container that has already given up.
 $code = if ($null -eq $LASTEXITCODE) { 99 } else { $LASTEXITCODE }
 
 # Copy the optimizer's own artefacts out so they survive the sandbox.

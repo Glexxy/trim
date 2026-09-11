@@ -3,11 +3,10 @@
 #
 # Everything here is deliberately NOT part of Recommended.
 #
-# The three presets only mean something if there is real ground between them.
-# Before this file, Safe and Caution together were the entire catalogue, so
-# Recommended ticked every box and the tiers did no work at all. These are the
-# changes worth offering and wrong to assume: real trade-offs, hardware-specific
-# wins, and preferences people genuinely disagree about.
+# The three presets only mean something if there is real ground between them,
+# and this is that ground: changes worth offering and wrong to assume - real
+# trade-offs, hardware-specific wins, and preferences people genuinely
+# disagree about.
 #
 # Several are gated on the machine actually being able to benefit. Turning off
 # SysMain is defensible on an SSD and a serious regression on a hard disk, so it

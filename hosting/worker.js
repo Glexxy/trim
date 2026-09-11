@@ -10,23 +10,20 @@
  *      by pasting the same URL into a browser, without a download prompt.
  *
  *   2. Strict transport security, because `irm trimbloat.com/go` without a
- *      scheme is fetched over plaintext HTTP by PowerShell. Cloudflare's
- *      Always Use HTTPS handles the redirect; HSTS stops the second visit
- *      making the request at all.
+ *      scheme is fetched over plaintext HTTP by PowerShell. This worker
+ *      redirects it to HTTPS itself; HSTS stops the second visit making the
+ *      request at all.
  *
  *   3. The landing page's fingerprint is read from the artefact that is
  *      actually being served, not pasted into the HTML at authoring time. A
  *      published hash that disagreed with the published script would be worse
  *      than publishing no hash at all.
  *
- *   4. Every asset is streamed through byte for byte. Two earlier versions got
- *      this wrong in different ways: one read images with .text() and destroyed
- *      them, and the fix for that still decoded the *script* as text - which
- *      quietly ate its UTF-8 BOM. Three bytes, and they matter twice over. The
- *      published SHA256 stopped matching the file being served, which is the
- *      exact signal the site tells people means "do not run this"; and Windows
- *      PowerShell reads a BOM-less file as ANSI, so anyone saving it to disk
- *      got a corrupted script.
+ *   4. Every asset is streamed through byte for byte. Reading an image with
+ *      .text() destroys it, and decoding the script as text and re-encoding
+ *      it is not a no-op either. The published SHA256 has to match the file
+ *      being served, because a mismatch is the exact signal the site tells
+ *      people means "do not run this".
  */
 
 const CANONICAL = 'https://trimbloat.com';
@@ -137,10 +134,8 @@ export default {
     // executed with full rights.
     //
     // HSTS does not cover this: it only protects the *second* visit, and the
-    // first one is the one that matters. This used to rely on the zone's
-    // "Always Use HTTPS" setting, which was never switched on - so it lived in
-    // a comment rather than in the code. Now it is enforced here, where it is
-    // in version control and can be tested.
+    // first one is the one that matters. So it is enforced here, in version
+    // control where it can be tested, rather than left to a zone setting.
     if (url.protocol !== 'https:') {
       url.protocol = 'https:';
       return Response.redirect(url.toString(), 301);

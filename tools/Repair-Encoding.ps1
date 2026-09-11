@@ -9,17 +9,12 @@
     corrupted on read - by Get-Content, by the parser, and by the engine that
     executes it.
 
-    That is not a cosmetic problem. It broke three separate things here:
-
-      * build.ps1 read the sources with Get-Content and produced a compiled
-        script whose banner was mojibake and which then failed to parse
-      * the test harness called Parser::ParseFile, which has no encoding
-        parameter at all, and got a function body it could not compile
-      * anyone running the shipped script under Windows PowerShell would have
-        hit the same corruption
-
-    None of it reproduced under PowerShell 7, which assumes UTF-8. Developing on
-    7 and shipping to 5.1 is exactly how this stayed hidden.
+    That is not a cosmetic problem. build.ps1 reads the sources with
+    Get-Content, the test harness parses them with Parser::ParseFile - which has
+    no encoding parameter at all - and anyone running the shipped script under
+    Windows PowerShell reads it the same way. A missing BOM corrupts the build,
+    the tests and the product at once, and none of it shows under PowerShell 7,
+    which assumes UTF-8.
 
     A BOM removes the ambiguity for every consumer at once, which is why it is
     the fix rather than adding an -Encoding argument at each call site.

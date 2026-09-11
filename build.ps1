@@ -19,7 +19,7 @@
 param(
     # Resolved below, not here: $PSScriptRoot is not reliably populated while a
     # param block's defaults are being evaluated, which makes `powershell -File
-    # .uild.ps1` fail on a line that looks perfectly correct.
+    # .\build.ps1` fail on a line that looks perfectly correct.
     [string]$OutFile
 )
 

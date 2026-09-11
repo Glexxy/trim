@@ -121,10 +121,9 @@ function Invoke-WinUtilPhase {
         # This script runs under Set-StrictMode -Version 2.0, and anything it
         # invokes inherits that. WinUtil is not written for it: it reads
         # $sync.runspace on a hashtable that does not always have the key,
-        # which is $null normally and a terminating error under strict mode.
-        # The phase died on its first statement with
+        # which is $null normally and, under strict mode, a terminating error -
         #   The property 'runspace' cannot be found on this object.
-        # every time it ran, so the tweak set never actually applied.
+        # - raised before any tweak is applied.
         #
         # Strict mode is scoped to here and downwards, so turning it off for
         # the handoff leaves the rest of the script under it.

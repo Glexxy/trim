@@ -2,9 +2,9 @@ name: CI
 
 # Windows only, and Windows PowerShell specifically. The whole project targets
 # 5.1 - the version that ships with Windows and the one almost every user will
-# actually run this under. An earlier encoding bug was invisible under
-# PowerShell 7 and corrupted the script under 5.1, so testing on 7 alone would
-# have shipped it.
+# actually run this under. An encoding fault can be invisible under
+# PowerShell 7 and corrupt the script under 5.1, so testing on 7 alone is not
+# enough.
 on:
   push:
     branches: [main]
@@ -44,8 +44,8 @@ jobs:
         run: .\test\Test-UndoRoundTrip.ps1
 
       # Drives Invoke-Main itself. Everything else starts after the decision
-      # about what kind of run this is, and that decision is what shipped
-      # wrong: with no arguments the script applied every change unattended.
+      # about what kind of run this is, and that decision matters most: with no
+      # arguments the script must open the window and apply nothing.
       - name: Entry point flow
         shell: powershell
         run: .\test\Test-MainFlow.ps1

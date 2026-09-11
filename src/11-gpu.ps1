@@ -23,9 +23,8 @@
 # good enough - a compromised release, or anything sitting between us and
 # GitHub, would be running with full rights on somebody else's machine.
 #
-# The previous value here was 2.4.0.14, which does not exist. Every download
-# 404'd and the NVIDIA profile silently never applied on any machine. Verified
-# against the releases API on 4 September 2026.
+# The version has to be one that exists on the releases page: a wrong one
+# 404s, and the NVIDIA profile then silently never applies.
 #
 # To move to a new release: change the version, download it, and put its real
 # SHA256 here. Never relax the check to make an upgrade easier.
@@ -389,21 +388,15 @@ function Install-NvidiaControlPanel {
     Run Profile Inspector, and give up on it if it will not come back.
 
 .DESCRIPTION
-    Both calls to this tool used to block with no bound - one through the call
-    operator, one through Start-Process -Wait. That is fine while the driver
-    answers. It is not fine when the machine only looks like it has an NVIDIA
-    card.
+    Profile Inspector blocks for as long as the driver fails to answer. That is
+    fine on real hardware and not fine on a machine that only looks like it has
+    an NVIDIA card.
 
-    Windows Sandbox passes the host's adapter name straight through, so this
-    ran on a machine reporting an RTX 5070 Ti with no working NVAPI behind it.
-    The export took two minutes and failed; the import never returned at all.
-    The run was still sitting there fourteen minutes later, and nothing would
-    ever have ended it.
-
-    The same shape exists outside a sandbox: a GPU-P virtual machine, a remote
-    desktop session, safe mode, or a driver update caught half way through. A
-    stranger who ran the one-liner in any of those would watch it hang with no
-    indication of why.
+    Windows Sandbox passes the host's adapter name straight through with no
+    working NVAPI behind it, and a GPU-P virtual machine, a remote desktop
+    session, safe mode, or a driver update caught half way through all look
+    the same. There the export can take minutes and fail, and the import may
+    never return.
 
     A profile that cannot be applied is a disappointment. A run that never
     finishes is somebody force-killing a program that is midway through
@@ -419,14 +412,14 @@ function Invoke-ProfileInspector {
     # Ask once, cheaply, and remember the answer.
     #
     # A Windows Sandbox with vGPU reports the host's card by name and installs
-    # the driver DLLs, so nothing about the machine says "no driver here" - the
-    # first attempt to check for one looked for nvapi64.dll and found it. The
-    # only thing that distinguishes it is that Profile Inspector never replies.
+    # the driver DLLs - nvapi64.dll is present - so nothing on disk says "no
+    # driver here". The only thing that distinguishes it is that Profile
+    # Inspector never replies.
     #
     # So the first call gets a short budget instead of the full one. Working
     # hardware answers in a second or two; when nothing answers in thirty, the
-    # rest of the run stops asking. A verification run paid the full timeout
-    # nine times and spent eighteen of its twenty minutes waiting.
+    # rest of the run stops asking rather than paying the full timeout on
+    # every call.
     if ($script:NvidiaInspectorAnswered -eq $false) { return $null }
 
     $probing = ($null -eq $script:NvidiaInspectorAnswered)
@@ -446,12 +439,9 @@ function Invoke-ProfileInspector {
 
         # Exiting is not answering.
         #
-        # In a sandbox the export call came back after twenty-nine seconds
-        # having produced nothing - inside the probe budget, so this recorded
-        # the driver as alive, and the import that followed got the full
-        # ceiling and hung for two minutes. That is the wait this whole change
-        # exists to remove, and the first version reintroduced it by trusting
-        # the wrong signal.
+        # Without a working driver the export can return inside the probe
+        # budget having produced nothing. Treating that as a live driver would
+        # give the next call the full ceiling, and that call hangs.
         #
         # A driver that is there answers in a second or two. Anything slow, or
         # anything that fails, leaves the run still probing - so the next call

@@ -156,11 +156,11 @@ Good "staged $([Math]::Round((Get-Item (Join-Path $public 'trim.ps1')).Length / 
 # The {{V}} in every asset URL is replaced here, with a hash of the asset bytes
 # themselves.
 #
-# It was briefly derived from the compiled script's fingerprint, which is wrong
-# in a way that is easy to miss: editing only the stylesheet leaves that
-# fingerprint unchanged, so the URL stays the same, and browsers holding an
-# immutable copy of the old stylesheet never fetch the new one. Hashing what
-# actually shipped means the URL moves exactly when the asset does.
+# Not from the compiled script's fingerprint, which would be wrong in a way
+# that is easy to miss: editing only the stylesheet leaves that fingerprint
+# unchanged, so the URL stays the same, and browsers holding an immutable copy
+# of the old stylesheet never fetch the new one. Hashing what actually shipped
+# means the URL moves exactly when the asset does.
 $versioned = @('styles.css', 'app.js', 'favicon.svg') +
              @($images | ForEach-Object { "img\$_" })
 
@@ -271,8 +271,7 @@ Good 'every referenced asset has a Worker route'
 # The one-liner people paste has no scheme, so PowerShell fetches it over
 # plaintext http. Serving a script that runs as administrator in the clear is
 # the single worst thing this deployment could do, so the redirect is checked
-# for rather than assumed - it lived in a comment for a while, describing a
-# Cloudflare setting nobody had switched on.
+# for rather than assumed.
 if ($worker -notmatch "url\.protocol\s*!==\s*'https:'") {
     Fail 'The Worker no longer forces HTTPS. Plaintext http:// would serve the script in the clear.'
 }
@@ -303,12 +302,11 @@ try {
 
 # ---- 6. verify what is actually being served ------------------------------
 # Everything above checks the bytes on the way out. This checks the bytes coming
-# back, which is a different question and the one that matters.
-#
-# It exists because a Worker that decoded the script as text silently removed
-# its UTF-8 BOM: three bytes, so the published fingerprint no longer matched the
-# published file, and anyone saving it to disk got something Windows PowerShell
-# reads as ANSI. Every check before this point passed.
+# back, which is a different question and the one that matters: anything on the
+# way that changes a byte - a Worker that decodes and re-encodes the script, an
+# edge still holding the previous build - leaves the published fingerprint
+# disagreeing with the published file while every check before this point still
+# passes.
 Step 'Verifying what is being served'
 
 $expected = (Get-FileHash -LiteralPath (Join-Path $public 'trim.ps1') -Algorithm SHA256).Hash
@@ -344,8 +342,8 @@ if ((($sidecar -split '\s+')[0]).Trim() -ne $expected) {
 }
 Good '/sha256 agrees with the served script'
 
-# The winutil config is the second thing every real user downloads, and until
-# now nothing checked it came back.
+# The winutil config is the second thing every real user downloads, so it is
+# checked too.
 #
 # Piped into a shell there is no $PSScriptRoot, so the script cannot read the
 # copy beside it and fetches this instead. It decides which tweaks get applied.

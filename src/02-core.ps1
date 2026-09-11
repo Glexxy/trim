@@ -17,19 +17,17 @@ $script:Actions   = [System.Collections.Generic.List[object]]::new()
 # this script touch" can be answered completely rather than only listing deltas.
 $script:AlreadySet = [System.Collections.Generic.List[object]]::new()
 
-# Reversals that are not a registry write. The ledger proper only knows about
-# registry values, which was fine while that was the only thing being changed;
-# moving a Startup-folder shortcut is a change too, and an undo script that
-# silently ignored it would make the reversibility claim untrue.
+# Reversals that are not a registry write. The ledger proper only records
+# registry values; moving a Startup-folder shortcut is a change too, and an
+# undo script that ignored it would make the reversibility claim untrue.
 $script:UndoExtra = [System.Collections.Generic.List[string]]::new()
 $script:Warnings  = [System.Collections.Generic.List[string]]::new()
 $script:Applied   = 0
 
 # Whether Checkpoint-Computer actually produced a restore point this run.
-# $null until the attempt is made. The window used to tell everyone "a restore
-# point was taken" on the finish screen unconditionally, including the runs
-# where Windows had refused to make one - which is the single worst thing to be
-# wrong about, because it is the rollback people are relying on when they agree
+# $null until the attempt is made. The finish screen reads this rather than
+# assuming one exists: Windows refuses where System Protection is off by
+# policy, and a restore point is the rollback people rely on when they agree
 # to any of this.
 $script:RestorePointCreated = $null
 $script:Skipped   = 0
@@ -122,15 +120,10 @@ function Get-SystemTool {
     "$(($items | Measure-Object Bytes -Sum).Sum)" crashes on exactly the case it
     is meant to describe.
 
-    The disk cleanup pane did that. Scan a machine with nothing to clean and it
-    threw on the line above the one that says "Nothing to clean. This PC is
-    already tidy." - a message that could never be reached, on the pane whose
-    whole job is to be careful.
-
-    Six places in the window computed a sum this way, and Get-DuplicateScan
-    made it seven - it totalled its findings the unsafe way, so asking for
-    duplicates on a machine that has none threw rather than reporting none.
-    That is why this lives in core rather than beside the window.
+    Several scans have nothing to report as their ordinary outcome - nothing
+    to clean, no duplicates - so every total that is shown or logged goes
+    through here or Get-MaxOrZero, and the harness fails any Measure-Object
+    result read directly outside a try.
 #>
 function Get-SumOrZero {
     param([AllowNull()][object[]]$Items, [Parameter(Mandatory)][string]$Property)
@@ -163,10 +156,8 @@ function Get-MaxOrZero {
 function Write-Log {
     param(
         # A blank line is a legitimate thing to want in a warning block, and a
-        # mandatory [string] rejects '' outright. Disable-MemoryIntegrity asks
-        # for two of them, which made the one path in this tool that turns off a
-        # kernel security feature die on a parameter binding error the first
-        # time it was ever executed.
+        # mandatory [string] rejects '' outright - a terminating parameter
+        # binding error, where the caller wanted an empty line.
         [Parameter(Mandatory)][AllowEmptyString()][string]$Message,
         [ValidateSet('INFO','OK','WARN','FAIL','STEP','DRY')][string]$Level = 'INFO'
     )
@@ -310,9 +301,9 @@ function Get-RegValueOrAbsent {
     A good number of these settings are Windows 11 only. Writing them on Windows
     10 is not harmless-but-useless: it creates a registry value the OS never
     reads, it counts towards the change total the interface shows, and the undo
-    ledger then carries an entry for something that never did anything. Worse,
-    the site tells Windows 10 users the tool "skips whatever does not apply",
-    which was not true of anything until this existed.
+    ledger then carries an entry for something that never did anything. The
+    site also tells Windows 10 users the tool skips whatever does not apply,
+    and this is what makes that true.
 
     Build numbers rather than a version name, because that is what the OS
     actually reports and 22000 is the exact line between 10 and 11.
@@ -374,10 +365,8 @@ function Test-BuildApplies {
 function Confirm-AppliedChanges {
     if ($DryRun) { return }
 
-    # Action is 'set' or 'remove', and every entry carries one. The first
-    # version of this filtered on the ABSENCE of an Action property, meaning to
-    # exclude removals, and excluded everything - so this whole function
-    # selected nothing and returned in silence. Read as a clean result.
+    # Action is 'set' or 'remove', and every entry carries one, so removals
+    # are excluded by that value rather than by the property being absent.
     $applied = @($script:Ledger | Where-Object {
         $_.Action -eq 'set' -and -not $_.Intended -and $_.Path -and $_.Name
     })

@@ -211,7 +211,7 @@ function Invoke-Main {
     # left this check in place. Appending a payload to the end of the file is
     # the easy version of that, and it is refused.
     #
-    # What it does not catch, and this used to claim it did: wholesale
+    # What it does not catch is wholesale
     # replacement. A file that is not this script does not run this check, so
     # self-hashing cannot detect being swapped outright. What stands in the way
     # of that is the staging path - an unguessable name in the user's own temp

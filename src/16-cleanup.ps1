@@ -162,12 +162,11 @@ function Get-CleanupScan {
 
     $results = [System.Collections.Generic.List[object]]::new()
 
-    # Two definitions can name the same folder by different routes, and one
-    # definition already did: %TEMP% and %LOCALAPPDATA%\Temp are the same
-    # directory on any machine that has not moved it. Both were listed, both
-    # were scanned, and the bytes were counted twice - so the pane showed the
-    # folder twice and overstated what deleting it would free, on the category
-    # total, the headline total and the selected total alike.
+    # Two definitions can name the same folder by different routes: %TEMP% and
+    # %LOCALAPPDATA%\Temp are the same directory on any machine that has not
+    # moved it. Scanning both would show the folder twice and count its bytes
+    # twice, overstating what deleting it would free on the category total, the
+    # headline total and the selected total alike.
     #
     # Listing both is still right: %TEMP% can be redirected. Counting both is
     # not. Keyed on the resolved path, so a redirected %TEMP% is a second entry
@@ -353,10 +352,9 @@ function Get-LargeFileScan {
         [string[]]$Roots = @(),
         [int]$MinimumMB = 256,
         [int]$Top = 60,
-        # Five minutes, raised from ninety seconds on 6 September 2026. Ninety
-        # was not enough to finish a four-drive desktop, so the list was always
-        # partial and the window said nothing about it. Anything that still
-        # cannot finish in five minutes reports itself as incomplete.
+        # Five minutes: enough to finish a four-drive desktop. Anything that
+        # still cannot finish in that time reports itself as incomplete, and
+        # the window says so rather than showing a partial list as whole.
         [int]$TimeoutSeconds = 300
     )
 
@@ -368,9 +366,8 @@ function Get-LargeFileScan {
     $script:LargeScanTruncated = $false
     $script:LargeScanSeconds   = $TimeoutSeconds
 
-    # Pruned while walking, not filtered afterwards. The first version of this
-    # recursed through all of C:\Windows and then threw the results away, which
-    # cost two minutes to return nothing.
+    # Pruned while walking, not filtered afterwards: recursing through all of
+    # C:\Windows only to throw the results away costs minutes and finds nothing.
     $skip = @(
         $env:WinDir,
         (Join-Path $env:SystemDrive 'System Volume Information'),

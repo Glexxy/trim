@@ -4,10 +4,9 @@
     Drives the window without a human: presets, navigation, and checkbox clicks.
 
 .DESCRIPTION
-    The first build of the interface crashed the moment anything was clicked,
-    and a screenshot could not have caught that. This builds the real window,
-    fires the real event handlers, and asserts the state afterwards - without
-    ever showing it.
+    A screenshot cannot show that the window works when something is clicked.
+    This builds the real window, fires the real event handlers, and asserts the
+    state afterwards - without ever showing it.
 
     Host-safe: nothing is applied, the window is never displayed, and the whole
     run happens against a dry-run manifest.
@@ -134,9 +133,8 @@ Check 'clicking a checkbox does not tear down the list' {
     $rows = @($script:GuiUi.PanelItems.Children)
     if ($rows.Count -eq 0) { throw 'no rows to click' }
 
-    # Found by walking the row rather than by position. The checkbox used to be
-    # the first child of the row's grid; it is now nested one level deeper,
-    # inside a wrapper that also holds the tier edge. Asserting a position makes
+    # Found by walking the row rather than by position: the checkbox sits inside
+    # a wrapper that also holds the tier edge, and asserting a position makes
     # the test fail on a layout change that broke nothing.
     function Find-CheckBox {
         param($Element)
@@ -600,12 +598,10 @@ Check 'a tidy PC reaches the message that says so' {
 }
 
 Check 'a truncated large-file scan says so on screen' {
-    # The walk gives up after a fixed time and used to say so only in the log.
-    # On a four-drive machine the ordinary run reached that limit, so the
-    # window showed a partial answer as a complete one.
-    # Restored in a finally. The first version threw before its cleanup lines,
-    # left GuiCleanScanned set, and took two later checks down with it - which
-    # reads as three failures and is one.
+    # The walk gives up after a fixed time, and the window has to say so rather
+    # than show a partial answer as a complete one.
+    # Restored in a finally, so a failure here cannot leave GuiCleanScanned set
+    # and take later checks down with it.
     try {
         $script:GuiLargeFiles = @(
             [pscustomobject]@{ Path='D:\big.iso'; Size='4 GB'; Bytes=4GB; Kind='disc image'; Age=30 }
@@ -624,8 +620,8 @@ Check 'a truncated large-file scan says so on screen' {
 
         # A complete scan must not carry the warning, or it means nothing.
         # Re-entered through Set-GuiPhase so the pane is rebuilt rather than
-        # appended to: the first version read the previous render back and
-        # reported a warning that was no longer being drawn.
+        # appended to; reading the previous render back would report a warning
+        # that is no longer drawn.
         $script:LargeScanTruncated = $false
         Set-GuiPhase 'Disk cleanup'
         Show-GuiLargeFiles
@@ -652,8 +648,8 @@ Check 'presets never reach uninstall or cleanup items' {
 }
 
 Check 'the three presets select three different sets' {
-    # They used to overlap into uselessness: Recommended ticked everything there
-    # was, and Aggressive matched it exactly.
+    # The presets have to be genuinely different sets, or choosing between
+    # them means nothing.
     Set-GuiPreset 'recommended'; $rec = @($script:GuiItems | Where-Object { $_.Selected }).Count
     Set-GuiPreset 'advanced';    $adv = @($script:GuiItems | Where-Object { $_.Selected }).Count
     Set-GuiPreset 'everything';  $all = @($script:GuiItems | Where-Object { $_.Selected }).Count
@@ -675,11 +671,11 @@ Check 'window icon renders' {
 
 # ---------------------------------------------------------------------------
 # The panes that act. Startup, Cleanup and Uninstall each ask their own
-# question and act on the answer, and none of their handlers had ever run:
-# each stops on a dialog nothing could click, and each ran inside the dry run
-# the window holds for its plan - so a startup switch wrote nothing, Delete
-# deleted nothing and reported the space as freed, and uninstall never started
-# an uninstaller. Dialogs are answered here; everything touched is scratch.
+# question and act on the answer. Each stops on a dialog, answered here, and
+# each has to lift the dry run the window holds for its plan - otherwise a
+# startup switch writes nothing, Delete deletes nothing and reports the space
+# as freed, and uninstall never starts an uninstaller. Everything touched is
+# scratch.
 # ---------------------------------------------------------------------------
 $script:Said = [System.Collections.Generic.List[string]]::new()
 function Show-GuiMessage {

@@ -116,15 +116,9 @@ $wsbXml = @"
 </Configuration>
 "@
 
-# The configuration was composed above and never written. Every run launched
-# the sandbox against a file that did not exist.
-#
-# Start-Process on the missing .wsb said "The system cannot find the file
-# specified", which was exactly true and was read as a file-association
-# problem. Launching WindowsSandbox.exe with the path instead made it worse:
-# the executable ignores a configuration it cannot read and starts a default
-# sandbox, with no mapped folders and no logon command, which then sits there
-# looking busy until the harness times out twenty minutes later.
+# Written to disk before launch. WindowsSandbox.exe ignores a configuration it
+# cannot read and starts a default sandbox - no mapped folders, no logon
+# command - which then sits there looking busy until the harness times out.
 Set-Content -LiteralPath $wsb -Value $wsbXml -Encoding UTF8
 
 if (-not (Test-Path -LiteralPath $wsb)) {
@@ -157,8 +151,8 @@ Write-Host "Waiting up to $TimeoutMinutes minutes for a result..." -ForegroundCo
 
 while ((Get-Date) -lt $deadline) {
     if (Test-Path $exitFile) {
-        # Written empty when the sandbox died before it could report; calling
-        # .Trim() on that null is how the harness itself used to crash.
+        # Written empty when the sandbox died before it could report, and
+        # .Trim() on that null would crash the harness itself.
         $raw = Get-Content $exitFile -Raw -ErrorAction SilentlyContinue
         if ([string]::IsNullOrWhiteSpace($raw)) { Start-Sleep -Seconds 2; continue }
         $code = $raw.Trim()
@@ -181,8 +175,7 @@ while ((Get-Date) -lt $deadline) {
             # The guest shuts itself down. Wait for the VM to actually go
             # rather than assuming it did: a stranded vmmemWindowsSandbox holds
             # its entire memory allocation, belongs to the Hyper-V Host Compute
-            # Service, and refuses Stop-Process with "Access is denied". One run
-            # left 1.7 GB held that way, and only a service restart freed it.
+            # Service, and refuses Stop-Process with "Access is denied".
             for ($i = 0; $i -lt 30; $i++) {
                 if (-not (Get-Process -Name vmmemWindowsSandbox -ErrorAction SilentlyContinue)) { break }
                 Start-Sleep -Seconds 2
@@ -194,8 +187,8 @@ while ((Get-Date) -lt $deadline) {
             } else {
                 # The guest shutting down releases the VM but leaves the client
                 # window behind - an empty shell still holding around 190 MB.
-                # Checking only for vmmemWindowsSandbox reported a clean
-                # teardown while that was still on screen.
+                # Checking only for vmmemWindowsSandbox would report a clean
+                # teardown while that is still on screen.
                 #
                 # Safe to end here, and only here: the VM is already gone, so
                 # there is nothing left to strand. Ending this process while a
@@ -224,9 +217,8 @@ Write-Host 'The guest never reported. Its log, if it got that far, is in test\re
 #
 # A guest that dies before writing its exit code leaves this waiting for a
 # result that is never coming, and then leaves a container holding a couple of
-# gigabytes until somebody notices. That happened for real: a typo in the
-# results path threw inside the verification AFTER all six checks had passed,
-# so the run had succeeded and reported nothing.
+# gigabytes until somebody notices - and a guest can pass every check and
+# still die that way, if anything after the checks throws.
 #
 # WM_CLOSE, not Stop-Process. It is what clicking the X does, and the container
 # shuts down properly under it. Ending the client process while a VM is still

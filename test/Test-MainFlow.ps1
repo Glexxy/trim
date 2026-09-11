@@ -6,9 +6,9 @@
 .DESCRIPTION
     Nothing else executes Invoke-Main. The dry-run harness calls the phases
     directly and the window test drives the window - both start after the
-    decision about what kind of run this is has already been made. That
-    decision is the thing that shipped wrong: with no arguments the script fell
-    past the window branch and applied every change unattended.
+    decision about what kind of run this is has already been made, and that
+    decision is the one that matters most: with no arguments the script must
+    open the window and apply nothing.
 
     So this replaces the six functions that touch the machine with recorders,
     calls the real Invoke-Main, and asserts what it did and in what order.
@@ -91,9 +91,8 @@ function Invoke-WithProgress { param($Total, $Work) Note 'progress-window'; & $W
 
 # Invoke-Selection is deliberately NOT stubbed. It is the function that takes
 # the run out of dry mode once a selection exists, so a stub standing in for it
-# makes the window's Apply look like it changes nothing - which is what the
-# first version of this file reported. It writes a selection file and sets the
-# filter; neither touches the machine.
+# would make the window's Apply look like it changes nothing. It writes a
+# selection file and sets the filter; neither touches the machine.
 
 function Show-TrimWindow {
     param($Facts, $BuildPlan)
@@ -137,7 +136,7 @@ Write-Host ''
 Write-Host 'Trim - entry point flow' -ForegroundColor Cyan
 Write-Host ''
 
-# The one that shipped wrong. `irm https://trimbloat.com/go | iex` passes no
+# The one that matters most. `irm https://trimbloat.com/go | iex` passes no
 # parameters at all, and this is what that run must do.
 Case 'no arguments shows the window and changes nothing' @{} {
     param($t)
@@ -269,8 +268,7 @@ try {
 
 # Invoke-Selection sets the filter itself on the elevated branch. Cleared here
 # on purpose: leaving it set would let the case below pass without the file
-# being read at all, which is the shape of half the faults this project has
-# found in its own tests.
+# being read at all - a test passing without exercising what it names.
 $script:SelectionFilter = $null
 $script:DryRun = $false
 
@@ -301,12 +299,10 @@ Case '-Cleanup runs the sweep and nothing else' @{ Cleanup = $true } {
 }
 
 
-# The Memory Integrity crash aborted the Security phase, which is tenth of
-# twelve. Whether the undo script still gets written when a phase throws is the
-# difference between a half-applied machine you can reverse and one you cannot.
-# Invoke-Main does write it from a finally - but nothing had ever thrown, so
-# that was read rather than known, and each of the three apply routes has its
-# own try/finally to get wrong.
+# A phase can throw part of the way through. Whether the undo script is still
+# written then is the difference between a half-applied machine you can reverse
+# and one you cannot, and each of the three apply routes has its own
+# try/finally to get wrong.
 $realPhases = ${function:Invoke-AllPhases}
 function Invoke-AllPhases {
     param($Facts)
@@ -406,10 +402,9 @@ if (-not (Test-Path -LiteralPath $artefact)) {
         }
 
         # And the thing the check is actually for: a staged file that was added
-        # to after it was hashed. This is what the comment on the check claims,
-        # now that it no longer claims to stop wholesale replacement - which it
-        # cannot, because a file that is not this script does not run this
-        # check at all.
+        # to after it was hashed. It does not claim to stop wholesale
+        # replacement, which it cannot - a file that is not this script does not
+        # run this check at all.
         $tampered = Join-Path ([IO.Path]::GetTempPath()) "trim-elev-tampered-$([Guid]::NewGuid().ToString('N')).ps1"
         Copy-Item -LiteralPath $stage -Destination $tampered -Force
         Add-Content -LiteralPath $tampered -Value "`r`nWrite-Host 'TAMPERED PAYLOAD RAN'"
@@ -429,8 +424,8 @@ if (-not (Test-Path -LiteralPath $artefact)) {
         }
 
         # The comment on the check is the only place this defence is described,
-        # and it overclaimed until 7 September: it said re-hashing closed the
-        # window in which the staged file could be replaced, which it does not.
+        # so it must not claim that re-hashing closes the window in which the
+        # staged file could be replaced. It does not.
         $mainSrc = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '99-main.ps1')
         $block = [regex]::Match($mainSrc, '(?s)(#[^\r\n]*\r?\n\s*)*?if \(\$ElevationHash\)')
         $what = 'the elevation hash check does not claim to stop a file being replaced'
@@ -546,8 +541,7 @@ if (-not (Test-Path -LiteralPath $artefact)) {
 # The Startup, Cleanup and Uninstall panes act while the window is open, not at
 # Apply. So closing the window is not proof that nothing happened, and applying
 # the plan must not throw away a change a pane already made - the dry pass's
-# ledger is cleared before the real pass, and that used to take everything
-# with it.
+# ledger is cleared before the real pass, and a pane's change has to survive it.
 $realWindow = ${function:Show-TrimWindow}
 function Show-TrimWindow {
     param($Facts, $BuildPlan)
@@ -597,7 +591,7 @@ if ($failures.Count) {
 }
 Write-Host 'The entry point routes every invocation correctly.' -ForegroundColor Green
 
-# Explicit, because this file now runs powershell.exe as a subprocess and one of
+# Explicit, because this file runs powershell.exe as a subprocess and one of
 # those runs is meant to exit 1. Without this the script inherits that code and
 # a passing suite reports a failed build.
 exit 0
