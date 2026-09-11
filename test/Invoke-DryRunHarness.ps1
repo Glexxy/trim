@@ -34,7 +34,7 @@ $WinUtilConfigUrl = Join-Path $root 'config\winutil-tweaks.json'
 $NvidiaProfile    = ''
 $DisableMemoryIntegrity = $false
 $NoRestartPrompt  = $true
-$Cleanup = $false; $IncludeDuplicates = $false; $CleanupSelection = ''
+$Cleanup = $false; $IncludeDuplicates = $false
 $Gui = $false; $ApplySelection = ''
 
 foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1' | Sort-Object Name)) {
@@ -1466,15 +1466,14 @@ Test-Phase 'A run with no arguments never applies anything' {
             @{ Set = @('Cleanup');          Window = $false; Why = '-Cleanup' }
             @{ Set = @('LargeFiles');       Window = $false; Why = '-LargeFiles' }
             @{ Set = @('ApplySelection');   Window = $false; Why = 'an elevated apply of a saved selection' }
-            @{ Set = @('CleanupSelection'); Window = $false; Why = 'an elevated cleanup of a saved selection' }
         )
 
         foreach ($case in $cases) {
-            # Switches default to $false, the two internal ones to ''; a set
+            # Switches default to $false, the internal one to ''; a set
             # string parameter carries a path.
             $Gui = $false; $Apply = $false; $DryRun = $false
             $Cleanup = $false; $LargeFiles = $false
-            $ApplySelection = ''; $CleanupSelection = ''
+            $ApplySelection = ''
             foreach ($name in $case.Set) {
                 if ($name -match 'Selection$') { Set-Variable -Name $name -Value 'C:\some\file.json' }
                 else                           { Set-Variable -Name $name -Value $true }

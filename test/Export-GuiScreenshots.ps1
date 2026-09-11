@@ -54,7 +54,7 @@ $root = Split-Path $PSScriptRoot -Parent
 $DryRun = $true; $Skip = @(); $Only = @(); $NoRestorePoint = $true; $Aggressive = $false
 $WinUtilConfigUrl = Join-Path $root 'config\winutil-tweaks.json'
 $NvidiaProfile = ''; $DisableMemoryIntegrity = $false; $Gui = $false; $ApplySelection = ''
-$NoRestartPrompt = $true; $Cleanup = $false; $IncludeDuplicates = $false; $CleanupSelection = ''
+$NoRestartPrompt = $true; $Cleanup = $false; $IncludeDuplicates = $false
 
 foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1' | Sort-Object Name)) {
     if ($f.Name -in @('01-header.ps1','99-main.ps1')) { continue }

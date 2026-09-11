@@ -98,9 +98,6 @@ param(
     # the file and Windows starting it.
     [string]$ElevationHash = '',
 
-    # Internal: delete a cleanup selection saved by an earlier window.
-    [string]$CleanupSelection = '',
-
     # Print the version and the SHA256 of this exact file, then exit. The one
     # way a user can confirm that what reached their machine is what was
     # published, rather than what somebody in the middle preferred.

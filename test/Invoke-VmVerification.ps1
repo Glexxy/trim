@@ -353,7 +353,7 @@ if (Test-Path -LiteralPath $srcDir) {
     $DryRun = $false; $Skip = @(); $Only = @(); $NoRestorePoint = $true; $Aggressive = $false
     $WinUtilConfigUrl = ''; $NvidiaProfile = ''; $DisableMemoryIntegrity = $false
     $NoRestartPrompt = $true; $Cleanup = $false; $IncludeDuplicates = $false
-    $CleanupSelection = ''; $Gui = $false; $ApplySelection = ''
+    $Gui = $false; $ApplySelection = ''
     foreach ($f in (Get-ChildItem $srcDir -Filter '*.ps1' | Sort-Object Name)) {
         if ($f.Name -in @('01-header.ps1','99-main.ps1')) { continue }
         . $f.FullName

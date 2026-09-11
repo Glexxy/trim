@@ -239,7 +239,7 @@ function Invoke-Main {
     # shown and nothing asked. Applying headlessly is still possible - it is
     # what -Apply is for - but it has to be requested.
     if (-not ($Gui -or $Apply -or $DryRun -or $Cleanup -or $LargeFiles -or
-              $ApplySelection -or $CleanupSelection)) {
+              $ApplySelection)) {
         Set-Variable -Name Gui -Value $true -Scope Script
     }
 

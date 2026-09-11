@@ -1281,7 +1281,8 @@ function Invoke-GuiLive {
 
 <#
 .SYNOPSIS
-    Delete what is ticked, elevating first if the selection includes system paths.
+    Delete what is ticked, after asking. What needs administrator rights is left
+    alone and reported.
 #>
 function Invoke-GuiCleanDelete {
     $sel = @($script:GuiCleanItems | Where-Object { $_.Selected })

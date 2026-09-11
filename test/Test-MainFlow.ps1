@@ -30,7 +30,7 @@ $Skip = @(); $Only = @(); $NoRestorePoint = $true; $Aggressive = $false
 $WinUtilConfigUrl = Join-Path $root 'config\winutil-tweaks.json'
 $NvidiaProfile = ''; $DisableMemoryIntegrity = $false; $ApplySelection = ''
 $NoRestartPrompt = $true; $Cleanup = $false; $IncludeDuplicates = $false
-$CleanupSelection = ''; $ElevationHash = ''; $LargeFiles = $false
+$ElevationHash = ''; $LargeFiles = $false
 
 # Invoke-Selection branches on this: elevated, it flips the run out of dry mode
 # and hands back to the caller; unelevated, it relaunches itself as admin. Only
@@ -113,7 +113,7 @@ function Case {
     # these, so a case must not inherit the last one's decisions.
     $script:DryRun = $false; $script:Apply = $false; $script:Gui = $false
     $script:Cleanup = $false; $script:LargeFiles = $false
-    $script:ApplySelection = ''; $script:CleanupSelection = ''
+    $script:ApplySelection = ''
     $script:CanShowGui = $true; $script:WindowGives = $null
     foreach ($k in $Params.Keys) { Set-Variable -Name $k -Value $Params[$k] -Scope Script }
 
