@@ -161,7 +161,7 @@ WinUtil phase's own changes, and the `netsh` TCP settings (one command, printed
 in the log). Everything the ledger records comes back exactly.
 
 The fallback for WinUtil's changes is the System Restore point taken before the
-run — with the caveat that Windows can refuse to make one, on a machine where
+plan is applied — with the caveat that Windows can refuse to make one, on a machine where
 System Protection is off by policy. The run says so on screen and in the log
 when that happens, rather than leaving you to assume a rollback exists. Keep
 the WinUtil phase off with `-Skip WinUtil` if that matters to you.

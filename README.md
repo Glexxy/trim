@@ -91,8 +91,9 @@ C:\ProgramData\Trim\undo\undo_<timestamp>.ps1
 Run it whenever, and every value returns to exactly what it was. Values that
 didn't exist before are removed, not zeroed.
 
-A System Restore point is taken first — where Windows allows one. Machines with
-System Protection off by policy refuse, and the run says so on screen and in the
+A System Restore point is taken before the plan is applied — where Windows allows
+one. Machines with System Protection off by policy refuse, and the run says so on
+screen and in the
 log rather than letting you assume you have a rollback you don't. Startup
 shortcuts are moved, not deleted. Registry keys are exported to `.reg` before a
 deep uninstall. NVIDIA's previous profile is exported to `.nip`.
@@ -102,8 +103,10 @@ the restore point), and `netsh` TCP settings — one command, printed in the log
 
 ## Safety
 
-- Nothing changes until you click Apply. A run with no arguments always opens
-  the window; applying without it takes an explicit `-Apply`.
+- Nothing in the plan changes until you click Apply. A run with no arguments
+  always opens the window; applying without it takes an explicit `-Apply`. The
+  Startup, Cleanup and Uninstall panes are separate: each asks before it acts,
+  and acts when you say yes.
 - Admin is asked for once, at the start, because several of the values being
   read need it. `-DryRun` is the exception and grants nothing.
 - Only SAFE is ticked by default. CAUTION and RISKY are opt-in.
@@ -154,8 +157,9 @@ PowerShell 7+. Admin rights to apply changes; the dry run needs none.
 
 ## Usage
 
-With no arguments it opens the window — which is what the one-liner does, and
-nothing changes until you click Apply.
+With no arguments it opens the window — which is what the one-liner does. The
+plan changes nothing until you click Apply; the Startup, Cleanup and Uninstall
+panes each ask first and act when you say yes.
 
 ```powershell
 .\trim.ps1

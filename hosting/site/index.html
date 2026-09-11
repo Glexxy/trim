@@ -94,7 +94,7 @@
         </div>
         <p class="cmd-note">
           Paste that into PowerShell. Windows will ask for admin rights. A window
-          opens, and nothing on your PC changes until you click Apply.
+          opens, and nothing on your PC changes until you say so.
         </p>
       </div>
 
@@ -229,7 +229,7 @@
                  srcset="/img/overview.webp?v={{V}} 1200w, /img/overview@2x.webp?v={{V}} 2320w"
                  sizes="(max-width: 949px) 92vw, 62vw"
                  width="2320" height="1540" loading="lazy" decoding="async"
-                 alt="Overview screen explaining what Trim is, that a restore point is taken first, and showing the SAFE, CAUTION and RISKY labels.">
+                 alt="Overview screen explaining what Trim is, that a restore point is taken before the plan is applied, and showing the SAFE, CAUTION and RISKY labels.">
           </div>
           <p class="shot-cap">It explains itself in plain English, then prints a full
              spec sheet of your machine. On the PC that generated this, it found 60
@@ -429,7 +429,7 @@ git checkout &lt;commit&gt;
         </li>
         <li>
           <h3>A restore point goes first</h3>
-          <p>Before anything is touched, so you can roll back the whole machine and not
+          <p>Before the plan is applied, so you can roll back the whole machine and not
              just the settings Trim happens to know about. Where System Protection is
              switched off by policy Windows refuses, and the run says so on screen
              instead of leaving you to assume otherwise.</p>
@@ -460,7 +460,7 @@ git checkout &lt;commit&gt;
       <details>
         <summary>Will it break my PC?</summary>
         <div><p>That is the thing it is built to avoid. Only the changes marked SAFE are
-           ticked when it opens, a restore point is taken before anything runs unless
+           ticked when it opens, a restore point is taken before the plan is applied unless
            Windows refuses to make one, and every registry change is written down so it
            can be put back exactly. It also stays away from the things that actually kill
            machines: BIOS, fan curves, overclocking, and the Windows components other
@@ -484,7 +484,8 @@ git checkout &lt;commit&gt;
         <div><p>Because half of what it changes is machine-wide: scheduled tasks,
            services, and registry keys under HKEY_LOCAL_MACHINE &mdash; several of which
            cannot even be read without it, which is why the one-liner asks once at the
-           start rather than mid-run. Nothing is changed until you click Apply. If you
+           start rather than mid-run. Nothing is changed until you say so &mdash; the plan
+           waits for Apply, and the Startup, Cleanup and Uninstall panes each ask first. If you
            would rather grant nothing at all, <code>-DryRun</code> runs unelevated and
            prints the plan; it says so at the top, because the handful of values it
            cannot read are missing from it.</p></div>
@@ -518,8 +519,8 @@ git checkout &lt;commit&gt;
   <!-- ══ close ══════════════════════════════════════════════════════════ -->
   <section class="closer" aria-labelledby="close-h">
     <h2 id="close-h">Go and look at your own PC.</h2>
-    <p>Windows asks for admin, a window opens, and nothing changes until you click
-       Apply. Worst case you close it, having found out what Windows has been up to.</p>
+    <p>Windows asks for admin, a window opens, and nothing changes until you say so.
+       Worst case you close it, having found out what Windows has been up to.</p>
     <div class="cmd solo">
       <span class="cmd-prompt" aria-hidden="true">PS&gt;</span>
       <code class="cmd-text">irm https://trimbloat.com/go | iex</code>
@@ -604,13 +605,13 @@ git checkout &lt;commit&gt;
         { "@type": "Question", "name": "Is Trim actually free?",
           "acceptedAnswer": { "@type": "Answer", "text": "Yes. MIT licensed, open source, no paid tier, no account, and nothing to buy later." } },
         { "@type": "Question", "name": "Will Trim break my PC?",
-          "acceptedAnswer": { "@type": "Answer", "text": "That is the thing it is built to avoid. Only changes marked SAFE are ticked when it opens, a restore point is taken before anything runs unless Windows refuses to make one, and every registry change is written down so it can be put back exactly. It also stays away from BIOS, fan curves, overclocking and the Windows components other software depends on." } },
+          "acceptedAnswer": { "@type": "Answer", "text": "That is the thing it is built to avoid. Only changes marked SAFE are ticked when it opens, a restore point is taken before the plan is applied unless Windows refuses to make one, and every registry change is written down so it can be put back exactly. It also stays away from BIOS, fan curves, overclocking and the Windows components other software depends on." } },
         { "@type": "Question", "name": "Does it work on Windows 10?",
           "acceptedAnswer": { "@type": "Answer", "text": "Yes, Windows 10 and 11. It works out which one you are on and skips whatever does not apply to your build." } },
         { "@type": "Question", "name": "Do I have to install anything?",
           "acceptedAnswer": { "@type": "Answer", "text": "No. It runs from PowerShell and leaves no program behind. It does write files: its log, its ledger and the undo script, all in C:\\ProgramData\\Trim, plus a copy of itself in the temp folder when it needs admin rights." } },
         { "@type": "Question", "name": "Why does Trim need administrator rights?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Because much of what it changes is machine-wide: scheduled tasks, services and registry keys under HKEY_LOCAL_MACHINE, several of which cannot be read without it. It asks once at the start, and nothing is changed until you click Apply. A dry run needs no admin at all, though the values it cannot read are missing from that plan." } },
+          "acceptedAnswer": { "@type": "Answer", "text": "Because much of what it changes is machine-wide: scheduled tasks, services and registry keys under HKEY_LOCAL_MACHINE, several of which cannot be read without it. It asks once at the start, and nothing is changed until you say so: the plan waits for Apply, and the Startup, Cleanup and Uninstall panes each ask first. A dry run needs no admin at all, though the values it cannot read are missing from that plan." } },
         { "@type": "Question", "name": "Will Trim give me more FPS?",
           "acceptedAnswer": { "@type": "Answer", "text": "Sometimes a bit, often nothing you would notice. Killing background telemetry and pointing games at the right GPU does real work on a cluttered laptop and almost nothing on a clean, well-specced desktop. Anyone promising a specific frame-rate gain from registry edits is guessing or lying." } },
         { "@type": "Question", "name": "Can I undo it weeks later?",

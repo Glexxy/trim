@@ -27,7 +27,8 @@ Run it with one line in PowerShell:
 
 ## What makes it different
 
-- Nothing is changed until the user clicks Apply. The one-liner asks for
+- Nothing is changed until the user says so: the plan waits for Apply, and the
+  Startup, Cleanup and Uninstall panes each ask before they act. The one-liner asks for
   administrator rights up front, because several of the values it reads are
   machine-wide; a dry run needs none, though the values it cannot read without
   them are missing from that plan.
@@ -37,7 +38,8 @@ Run it with one line in PowerShell:
   standalone rollback script at C:\ProgramData\Trim\undo. Three things it
   cannot put back: removed Store apps, the WinUtil phase's own changes, and
   netsh TCP settings.
-- A System Restore point is taken first where Windows allows one. Machines with
+- A System Restore point is taken before the plan is applied, where Windows allows
+  one. Machines with
   System Protection off by policy refuse, and the run reports that rather than
   implying a rollback exists.
 - It installs nothing. It writes a log, a ledger and the undo script to

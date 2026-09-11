@@ -314,7 +314,7 @@ $script:GuiXaml = @'
         </StackPanel>
         <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center" TextAlignment="Right"
                    Foreground="{StaticResource Soft}" FontSize="12" LineHeight="17"
-                   Text="Nothing is changed until you press Apply.&#x0a;A restore point is taken first where Windows allows one, and every change is written down so it can be undone."/>
+                   Text="Nothing in the plan is changed until you press Apply.&#x0a;A restore point is taken before it is applied where Windows allows one, and every change is written down so it can be undone."/>
       </Grid>
     </Border>
 
@@ -735,18 +735,19 @@ function Show-GuiOverview {
         'and tunes what is left for games. Nothing on this PC has been touched yet.') `
         -Colour '#E6EDEB' -Size 14.5 -Top 20
 
-    Add-GuiParagraph -Text 'Before anything is changed, a backup is made' -Colour '#E6EDEB' -Size 13 -Weight 'SemiBold' -Top 22
-    Add-GuiParagraph -Text ("Trim asks Windows for a System Restore point before it touches anything, so the whole " +
+    Add-GuiParagraph -Text 'Before the plan is applied, a backup is made' -Colour '#E6EDEB' -Size 13 -Weight 'SemiBold' -Top 22
+    Add-GuiParagraph -Text ("Trim asks Windows for a System Restore point before it applies the plan, so the whole " +
         "machine can be rolled back to how it is right now. Some machines have System Protection switched off by " +
         "policy and refuse; if that happens it says so rather than pretending otherwise. Either way, every single " +
-        "setting it changes is written down beforehand, and you get a script that puts each one back exactly as " +
-        "it was. You are never stuck with a change you did not want.") -Top 5
+        "setting it changes is written down beforehand - including a startup item switched off from its pane - and " +
+        "you get a script that puts each one back exactly as it was. Deleting files and uninstalling apps are the " +
+        "exception: each asks first, because neither can be undone.") -Top 5
 
     Add-GuiParagraph -Text 'How it works' -Colour '#E6EDEB' -Size 13 -Weight 'SemiBold' -Top 22
     Add-GuiParagraph -Text ("Recommended ticks only what is safe on any system. Advanced adds everything marked " +
         "Caution, and Everything adds the risky ones as well - or go through the sections on the left and tick " +
         "exactly what you want. Every row shows the setting, what it is now, and what it would become. " +
-        "Nothing at all happens until you press Apply.") -Top 5
+        "Nothing in the plan happens until you press Apply; the Startup, Cleanup and Uninstall panes each ask before they act.") -Top 5
 
     # Three exceptions, not one. This said "apps ... everything else is
     # reversible" while the README and the site both listed three, and this is
@@ -755,7 +756,7 @@ function Show-GuiOverview {
     Add-GuiParagraph -Text ("Three things the undo script cannot put back. Apps that get removed - reinstall " +
         "those from the Microsoft Store. The WinUtil phase's own changes, if you keep it - that is what the " +
         "restore point is for. And the netsh TCP settings, which is one command, printed in the log. " +
-        "Everything else is reversible.") -Top 5
+        "Everything else in the plan is reversible.") -Top 5
 
     Add-GuiParagraph -Text 'The labels on each row' -Colour '#E6EDEB' -Size 13 -Weight 'SemiBold' -Top 20
     foreach ($t in @('safe','op','trade')) {
@@ -946,9 +947,9 @@ function Copy-GuiSpecs {
     $lines += "Collected by Trim on $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
     try {
         Set-Clipboard -Value ($lines -join [Environment]::NewLine)
-        [void][Windows.MessageBox]::Show('Specification copied to the clipboard.', 'Trim', 'OK', 'Information')
+        [void](Show-GuiMessage -Text 'Specification copied to the clipboard.')
     } catch {
-        [void][Windows.MessageBox]::Show("Could not access the clipboard: $($_.Exception.Message)", 'Trim', 'OK', 'Warning')
+        [void](Show-GuiMessage -Text "Could not access the clipboard: $($_.Exception.Message)" -Icon 'Warning')
     }
 }
 
@@ -1249,35 +1250,81 @@ function Show-GuiLargeFiles {
 .SYNOPSIS
     Delete what is ticked, elevating first if the selection includes system paths.
 #>
+<#
+.SYNOPSIS
+    Show a dialog. Every modal in the window comes through here.
+
+.DESCRIPTION
+    So that a test can answer it. The Startup, Cleanup and Uninstall handlers
+    had never been run by any test, and part of the reason was that each one
+    stops on a MessageBox nothing can click.
+#>
+function Show-GuiMessage {
+    param([string]$Text, [string]$Title = 'Trim', [string]$Buttons = 'OK',
+          [string]$Icon = 'Information', [string]$Default = 'OK')
+    return [string][Windows.MessageBox]::Show($Text, $Title, $Buttons, $Icon, $Default)
+}
+
+<#
+.SYNOPSIS
+    Run one of the panes' own actions for real, not as part of the plan.
+
+.DESCRIPTION
+    The window builds its plan as a dry run and holds $DryRun true for as long
+    as it is open, so nothing in the plan happens before Apply. The Startup,
+    Cleanup and Uninstall panes are not the plan: each asks its own question
+    and acts on the answer. Until 11 September each acted inside that dry run -
+    a startup switch that wrote nothing, a Delete button that deleted nothing
+    and reported the space as freed, an uninstall that never started the
+    uninstaller. None of the three had ever been run by a test.
+
+    A dry run the user asked for is honoured: then nothing here acts either,
+    and the caller has to say so.
+#>
+function Invoke-GuiLive {
+    param([Parameter(Mandatory)][scriptblock]$Work)
+    if ($script:UserAskedDryRun) { return (& $Work) }
+    $liveWas = $DryRun
+    Set-Variable -Name DryRun -Value $false -Scope Script
+    $script:WindowActed = $true
+    try     { return (& $Work) }
+    finally { Set-Variable -Name DryRun -Value $liveWas -Scope Script }
+}
+
 function Invoke-GuiCleanDelete {
     $sel = @($script:GuiCleanItems | Where-Object { $_.Selected })
     if ($sel.Count -eq 0) { return }
 
     $bytes = Get-SumOrZero -Items $sel -Property Bytes
     $files = Get-SumOrZero -Items $sel -Property Count
-    $answer = [Windows.MessageBox]::Show(
+    $answer = Show-GuiMessage -Title 'Trim - confirm deletion' -Buttons 'YesNo' -Icon 'Warning' -Default 'No' -Text (
         "Delete $files file(s) from $($sel.Count) location(s), freeing about $(Format-Bytes $bytes)?" +
         [Environment]::NewLine + [Environment]::NewLine +
-        'This cannot be undone by Trim. Files already in the Recycle Bin are removed permanently.',
-        'Trim - confirm deletion', 'YesNo', 'Warning', 'No')
+        'This cannot be undone by Trim. Files already in the Recycle Bin are removed permanently.')
     if ($answer -ne 'Yes') { return }
 
     $script:GuiUi.TxtPhaseSub.Text = 'Deleting...'
     $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
 
-    $result = Invoke-Cleanup -Items $sel
+    $result = Invoke-GuiLive { Invoke-Cleanup -Items $sel }
     $script:GuiCleanItems = @(Get-CleanupScan -Quiet)
     Update-GuiItems
 
-    $msg = "Freed $(Format-Bytes ([double]$result.Freed))."
-    if ($result.Skipped -gt 0) {
-        $msg += [Environment]::NewLine + [Environment]::NewLine +
-                "$($result.Skipped) file(s) were in use or needed administrator rights and were left alone."
-        if (-not $isAdmin) {
-            $msg += ' Running Trim as administrator would clear the system locations too.'
+    # A dry run reports what it would have freed. It used to report that as
+    # freed, every time, because the window was always a dry run.
+    if ($script:UserAskedDryRun) {
+        $msg = "This is a dry run, so nothing was deleted. It would have freed about $(Format-Bytes ([double]$result.Freed))."
+    } else {
+        $msg = "Freed $(Format-Bytes ([double]$result.Freed))."
+        if ($result.Skipped -gt 0) {
+            $msg += [Environment]::NewLine + [Environment]::NewLine +
+                    "$($result.Skipped) file(s) were in use or needed administrator rights and were left alone."
+            if (-not $isAdmin) {
+                $msg += ' Running Trim as administrator would clear the system locations too.'
+            }
         }
     }
-    [void][Windows.MessageBox]::Show($msg, 'Trim - cleanup finished', 'OK', 'Information')
+    [void](Show-GuiMessage -Text $msg -Title 'Trim - cleanup finished')
 }
 
 
@@ -1437,8 +1484,12 @@ function Invoke-GuiLoadStartup {
 function Invoke-GuiToggleStartup {
     param($Item, $Button)
 
-    $ok = if ($Item.State -eq 'Enabled') { Disable-StartupItem -Item $Item } else { Enable-StartupItem -Item $Item }
+    $ok = Invoke-GuiLive { if ($Item.State -eq 'Enabled') { Disable-StartupItem -Item $Item } else { Enable-StartupItem -Item $Item } }
     if (-not $ok) { return }
+    if ($script:UserAskedDryRun) {
+        [void](Show-GuiMessage -Title 'Trim - startup apps' -Text "This is a dry run, so '$($Item.Name)' was left as it is.")
+        return
+    }
 
     # Re-read rather than assuming the write landed. Disabling a machine-wide
     # entry without administrator rights fails, and a button that lies about it
@@ -1678,16 +1729,35 @@ function Invoke-GuiLoadApps {
 function Invoke-GuiUninstallApp {
     param([Parameter(Mandatory)]$App)
 
-    $answer = [Windows.MessageBox]::Show(
+    $answer = Show-GuiMessage -Title 'Trim - uninstall' -Buttons 'YesNo' -Icon 'Question' -Default 'No' -Text (
         "Uninstall $($App.DisplayName)?" + [Environment]::NewLine + [Environment]::NewLine +
         'Its own uninstaller runs first and may ask you questions. Afterwards Trim will show you ' +
-        'anything it left behind, and remove only what you tick.',
-        'Trim - uninstall', 'YesNo', 'Question', 'No')
+        'anything it left behind, and remove only what you tick.')
     if ($answer -ne 'Yes') { return }
 
     $script:GuiUi.TxtPhaseSub.Text = "Uninstalling $($App.DisplayName)..."
     $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
-    [void](Invoke-AppUninstaller -App $App)
+    [void](Invoke-GuiLive { Invoke-AppUninstaller -App $App })
+
+    if ($script:UserAskedDryRun) {
+        $script:GuiUi.TxtPhaseSub.Text = ''
+        [void](Show-GuiMessage -Title 'Trim - uninstall' -Text (
+            "This is a dry run, so the uninstaller for $($App.DisplayName) was not started, " +
+            'and there is nothing left behind to look for.'))
+        return
+    }
+
+    # Leftovers only mean something once the application has gone. The scan
+    # starts from its install folder and folders arrive ticked, so after a
+    # cancelled or failed uninstaller it would offer the live application as
+    # its own leftovers.
+    if (Test-AppStillInstalled -App $App) {
+        $script:GuiUi.TxtPhaseSub.Text = ''
+        [void](Show-GuiMessage -Title 'Trim - uninstall' -Icon 'Warning' -Text (
+            "$($App.DisplayName) is still installed - its uninstaller was cancelled or did not finish. " +
+            'Nothing was looked for or removed.'))
+        return
+    }
 
     $script:GuiUi.TxtPhaseSub.Text = 'Looking for leftovers...'
     $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
@@ -1891,20 +1961,23 @@ function Invoke-GuiRemoveLeftovers {
                    'put back from the backup folder - a restored service needs a restart to run again.'
     }
 
-    $answer = [Windows.MessageBox]::Show(
+    $answer = Show-GuiMessage -Title 'Trim - confirm removal' -Buttons 'YesNo' -Icon 'Warning' -Default 'No' -Text (
         "Permanently remove $($what -join ', ') belonging to $($app.DisplayName)?" +
-        [Environment]::NewLine + [Environment]::NewLine + $detail,
-        'Trim - confirm removal', 'YesNo', 'Warning', 'No')
+        [Environment]::NewLine + [Environment]::NewLine + $detail)
     if ($answer -ne 'Yes') { return }
 
-    $result = Remove-AppLeftovers -Leftovers $sel -AppName $app.Name -Publisher $app.Publisher
+    $result = Invoke-GuiLive { Remove-AppLeftovers -Leftovers $sel -AppName $app.Name -Publisher $app.Publisher }
     $script:GuiLeftovers = @(Get-AppLeftovers -App $app)
     Update-GuiItems
 
-    $msg = "$($result.Removed) item(s) removed, $(Format-Bytes ([double]$result.Freed)) freed."
-    if ($result.Skipped -gt 0) { $msg += [Environment]::NewLine + "$($result.Skipped) left alone - in use, or refused by the safety check." }
-    $msg += [Environment]::NewLine + [Environment]::NewLine + "Registry backups: $($result.BackupDir)"
-    [void][Windows.MessageBox]::Show($msg, 'Trim - leftovers removed', 'OK', 'Information')
+    if ($script:UserAskedDryRun) {
+        $msg = 'This is a dry run, so nothing was removed.'
+    } else {
+        $msg = "$($result.Removed) item(s) removed, $(Format-Bytes ([double]$result.Freed)) freed."
+        if ($result.Skipped -gt 0) { $msg += [Environment]::NewLine + "$($result.Skipped) left alone - in use, or refused by the safety check." }
+        $msg += [Environment]::NewLine + [Environment]::NewLine + "Registry backups: $($result.BackupDir)"
+    }
+    [void](Show-GuiMessage -Text $msg -Title 'Trim - leftovers removed')
 }
 
 function Update-GuiItems {

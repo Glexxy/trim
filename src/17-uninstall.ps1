@@ -889,6 +889,48 @@ function Test-SafeToRemoveTask {
 .SYNOPSIS
     Run the application's own uninstaller and wait for it.
 #>
+<#
+.SYNOPSIS
+    Is this application still on the machine?
+
+.DESCRIPTION
+    Asked after its uninstaller has run and before anything is offered as a
+    leftover. The leftover scan starts from the app's own install folder and
+    folders arrive ticked, so if the uninstaller was cancelled, failed or never
+    started, the scan lists the live application as its own leftovers and one
+    click deletes it. Nothing asked this until 11 September, because until
+    then the uninstall pane never ran an uninstaller at all.
+
+    Conservative on purpose. An uninstall entry that is still registered and
+    still points at something real counts as installed. Only an entry whose
+    folder and uninstaller have both gone is treated as an orphan, which is
+    the one case where reviewing a registered app's leftovers makes sense.
+#>
+function Test-AppStillInstalled {
+    param([Parameter(Mandatory)]$App)
+
+    if ($App.Kind -eq 'appx') {
+        return [bool](@(Get-AppxPackage -ErrorAction SilentlyContinue |
+                        Where-Object { $_.PackageFullName -eq $App.PackageFullName }).Count)
+    }
+
+    # Not knowing is not the same as gone.
+    if (-not $App.RegistryKey) { return $true }
+    try { if (-not (Test-Path -LiteralPath $App.RegistryKey -ErrorAction Stop)) { return $false } } catch { return $true }
+
+    if ($App.InstallDir) {
+        try { if (Test-Path -LiteralPath $App.InstallDir -ErrorAction Stop) { return $true } } catch { return $true }
+    }
+
+    $cmd = "$($App.Uninstall)"
+    if (-not $cmd) { return $false }
+    $exe = if ($cmd -match '^\s*"([^"]+)"') { $Matches[1] } elseif ($cmd -match '^\s*(\S+\.exe)') { $Matches[1] } else { $null }
+    # MsiExec is always present, so it existing says nothing; a registered MSI
+    # entry means Windows still has the product.
+    if (-not $exe -or $exe -match '(?i)(^|\\)msiexec(\.exe)?$') { return $true }
+    try { return [bool](Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($exe)) -ErrorAction Stop) } catch { return $true }
+}
+
 function Invoke-AppUninstaller {
     param([Parameter(Mandatory)]$App, [switch]$Silent)
 

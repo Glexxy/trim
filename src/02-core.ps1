@@ -67,6 +67,17 @@ $script:NvidiaInspectorAnswered = $null
 # uninstaller, and a silently filtered list does not.
 $script:LeftoversWithheld = [System.Collections.Generic.List[object]]::new()
 
+# Whether the person running this asked for a dry run. Taken here, at load,
+# because the window overwrites $DryRun: it builds its plan as a dry run and
+# holds $DryRun true for as long as it is open. The Startup, Cleanup and
+# Uninstall panes are not the plan - each asks its own question and acts on the
+# answer - and they read this to know whether acting is what was asked for.
+$script:UserAskedDryRun = [bool](Get-Variable -Name DryRun -ValueOnly -ErrorAction SilentlyContinue)
+
+# Set when one of those panes acts while the window is open, so that closing
+# the window without applying the plan does not claim nothing was changed.
+$script:WindowActed = $false
+
 New-Item -ItemType Directory -Force -Path (Split-Path $script:LogPath)  | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path $script:UndoPath) | Out-Null
 
@@ -565,6 +576,25 @@ function Add-UndoCommand {
     param([Parameter(Mandatory)][string]$Line)
     if ($DryRun) { return }
     $script:UndoExtra.Add($Line) | Out-Null
+}
+
+<#
+.SYNOPSIS
+    Forget what a dry pass intended; keep what was actually done.
+
+.DESCRIPTION
+    The window's plan is built dry, so the ledger fills with intentions that
+    the applying pass must not inherit. But a pane can make a real change while
+    the window is open - a startup item switched off - and that entry has to
+    survive, or the undo script cannot put it back. Set-Reg marks every entry
+    with Intended, which is exactly the difference.
+#>
+function Clear-PlannedChanges {
+    $made = @($script:Ledger | Where-Object { -not $_.Intended })
+    $script:Ledger.Clear()
+    foreach ($e in $made) { $script:Ledger.Add($e) | Out-Null }
+    $script:Actions.Clear()
+    $script:AlreadySet.Clear()
 }
 
 function Write-UndoScript {

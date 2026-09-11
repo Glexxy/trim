@@ -367,12 +367,29 @@ function Invoke-Main {
         }
 
         $selection = Show-TrimWindow -Facts $facts -BuildPlan $build
-        if (-not $selection) { Write-Log 'Closed without applying. Nothing was changed.'; return }
+        if (-not $selection) {
+            # The Startup, Cleanup and Uninstall panes act when asked, not at
+            # Apply, so closing the window is not the same as nothing having
+            # happened. What a pane changed in the registry or moved is still
+            # recorded, and gets its undo script like any other change.
+            if ($script:WindowActed) {
+                Clear-PlannedChanges
+                if ($script:Ledger.Count -or $script:UndoExtra.Count) {
+                    Set-Variable -Name DryRun -Value $false -Scope Script
+                    Write-UndoScript; Write-LedgerJson
+                }
+                Write-Log 'Closed without applying the plan. What was done from the Startup, Cleanup and Uninstall panes was done at the time.'
+            } else {
+                Write-Log 'Closed without applying. Nothing was changed.'
+            }
+            return
+        }
 
         # Reset the run state. The dry pass filled it with intentions; the real
-        # pass has to start from an empty ledger or the undo script would carry
-        # entries for changes that were never made.
-        $script:Ledger.Clear(); $script:Actions.Clear(); $script:AlreadySet.Clear()
+        # pass has to start without them or the undo script would carry entries
+        # for changes that were never made. What a pane already did while the
+        # window was open is kept, so the undo script covers that too.
+        Clear-PlannedChanges
         $script:Applied = 0; $script:Skipped = 0
 
         if (-not (Invoke-Selection -Selection $selection)) { return }

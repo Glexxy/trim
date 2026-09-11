@@ -542,6 +542,51 @@ if (-not (Test-Path -LiteralPath $artefact)) {
     }
 }
 
+
+# The Startup, Cleanup and Uninstall panes act while the window is open, not at
+# Apply. So closing the window is not proof that nothing happened, and applying
+# the plan must not throw away a change a pane already made - the dry pass's
+# ledger is cleared before the real pass, and that used to take everything
+# with it.
+$realWindow = ${function:Show-TrimWindow}
+function Show-TrimWindow {
+    param($Facts, $BuildPlan)
+    Note 'window-shown'
+    $null = & $BuildPlan
+    # What a startup switch leaves behind: a real write, recorded as made.
+    $script:WindowActed = $true
+    $script:Ledger.Add([pscustomobject]@{ Action = 'set'; Path = 'HKCU:\Software\Trim\PaneTest'; Name = 'Probe'
+                                          Intended = $false }) | Out-Null
+    return $script:WindowGives
+}
+try {
+    Case 'closing the window after a pane changed something writes its undo script' @{ Gui = $true } {
+        param($t)
+        if ($t -contains 'phases(APPLY)') { throw 'closing the window applied the plan' }
+        if ($t -notcontains 'undo-script') { throw 'a pane changed something and no undo script was written for it' }
+        if (-not @($script:Ledger | Where-Object { $_.Path -eq 'HKCU:\Software\Trim\PaneTest' }).Count) {
+            throw 'the change a pane made was dropped from the ledger'
+        }
+    }
+
+    $script:Ledger.Clear(); $script:WindowActed = $false
+    Case 'applying the plan keeps what a pane already changed' `
+         @{ Gui = $true; WindowGives = @([pscustomobject]@{
+                Key = 'reg|HKCU:\Software\Trim\FlowTest|Value'; Kind = 'reg'
+                Phase = 'Privacy'; Title = 'a ticked change'; Tier = 'safe' }) } {
+        param($t)
+        if ($t -notcontains 'phases(APPLY)') { throw 'the plan was not applied' }
+        if (-not @($script:Ledger | Where-Object { $_.Path -eq 'HKCU:\Software\Trim\PaneTest' }).Count) {
+            throw 'applying the plan dropped a change a pane had already made, so the undo script cannot put it back'
+        }
+    }
+} finally {
+    ${function:Show-TrimWindow} = $realWindow
+    $script:WindowActed = $false
+    $script:Ledger.Clear()
+    $script:SelectionFilter = $null
+}
+
 Remove-Item -LiteralPath $selDir -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ''

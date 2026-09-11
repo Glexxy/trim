@@ -3788,6 +3788,97 @@ Test-Phase 'Cleanup deletes what it was asked to and nothing else' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+Test-Phase 'Nothing claims the panes wait for Apply' {
+    # Nine places said nothing changes until you click Apply - the README
+    # twice, the site three times including its structured FAQ, llms.txt, the
+    # script's help, and the window twice. That was true of the plan and, by
+    # accident, of everything else: the Startup, Cleanup and Uninstall panes
+    # ran inside the plan's dry run and changed nothing at all. Since
+    # 11 September they act when you say yes, so the sentence has to say which
+    # part waits for Apply.
+    $problems = [System.Collections.Generic.List[string]]::new()
+
+    # The premise. If the panes stop acting live, the plain sentence becomes
+    # true again and this check would be defending the wrong thing.
+    $gui = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '13-gui.ps1')
+    if ($gui -notmatch 'function Invoke-GuiLive\b') {
+        throw 'Invoke-GuiLive is gone - if the panes no longer act live, this check is defending a sentence that is true again'
+    }
+
+    # Comment lines are left out of the window's source: they explain the
+    # history of the sentence, which is not the same as saying it.
+    $guiShown = (($gui -split "`r?`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+    $surfaces = [ordered]@{
+        'README.md'       = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'README.md')
+        'the landing page' = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'hosting\site\index.html')
+        'llms.txt'        = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'hosting\site\llms.txt')
+        "the script's help" = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '01-header.ps1')
+        'SECURITY.md'     = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root 'SECURITY.md')
+        'the window'      = $guiShown
+    }
+
+    # "Nothing ... changes ... until you click/press Apply", and the script
+    # help's "until Apply is pressed", allowing for the line breaks these files
+    # wrap it with. The help's word order was missed by the first version of
+    # this pattern, so a reverted help block would have passed.
+    $claim = '(?is)\bnothing\b(?:(?!\.\s)[^.]){0,60}?\b(?:chang|happen)\w*(?:(?!\.\s)[^.]){0,40}?\buntil\b(?:(?!\.\s)[^.]){0,30}?(?:\b(?:click|press)\w*\s+Apply|\bApply\s+is\s+(?:pressed|clicked))'
+    foreach ($name in $surfaces.Keys) {
+        foreach ($m in [regex]::Matches($surfaces[$name], $claim)) {
+            # Qualified if the same passage says which part it is about: the
+            # plan, or the panes that do not wait.
+            $around = $surfaces[$name].Substring([Math]::Max(0, $m.Index - 40),
+                        [Math]::Min($surfaces[$name].Length - [Math]::Max(0, $m.Index - 40), $m.Length + 260))
+            if ($around -match '(?is)\bin the plan\b|\bthe plan\b[^.]{0,40}\buntil\b|Startup, Cleanup and Uninstall') { continue }
+            $said = ($m.Value -replace '\s+', ' ').Trim()
+            $problems.Add("$name says '$said' - the Startup, Cleanup and Uninstall panes act when you say yes, not at Apply") | Out-Null
+        }
+    }
+
+    # The restore point has the same history. "Before anything is touched"
+    # was true only while the panes touched nothing. It is taken when the plan
+    # is applied, and a startup switch, a Delete or an uninstall happens
+    # before that, with no restore point behind it.
+    $orderWords = '(?i)\b(?:goes first|taken first|first where|before anything\b|before it touches anything|before anything is (?:touched|changed)|before anything runs)'
+    #
+    # The window is read literal by literal rather than as source. Its text is
+    # string literals with code between them, so read as source a heading and
+    # the paragraph under it run together as one "sentence" - and the
+    # heading's "plan" excused a paragraph saying "before it touches
+    # anything". A mutation found that; this is why it cannot happen now.
+    $guiAst = [System.Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path (Join-Path $root 'src') '13-gui.ps1'), [ref]$null, [ref]$null)
+    $guiStrings = @($guiAst.FindAll({
+        param($n)
+        $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -or
+        $n -is [System.Management.Automation.Language.ExpandableStringExpressionAst]
+    }, $true) | ForEach-Object { "$($_.Value)" })
+    if ($guiStrings.Count -lt 50) { throw "found only $($guiStrings.Count) strings in the window - this check has stopped reading it" }
+
+    $restoreSurfaces = [ordered]@{}
+    foreach ($k in $surfaces.Keys) { if ($k -ne 'the window') { $restoreSurfaces[$k] = @($surfaces[$k]) } }
+    $restoreSurfaces['the window'] = $guiStrings
+
+    foreach ($name in $restoreSurfaces.Keys) {
+        foreach ($text in $restoreSurfaces[$name]) {
+            # Sentences, including across the window's &#x0a; line breaks.
+            foreach ($chunk in ($text -split '(?<=[.!?])(?:\s|&#x0a;)+')) {
+                if ($chunk -notmatch '(?i)restore point') { continue }
+                $hit = [regex]::Match($chunk, $orderWords)
+                if (-not $hit.Success) { continue }
+                if ($chunk -match '(?i)\bplan\b') { continue }
+                # Quote the words that made the claim, not wherever the
+                # sentence happened to start.
+                $from = [Math]::Max(0, $hit.Index - 70)
+                $said = $chunk.Substring($from, [Math]::Min($chunk.Length - $from, $hit.Length + 140))
+                $said = (($said -replace '<[^>]+>', ' ') -replace '\s+', ' ').Trim()
+                $problems.Add("$name puts the restore point before everything - '...$said...' - but the panes act before it is taken") | Out-Null
+            }
+        }
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 Write-Host ''
 if ($failures.Count -eq 0) {
     Write-Host "All checks passed. Log: $($script:LogPath)" -ForegroundColor Green

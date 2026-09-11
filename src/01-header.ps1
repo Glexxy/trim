@@ -18,8 +18,9 @@
     a parameter validation error.
 
 .PARAMETER Gui
-    Open the window. This is what a run with no arguments does, and nothing is
-    changed until Apply is pressed.
+    Open the window. This is what a run with no arguments does, and nothing in
+    the plan is changed until Apply is pressed. The Startup, Cleanup and
+    Uninstall panes each ask before they act.
 
 .PARAMETER Apply
     Apply from the command line, with no window and no prompt. Required: a run

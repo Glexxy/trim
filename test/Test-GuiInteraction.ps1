@@ -672,6 +672,237 @@ Check 'window icon renders' {
     if ($script:GuiWin.Icon.PixelWidth -ne 64) { throw "icon is $($script:GuiWin.Icon.PixelWidth)px" }
 }
 
+
+# ---------------------------------------------------------------------------
+# The panes that act. Startup, Cleanup and Uninstall each ask their own
+# question and act on the answer, and none of their handlers had ever run:
+# each stops on a dialog nothing could click, and each ran inside the dry run
+# the window holds for its plan - so a startup switch wrote nothing, Delete
+# deleted nothing and reported the space as freed, and uninstall never started
+# an uninstaller. Dialogs are answered here; everything touched is scratch.
+# ---------------------------------------------------------------------------
+$script:Said = [System.Collections.Generic.List[string]]::new()
+function Show-GuiMessage {
+    param([string]$Text, [string]$Title = 'Trim', [string]$Buttons = 'OK',
+          [string]$Icon = 'Information', [string]$Default = 'OK')
+    $script:Said.Add($Text) | Out-Null
+    if ($Buttons -eq 'YesNo') { return 'Yes' }
+    return 'OK'
+}
+
+# Runs a pane action as launched normally (the user did not ask for a dry run)
+# or as `-DryRun`. $DryRun itself stays true throughout, as the window holds it.
+function Use-PaneMode {
+    param([bool]$UserDry, [scriptblock]$Body)
+    $wasUser = $script:UserAskedDryRun; $wasActed = $script:WindowActed
+    $script:UserAskedDryRun = $UserDry; $script:WindowActed = $false
+    $script:Said.Clear()
+    try { & $Body }
+    finally { $script:UserAskedDryRun = $wasUser; $script:WindowActed = $wasActed }
+}
+function Assert-StillPlanning {
+    if (-not $DryRun) { throw 'the window was left out of dry-run mode afterwards, so its plan would start applying as it is built' }
+}
+
+$paneTag = "TrimPane$([Guid]::NewGuid().ToString('N').Substring(0,8))"
+$cmdExe  = Join-Path $env:WINDIR 'System32\cmd.exe'
+
+Check 'a startup switch in the window switches the startup item off' {
+    $scratch = "HKCU:\Software\$paneTag-startup"
+    New-Item -Path $scratch -Force | Out-Null
+    try {
+        $item = [pscustomobject]@{ Name = 'TrimProbe'; Command = 'C:\probe.exe'; Source = 'Registry'
+                                   Approved = $scratch; State = 'Enabled'; CanChange = $true }
+        Use-PaneMode $false {
+            Invoke-GuiToggleStartup -Item $item -Button $null
+            $v = (Get-Item -LiteralPath $scratch).GetValue('TrimProbe')
+            if ($null -eq $v -or -not ($v[0] -band 1)) { throw 'switching it off in the window wrote nothing' }
+            $made = @($script:Ledger | Where-Object { "$($_.Path)" -like "*$paneTag*" -and -not $_.Intended })
+            if (-not $made.Count) { throw 'the change was made but not recorded as made, so the undo script would not put it back' }
+            if (-not $script:WindowActed) { throw 'the pane acted and nothing recorded that it had' }
+            Assert-StillPlanning
+        }
+    } finally {
+        foreach ($e in @($script:Ledger | Where-Object { "$($_.Path)" -like "*$paneTag*" })) { [void]$script:Ledger.Remove($e) }
+        Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Check 'a startup switch in a dry run leaves the item alone, and says so' {
+    $scratch = "HKCU:\Software\$paneTag-startupdry"
+    New-Item -Path $scratch -Force | Out-Null
+    try {
+        $item = [pscustomobject]@{ Name = 'TrimProbe'; Command = 'C:\probe.exe'; Source = 'Registry'
+                                   Approved = $scratch; State = 'Enabled'; CanChange = $true }
+        Use-PaneMode $true {
+            Invoke-GuiToggleStartup -Item $item -Button $null
+            if ($null -ne (Get-Item -LiteralPath $scratch).GetValue('TrimProbe')) { throw 'a dry run switched the item off' }
+            if (-not @($script:Said | Where-Object { $_ -match 'dry run' }).Count) { throw 'the click did nothing and nobody was told why' }
+            Assert-StillPlanning
+        }
+    } finally {
+        foreach ($e in @($script:Ledger | Where-Object { "$($_.Path)" -like "*$paneTag*" })) { [void]$script:Ledger.Remove($e) }
+        Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function New-CleanFixture {
+    $d = Join-Path ([IO.Path]::GetTempPath()) "$paneTag-clean-$([Guid]::NewGuid().ToString('N').Substring(0,6))"
+    New-Item -ItemType Directory -Force -Path $d | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $d 'junk.tmp'), (New-Object byte[] 3000))
+    $d
+}
+
+Check 'Delete in the cleanup pane deletes, and reports what it freed' {
+    $dir = New-CleanFixture
+    $was = $script:GuiCleanItems
+    try {
+        $script:GuiCleanItems = @([pscustomobject]@{ Category = 'Probe'; Path = $dir; Filter = '*'; OlderThanDays = 0
+                                                    Selected = $true; Key = "clean|$dir"; Size = '3 KB'; Bytes = 3000; Count = 1 })
+        Use-PaneMode $false {
+            Invoke-GuiCleanDelete
+            if (Test-Path -LiteralPath (Join-Path $dir 'junk.tmp')) { throw 'Delete was confirmed and the file is still there' }
+            if (-not @($script:Said | Where-Object { $_ -match '^Freed ' }).Count) { throw "it did not report what it freed (said: $($script:Said -join ' | '))" }
+            Assert-StillPlanning
+        }
+    } finally {
+        $script:GuiCleanItems = $was
+        Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Check 'Delete in a dry run deletes nothing, and does not say it freed anything' {
+    $dir = New-CleanFixture
+    $was = $script:GuiCleanItems
+    try {
+        $script:GuiCleanItems = @([pscustomobject]@{ Category = 'Probe'; Path = $dir; Filter = '*'; OlderThanDays = 0
+                                                    Selected = $true; Key = "clean|$dir"; Size = '3 KB'; Bytes = 3000; Count = 1 })
+        Use-PaneMode $true {
+            Invoke-GuiCleanDelete
+            if (-not (Test-Path -LiteralPath (Join-Path $dir 'junk.tmp'))) { throw 'a dry run deleted the file' }
+            if (@($script:Said | Where-Object { $_ -match '^Freed ' }).Count) { throw 'a dry run told the user it had freed the space' }
+            if (-not @($script:Said | Where-Object { $_ -match 'dry run' }).Count) { throw 'it did not say this was a dry run' }
+            Assert-StillPlanning
+        }
+    } finally {
+        $script:GuiCleanItems = $was
+        Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# An application that exists only as a scratch uninstall entry and a folder,
+# with an uninstaller that either removes both or gives up.
+function New-FakeApp {
+    param([string]$Uninstall)
+    $name = "$paneTag$([Guid]::NewGuid().ToString('N').Substring(0,6))"
+    $key  = "HKCU:\Software\$name"
+    $dir  = Join-Path ([IO.Path]::GetTempPath()) $name
+    New-Item -Path $key -Force | Out-Null
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $cmd = $Uninstall -replace '\{key\}', "HKCU\Software\$name" -replace '\{dir\}', $dir
+    [pscustomobject]@{
+        Name = $name; DisplayName = $name; Publisher = ''; PublisherDisplay = ''; Version = '1'; IconSource = ''
+        InstallDir = $dir; Uninstall = $cmd; QuietUninstall = ''; SizeMB = 0; RegistryKey = $key; Kind = 'win32'
+    }
+}
+function Remove-FakeApp { param($App)
+    Remove-Item -LiteralPath $App.RegistryKey -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $App.InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+$uninstallsCleanly = "`"$cmdExe`" /c reg delete `"{key}`" /f & rmdir /s /q `"{dir}`""
+$uninstallGivesUp  = "`"$cmdExe`" /c exit 1"
+
+Check 'Uninstall runs the uninstaller, then looks for what it left' {
+    $app = New-FakeApp -Uninstall $uninstallsCleanly
+    $was = $script:GuiUninstallStage
+    try {
+        Use-PaneMode $false {
+            $script:GuiUninstallStage = 'list'
+            Invoke-GuiUninstallApp -App $app
+            if (Test-Path -LiteralPath $app.RegistryKey) { throw 'Uninstall was confirmed and the uninstaller never ran' }
+            if ($script:GuiUninstallStage -ne 'leftovers') { throw "it never moved on to the leftovers (stage: $($script:GuiUninstallStage))" }
+            Assert-StillPlanning
+        }
+    } finally { $script:GuiUninstallStage = $was; Remove-FakeApp $app }
+}
+
+Check 'a cancelled uninstaller does not turn the live app into its own leftovers' {
+    $app = New-FakeApp -Uninstall $uninstallGivesUp
+    $wasStage = $script:GuiUninstallStage; $wasLeft = $script:GuiLeftovers
+    try {
+        Use-PaneMode $false {
+            $script:GuiUninstallStage = 'list'
+            $script:GuiLeftovers = @()
+            Invoke-GuiUninstallApp -App $app
+            if ($script:GuiUninstallStage -eq 'leftovers') { throw 'the app is still installed and its files were offered as leftovers' }
+            if (@($script:GuiLeftovers | Where-Object { $_.Path -eq $app.InstallDir }).Count) { throw 'the live install folder was offered for deletion' }
+            if (-not @($script:Said | Where-Object { $_ -match 'still installed' }).Count) { throw 'nobody was told the uninstall did not finish' }
+            Assert-StillPlanning
+        }
+    } finally { $script:GuiUninstallStage = $wasStage; $script:GuiLeftovers = $wasLeft; Remove-FakeApp $app }
+}
+
+Check 'Uninstall in a dry run starts no uninstaller' {
+    $app = New-FakeApp -Uninstall $uninstallsCleanly
+    $was = $script:GuiUninstallStage
+    try {
+        Use-PaneMode $true {
+            $script:GuiUninstallStage = 'list'
+            Invoke-GuiUninstallApp -App $app
+            if (-not (Test-Path -LiteralPath $app.RegistryKey)) { throw 'a dry run ran the uninstaller' }
+            if (-not @($script:Said | Where-Object { $_ -match 'dry run' }).Count) { throw 'it did not say this was a dry run' }
+            Assert-StillPlanning
+        }
+    } finally { $script:GuiUninstallStage = $was; Remove-FakeApp $app }
+}
+
+function New-LeftoverFixture {
+    $name = "$paneTag$([Guid]::NewGuid().ToString('N').Substring(0,6))"
+    $dir  = Join-Path $env:LOCALAPPDATA $name
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    Set-Content -LiteralPath (Join-Path $dir 'settings.ini') -Value 'x'
+    $app = [pscustomobject]@{ Name = $name; DisplayName = $name; Publisher = ''; PublisherDisplay = ''
+                              InstallDir = ''; Uninstall = ''; RegistryKey = ''; Kind = 'win32' }
+    @{ App = $app; Dir = $dir
+       Row = [pscustomobject]@{ Kind = 'folder'; Path = $dir; Bytes = 1; Size = '1 B'; Selected = $true; Key = "left|folder|$dir" } }
+}
+
+Check 'removing leftovers in the window removes them' {
+    $fx = New-LeftoverFixture
+    $wasTarget = $script:GuiUninstallTarget; $wasLeft = $script:GuiLeftovers
+    try {
+        Use-PaneMode $false {
+            $script:GuiUninstallTarget = $fx.App
+            $script:GuiLeftovers = @($fx.Row)
+            Invoke-GuiRemoveLeftovers
+            if (Test-Path -LiteralPath $fx.Dir) { throw "removal was confirmed and the folder is still there (said: $($script:Said -join ' | '))" }
+            if (-not @($script:Said | Where-Object { $_ -match '^1 item\(s\) removed' }).Count) { throw "it did not report the removal (said: $($script:Said -join ' | '))" }
+            Assert-StillPlanning
+        }
+    } finally {
+        $script:GuiUninstallTarget = $wasTarget; $script:GuiLeftovers = $wasLeft
+        Remove-Item -LiteralPath $fx.Dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Check 'removing leftovers in a dry run removes nothing' {
+    $fx = New-LeftoverFixture
+    $wasTarget = $script:GuiUninstallTarget; $wasLeft = $script:GuiLeftovers
+    try {
+        Use-PaneMode $true {
+            $script:GuiUninstallTarget = $fx.App
+            $script:GuiLeftovers = @($fx.Row)
+            Invoke-GuiRemoveLeftovers
+            if (-not (Test-Path -LiteralPath $fx.Dir)) { throw 'a dry run removed the folder' }
+            if (-not @($script:Said | Where-Object { $_ -match 'dry run' }).Count) { throw 'it did not say this was a dry run' }
+            Assert-StillPlanning
+        }
+    } finally {
+        $script:GuiUninstallTarget = $wasTarget; $script:GuiLeftovers = $wasLeft
+        Remove-Item -LiteralPath $fx.Dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 $script:GuiWin.Close()
 
 Write-Host ''
