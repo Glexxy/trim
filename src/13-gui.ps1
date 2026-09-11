@@ -1241,10 +1241,6 @@ function Show-GuiLargeFiles {
 
 <#
 .SYNOPSIS
-    Delete what is ticked, elevating first if the selection includes system paths.
-#>
-<#
-.SYNOPSIS
     Show a dialog. Every modal in the window comes through here.
 
 .DESCRIPTION
@@ -1283,6 +1279,10 @@ function Invoke-GuiLive {
     finally { Set-Variable -Name DryRun -Value $liveWas -Scope Script }
 }
 
+<#
+.SYNOPSIS
+    Delete what is ticked, elevating first if the selection includes system paths.
+#>
 function Invoke-GuiCleanDelete {
     $sel = @($script:GuiCleanItems | Where-Object { $_.Selected })
     if ($sel.Count -eq 0) { return }
@@ -1451,18 +1451,6 @@ function New-GuiAppIconTile {
     return $host_
 }
 
-<#
-.SYNOPSIS
-    Remove an application and then the traces it leaves behind.
-
-.DESCRIPTION
-    Two stages, and the second never happens implicitly. Stage one runs the
-    vendor's own uninstaller. Stage two lists every folder and registry key that
-    survived it, with full paths, and removes only what is ticked.
-
-    Nothing is deleted that was not on screen first. Registry keys are exported
-    to .reg files before removal, so a mistake is recoverable.
-#>
 $script:GuiStartupItems  = @()
 $script:GuiStartupLoaded = $false
 
@@ -1600,6 +1588,18 @@ function Show-GuiStartup {
     }
 }
 
+<#
+.SYNOPSIS
+    Remove an application and then the traces it leaves behind.
+
+.DESCRIPTION
+    Two stages, and the second never happens implicitly. Stage one runs the
+    vendor's own uninstaller. Stage two lists every folder and registry key that
+    survived it, with full paths, and removes only what is ticked.
+
+    Nothing is deleted that was not on screen first. Registry keys are exported
+    to .reg files before removal, so a mistake is recoverable.
+#>
 function Show-GuiUninstall {
     $ui = $script:GuiUi
     $ui.TxtPhase.Text = 'Uninstall apps'
@@ -2323,11 +2323,8 @@ function Invoke-WithProgress {
 
 <#
 .SYNOPSIS
-    Show the window. Returns the selected items, or $null if it was closed.
-#>
-<#
-.SYNOPSIS
     Open the window immediately, then fill it in.
+    Returns the selected items, or $null if it was closed.
 
 .DESCRIPTION
     Building the plan takes a few seconds - enumerating scheduled tasks, walking

@@ -217,7 +217,7 @@ function Disable-StartupItem {
             New-Item -ItemType Directory -Force -Path $dest -ErrorAction Stop | Out-Null
             $target = Join-Path $dest (Split-Path $Item.Command -Leaf)
             Move-Item -LiteralPath $Item.Command -Destination $target -Force -ErrorAction Stop
-            Add-UndoCommand "Move-Item -LiteralPath '$($target -replace "'", "''")' -Destination '$($Item.Command -replace "'", "''")' -Force -ErrorAction SilentlyContinue"
+            Add-UndoCommand "Move-Item -LiteralPath '$(ConvertTo-QuotedContent $target)' -Destination '$(ConvertTo-QuotedContent $Item.Command)' -Force -ErrorAction SilentlyContinue"
             Write-Log -Level OK -Message "startup: moved $($Item.Name) out of the Startup folder"
             return $true
         } catch {

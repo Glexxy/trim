@@ -42,10 +42,6 @@ $script:UninstallProtectedNames = @(
     'internet explorer','windows kits','windows photo viewer','uwp','windowsapps'
 )
 
-<#
-.SYNOPSIS
-    Everything installed, from the uninstall registry and the package manager.
-#>
 # What a Store app is actually called, who actually made it, and where its icon
 # is - all three live in the package manifest, and all three are unusable
 # without it. Get-AppxPackage reports the package identity instead: names like
@@ -152,6 +148,10 @@ function Format-CertificateSubject {
     return $Subject
 }
 
+<#
+.SYNOPSIS
+    Everything installed, from the uninstall registry and the package manager.
+#>
 function Get-InstalledApplications {
     $apps = [System.Collections.Generic.List[object]]::new()
     $seen = @{}
@@ -884,10 +884,6 @@ function Test-SafeToRemoveTask {
 
 <#
 .SYNOPSIS
-    Run the application's own uninstaller and wait for it.
-#>
-<#
-.SYNOPSIS
     Is this application still on the machine?
 
 .DESCRIPTION
@@ -927,6 +923,10 @@ function Test-AppStillInstalled {
     try { return [bool](Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($exe)) -ErrorAction Stop) } catch { return $true }
 }
 
+<#
+.SYNOPSIS
+    Run the application's own uninstaller and wait for it.
+#>
 function Invoke-AppUninstaller {
     param([Parameter(Mandatory)]$App, [switch]$Silent)
 

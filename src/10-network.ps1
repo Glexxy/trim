@@ -11,6 +11,8 @@
 # and no registry key fixes that.
 # ---------------------------------------------------------------------------
 
+$script:LiveAdapters = $null
+
 <#
 .SYNOPSIS
     The live physical adapters, fetched once per run.
@@ -19,7 +21,6 @@
     Get-NetAdapter is not cheap and three separate functions here wanted the
     same list.
 #>
-$script:LiveAdapters = $null
 function Get-LiveAdapters {
     if ($null -ne $script:LiveAdapters) { return $script:LiveAdapters }
     try {

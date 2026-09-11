@@ -324,15 +324,6 @@ function Get-DuplicateScan {
 
 <#
 .SYNOPSIS
-    Delete the selected locations, and report honestly what could not be removed.
-
-.DESCRIPTION
-    Files in use are skipped rather than forced. A cleanup tool that fights for a
-    handle on a file Windows currently has open is how a machine ends up in a
-    state nobody can explain.
-#>
-<#
-.SYNOPSIS
     The biggest files on the machine, so somebody can see what is actually
     using the disk.
 
@@ -498,6 +489,15 @@ function Get-FileKind {
     }
 }
 
+<#
+.SYNOPSIS
+    Delete the selected locations, and report honestly what could not be removed.
+
+.DESCRIPTION
+    Files in use are skipped rather than forced. A cleanup tool that fights for a
+    handle on a file Windows currently has open is how a machine ends up in a
+    state nobody can explain.
+#>
 function Invoke-Cleanup {
     param(
         [Parameter(Mandatory)]$Items,

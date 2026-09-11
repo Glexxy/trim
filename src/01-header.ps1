@@ -142,20 +142,55 @@ try {
 
 <#
 .SYNOPSIS
-    Make a value safe to embed inside a single-quoted PowerShell string.
+    Split a phase list that arrived as one comma-separated string.
 
 .DESCRIPTION
-    This program relaunches itself elevated by composing a -Command string. Any
-    argument interpolated into that string crosses a privilege boundary, so an
-    unescaped quote is not a formatting bug - it is arbitrary code execution as
-    administrator, running immediately after the user approves the UAC prompt
-    that they believe they are granting to this program.
-
-    Doubling the quote is the correct escape for a single-quoted PowerShell
-    string. Control characters are rejected outright rather than escaped:
-    nothing this program legitimately passes contains one, so their presence
-    means somebody is trying something.
+    powershell.exe -File hands "-Skip Extras,Gaming" over as the single string
+    'Extras,Gaming' rather than two names, and the elevated relaunch uses -File.
+    Unsplit, it names no phase: -Skip skips nothing, and the elevated run applies
+    exactly what the user asked it to leave alone.
 #>
+function Split-PhaseList {
+    param([AllowEmptyCollection()][AllowNull()][string[]]$List = @())
+    return @(@($List) | ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
+<#
+.SYNOPSIS
+    Join arguments into one Windows command line that splits back into exactly them.
+
+.DESCRIPTION
+    Start-Process joins -ArgumentList with spaces and quotes nothing, and the
+    process it starts splits the result again. A script path under a profile
+    folder whose user name has a space - C:\Users\Jo Smith\... - arrives as two
+    arguments, and the elevated window cannot find the script.
+
+    Each argument is quoted by the rules the receiving process splits by:
+    backslashes are literal except before a quote, where each one has to be
+    doubled, and a quote inside the argument is escaped with a backslash.
+#>
+function Join-CommandLine {
+    param([AllowEmptyCollection()][AllowEmptyString()][string[]]$Arguments = @())
+    $bs = [char]92
+    $parts = foreach ($a in $Arguments) {
+        if ($a -and $a -notmatch '[\s"]') { $a; continue }
+        $sb = [System.Text.StringBuilder]::new()
+        [void]$sb.Append('"')
+        $slashes = 0
+        foreach ($c in $a.ToCharArray()) {
+            if ($c -eq $bs) { $slashes++; continue }
+            if ($c -eq '"') { [void]$sb.Append($bs, 2 * $slashes + 1) }
+            else { [void]$sb.Append($bs, $slashes) }
+            [void]$sb.Append($c)
+            $slashes = 0
+        }
+        [void]$sb.Append($bs, 2 * $slashes)
+        [void]$sb.Append('"')
+        $sb.ToString()
+    }
+    return (@($parts) -join ' ')
+}
+
 <#
 .SYNOPSIS
     Download this script to a file and pin it by hash, for elevating.
@@ -212,15 +247,6 @@ function Get-StagedSelf {
     }
 
     return [pscustomobject]@{ Path = $stage; Hash = $staged }
-}
-
-function ConvertTo-SafeArgument {
-    param([AllowEmptyString()][AllowNull()][string]$Value = '')
-    if ([string]::IsNullOrEmpty($Value)) { return '' }
-    if ($Value -match '[\x00-\x1F]') {
-        throw "Refusing to pass an argument containing control characters: '$Value'"
-    }
-    return ($Value -replace "'", "''")
 }
 
 <#
@@ -343,6 +369,11 @@ if ($Version) { Show-TrimVersion; return }
 # ---------------------------------------------------------------------------
 # Self-elevate. Preserves all bound parameters across the elevation boundary.
 # ---------------------------------------------------------------------------
+# Before anything reads them, and before the relaunch below re-joins them:
+# see Split-PhaseList. @() keeps an empty list a list rather than $null.
+$Skip = @(Split-PhaseList $Skip)
+$Only = @(Split-PhaseList $Only)
+
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
     [Security.Principal.WindowsIdentity]::GetCurrent()
 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -368,16 +399,15 @@ elseif (-not $isAdmin) {
     Write-Host '  Administrator rights are needed. Approve the prompt to continue.' -ForegroundColor Yellow
     Write-Host ''
 
-    # Both branches below elevate with -File, which takes the script and each
-    # argument as separate array elements. Nothing is parsed out of a composed
-    # string, so no value crossing into the elevated process needs quoting.
-    # (ConvertTo-SafeArgument remains for the places that do compose one.)
+    # Both branches below elevate with -File, so the elevated process is handed
+    # a script path and arguments rather than code. Start-Process still joins
+    # them into one command line that the new process splits again, so they
+    # go through Join-CommandLine first.
     $shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell' }
 
     if ($PSCommandPath) {
-        # -File takes the script and its arguments as separate array elements,
-        # so nothing is parsed out of a composed string at all. Strictly safer
-        # than -Command and used whenever there is a file to point at.
+        # -File hands over a path and arguments rather than code. Strictly
+        # safer than -Command and used whenever there is a file to point at.
         $fileArgs = @('-ExecutionPolicy','Bypass','-NoProfile','-File', $PSCommandPath)
         foreach ($kv in $PSBoundParameters.GetEnumerator()) {
             if ($kv.Key -notmatch '^[A-Za-z][A-Za-z0-9]*$') { continue }
@@ -392,7 +422,7 @@ elseif (-not $isAdmin) {
         # Declining the UAC prompt throws, and an unhandled one surfaces a raw
         # "Start-Process : ... Access is denied" at somebody who simply chose
         # not to continue. That is not an error on their part.
-        try { Start-Process $shell -Verb RunAs -ArgumentList $fileArgs }
+        try { Start-Process $shell -Verb RunAs -ArgumentList (Join-CommandLine $fileArgs) }
         catch {
             Write-Host ''
             Write-Host '  Administrator rights were declined. Nothing has been changed.' -ForegroundColor Yellow
@@ -421,7 +451,7 @@ elseif (-not $isAdmin) {
         # Declining the UAC prompt throws, and an unhandled one surfaces a raw
         # "Start-Process : ... Access is denied" at somebody who simply chose
         # not to continue. That is not an error on their part.
-        try { Start-Process $shell -Verb RunAs -ArgumentList $fileArgs }
+        try { Start-Process $shell -Verb RunAs -ArgumentList (Join-CommandLine $fileArgs) }
         catch {
             Write-Host ''
             Write-Host '  Administrator rights were declined. Nothing has been changed.' -ForegroundColor Yellow

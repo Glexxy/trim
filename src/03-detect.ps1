@@ -40,6 +40,8 @@ function Get-ProgramFilesRoots {
     return @($roots | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
 }
 
+$script:HardwareDetail = $null
+
 <#
 .SYNOPSIS
     The slow half of the hardware inventory, fetched only when it is looked at.
@@ -51,7 +53,6 @@ function Get-ProgramFilesRoots {
     click away rather than on the critical path. Cached, so opening it twice is
     free.
 #>
-$script:HardwareDetail = $null
 function Get-HardwareDetail {
     if ($script:HardwareDetail) { return $script:HardwareDetail }
 

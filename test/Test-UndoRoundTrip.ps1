@@ -21,6 +21,10 @@
       * a key that did not exist at all before
       * values containing single quotes, which is where naive script generation
         produces something that parses but does the wrong thing
+      * typographic quotes in a value and in a value name, which PowerShell also
+        treats as the end of a single-quoted string - the value name here is
+        written so that, if it ever escapes its quotes, it creates a file
+      * a binary value, the type Windows uses for startup entries
       * an explicit Remove-Reg, which undo must restore
 #>
 [CmdletBinding()]
@@ -32,6 +36,10 @@ Set-StrictMode -Version 2.0
 $root  = Split-Path $PSScriptRoot -Parent
 $Scratch = 'HKCU:\Software\TrimRoundTripTest'
 $Nested  = "$Scratch\Nested"
+# If this name ever escapes its quotes in the undo script, the rest of it runs
+# and leaves this file behind.
+$Canary  = Join-Path $env:TEMP 'trim-undo-injected.txt'
+$Hostile = "x$([char]0x2019); New-Item -ItemType File -Force -Path `$env:TEMP\trim-undo-injected.txt #"
 
 # The optimizer's param-block variables, which src/02-core.ps1 expects to exist.
 $DryRun = $false
@@ -62,6 +70,7 @@ Write-Host '  Undo round-trip test (host-safe, scratch key only)' -ForegroundCol
 Write-Host "  Scratch: $Scratch" -ForegroundColor DarkGray
 Write-Host ''
 
+if (Test-Path -LiteralPath $Canary) { Remove-Item -LiteralPath $Canary -Force }
 if (Test-Path -LiteralPath $Scratch) {
     Write-Host "Scratch key already exists. Removing it before starting." -ForegroundColor Yellow
     Remove-Item -LiteralPath $Scratch -Recurse -Force
@@ -79,7 +88,10 @@ try {
         ExistingMulti  = @{ Value = @('one',"two's",'three');  Type = 'MultiString' }
         ExistingExpand = @{ Value = '%SystemRoot%\test';       Type = 'ExpandString' }
         ToBeRemoved    = @{ Value = 42;                        Type = 'DWord'  }
+        ExistingBinary = @{ Value = [byte[]](2,0,0,0,0,0,0,0,0,0,0,0); Type = 'Binary' }
+        ExistingCurly  = @{ Value = "Bob$([char]0x2019)s value";   Type = 'String' }
     }
+    $before[$Hostile] = @{ Value = 'untouched'; Type = 'String' }
     foreach ($k in $before.Keys) {
         New-ItemProperty -LiteralPath $Scratch -Name $k -Value $before[$k].Value `
             -PropertyType $before[$k].Type -Force | Out-Null
@@ -107,8 +119,11 @@ try {
     Set-Reg    $Scratch 'BrandNew'       1                   -Type DWord        -Because 'value that did not exist'
     Set-Reg    $Nested  'NestedBrandNew' 5                   -Type DWord        -Because 'key that did not exist'
     Remove-Reg $Scratch 'ToBeRemoved'                                            -Because 'explicit removal'
+    Set-Reg    $Scratch 'ExistingBinary' ([byte[]](3,0,0,0,0,0,0,0,0,0,0,0)) -Type Binary -Because 'overwrite a binary value'
+    Set-Reg    $Scratch 'ExistingCurly'  "Bob$([char]0x2019)s new value"    -Type String -Because 'overwrite a string with a typographic quote'
+    Set-Reg    $Scratch $Hostile         'changed'                          -Type String -Because 'a value whose name is written like code'
 
-    Check 'Ledger recorded every change' ($script:Ledger.Count -eq 8) "recorded $($script:Ledger.Count), expected 8"
+    Check 'Ledger recorded every change' ($script:Ledger.Count -eq 11) "recorded $($script:Ledger.Count), expected 11"
 
     # -----------------------------------------------------------------------
     # Did they land?
@@ -135,7 +150,7 @@ try {
 
     Write-Host ''
     Write-Host '--- Verifying exact restoration ---' -ForegroundColor Cyan
-    foreach ($k in @('ExistingDword','ExistingString','ExistingQword','ExistingExpand')) {
+    foreach ($k in @('ExistingDword','ExistingString','ExistingQword','ExistingExpand','ExistingBinary','ExistingCurly',$Hostile)) {
         $now = Peek $Scratch $k
         Check "restored: $k" ($now.Exists -and "$($now.Value)" -eq "$($snapshot[$k].Value)") `
             "now '$($now.Value)', was '$($snapshot[$k].Value)'"
@@ -148,6 +163,9 @@ try {
     $nowRemoved = Peek $Scratch 'ToBeRemoved'
     Check 'restored: explicitly removed value came back' `
         ($nowRemoved.Exists -and $nowRemoved.Value -eq 42) "now '$($nowRemoved.Value)'"
+
+    Check 'a value name written like code stayed a name' (-not (Test-Path -LiteralPath $Canary)) `
+        "the undo script ran part of a value name as code and created $Canary"
 
     # The case a naive implementation gets wrong: writing 0 instead of removing.
     Check 'value that never existed was REMOVED, not zeroed' `
@@ -166,6 +184,7 @@ try {
     if (Test-Path -LiteralPath $Scratch) {
         Remove-Item -LiteralPath $Scratch -Recurse -Force -ErrorAction SilentlyContinue
     }
+    if (Test-Path -LiteralPath $Canary) { Remove-Item -LiteralPath $Canary -Force -ErrorAction SilentlyContinue }
     Write-Host ''
     Write-Host 'Scratch key removed.' -ForegroundColor DarkGray
 }

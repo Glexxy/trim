@@ -290,11 +290,6 @@ function Get-RegValueOrAbsent {
 
 <#
 .SYNOPSIS
-    The only sanctioned way to write a registry value. Records the prior state
-    into the undo ledger before touching anything.
-#>
-<#
-.SYNOPSIS
     Does this change apply to the Windows build we are running on?
 
 .DESCRIPTION
@@ -410,6 +405,11 @@ function Confirm-AppliedChanges {
     }
 }
 
+<#
+.SYNOPSIS
+    The only sanctioned way to write a registry value. Records the prior state
+    into the undo ledger before touching anything.
+#>
 function Set-Reg {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -549,9 +549,25 @@ function Remove-Reg {
 
 <#
 .SYNOPSIS
-    Emits a standalone PowerShell script that reverses every ledger entry, newest
-    first. Written even on a partial or failed run.
+    Escape a value for use inside a single-quoted PowerShell string.
+
+.DESCRIPTION
+    The undo script embeds registry paths, value names, old values and file
+    paths, and some of those were chosen by whatever wrote them - a startup
+    entry's name, a shortcut in the Startup folder. The script is run later,
+    often as administrator, so a value that ends its string early is code
+    running with those rights.
+
+    Doubling the ASCII apostrophe is not enough: PowerShell also ends a
+    single-quoted string at the typographic quotes U+2018 to U+201B, which are
+    ordinary characters in a file or value name. PowerShell's own escaper
+    doubles all five.
 #>
+function ConvertTo-QuotedContent {
+    param([AllowEmptyString()][AllowNull()][string]$Value = '')
+    return [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($Value)
+}
+
 <#
 .SYNOPSIS
     Record a line of PowerShell that reverses a non-registry change.
@@ -559,7 +575,8 @@ function Remove-Reg {
 .DESCRIPTION
     The caller has already made the change and knows exactly how to put it back.
     Quoting is the caller's problem for the same reason it is here: only they
-    know which parts are literal.
+    know which parts are literal. Every literal part goes through
+    ConvertTo-QuotedContent.
 #>
 function Add-UndoCommand {
     param([Parameter(Mandatory)][string]$Line)
@@ -586,6 +603,11 @@ function Clear-PlannedChanges {
     $script:AlreadySet.Clear()
 }
 
+<#
+.SYNOPSIS
+    Emits a standalone PowerShell script that reverses every ledger entry, newest
+    first. Written even on a partial or failed run.
+#>
 function Write-UndoScript {
     if ($DryRun) { return }
     if ($script:Ledger.Count -eq 0 -and $script:UndoExtra.Count -eq 0) {
@@ -605,12 +627,12 @@ function Write-UndoScript {
     # Reverse order so that dependent writes unwind correctly.
     for ($i = $script:Ledger.Count - 1; $i -ge 0; $i--) {
         $e = $script:Ledger[$i]
-        $p = $e.Path -replace "'", "''"
-        $n = $e.Name -replace "'", "''"
+        $p = ConvertTo-QuotedContent $e.Path
+        $n = ConvertTo-QuotedContent $e.Name
 
         if ($e.HadValue) {
-            $v = if ($e.OldValue -is [string]) { "'" + ($e.OldValue -replace "'", "''") + "'" }
-                 elseif ($e.OldValue -is [array]) { "@(" + (($e.OldValue | ForEach-Object { "'" + ($_ -replace "'","''") + "'" }) -join ',') + ")" }
+            $v = if ($e.OldValue -is [string]) { "'" + (ConvertTo-QuotedContent $e.OldValue) + "'" }
+                 elseif ($e.OldValue -is [array]) { "@(" + (($e.OldValue | ForEach-Object { "'" + (ConvertTo-QuotedContent $_) + "'" }) -join ',') + ")" }
                  else { "$($e.OldValue)" }
             [void]$sb.AppendLine("if (-not (Test-Path -LiteralPath '$p')) { New-Item -Path '$p' -Force | Out-Null }")
             [void]$sb.AppendLine("New-ItemProperty -LiteralPath '$p' -Name '$n' -Value $v -PropertyType '$($e.OldType)' -Force | Out-Null")

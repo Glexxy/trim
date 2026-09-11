@@ -170,12 +170,12 @@ function Invoke-Selection {
     $shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell' }
     try {
         if ($PSCommandPath) {
-            # -File, so the path is an argument rather than something spliced
-            # into a command line that a quote could break out of.
-            Start-Process $shell -Verb RunAs -ArgumentList @(
+            # -File, so the elevated process is handed a path rather than code,
+            # quoted by Join-CommandLine so that a space in it survives.
+            Start-Process $shell -Verb RunAs -ArgumentList (Join-CommandLine @(
                 '-ExecutionPolicy','Bypass','-NoProfile','-File', $PSCommandPath,
                 '-ApplySelection', $file, '-Gui'
-            )
+            ))
         } else {
             # Same reasoning as the elevation in 01-header: stage the script to
             # a file and pin it by hash, rather than handing the elevated
@@ -186,11 +186,11 @@ function Invoke-Selection {
                 Write-Log -Level FAIL -Message "Could not stage the script to elevate. To apply by hand: trim.ps1 -ApplySelection '$file'"
                 return $false
             }
-            Start-Process $shell -Verb RunAs -ArgumentList @(
+            Start-Process $shell -Verb RunAs -ArgumentList (Join-CommandLine @(
                 '-ExecutionPolicy','Bypass','-NoProfile','-NoExit','-File', $self.Path,
                 '-ElevationHash', $self.Hash,
                 '-ApplySelection', $file, '-Gui'
-            )
+            ))
         }
         Write-Log -Level OK -Message 'Elevated window launched. This one is finished.'
     } catch {
