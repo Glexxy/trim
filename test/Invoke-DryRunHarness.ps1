@@ -805,6 +805,44 @@ Test-Phase 'An application counts as installed until it is provably gone' {
     if ($problems.Count) { throw ($problems -join '; ') }
 }
 
+# WinUtil's hosted link, christitus.com/win, serves whichever release is newest,
+# and whatever this phase downloads runs as administrator. It is pinned to one
+# release and one SHA256, and only bytes that match are run.
+Test-Phase 'WinUtil runs only the release it was pinned to' {
+    # The pin itself.
+    if ($script:WinUtilVersion -notmatch '^\d+\.\d+\.\d+$') { throw "WinUtilVersion is not a release tag: '$($script:WinUtilVersion)'" }
+    $want = "https://github.com/ChrisTitusTech/winutil/releases/download/$($script:WinUtilVersion)/winutil.ps1"
+    if ($script:WinUtilSource -ne $want) { throw "WinUtil is fetched from '$($script:WinUtilSource)', not the pinned release '$want'" }
+    if ($script:WinUtilSha256 -notmatch '^[0-9A-Fa-f]{64}$') { throw 'WinUtilSha256 is not a SHA256' }
+
+    # The check, against a download faked here: the bytes that match pass and
+    # come back unchanged; one flipped bit is refused.
+    $good = [System.Text.Encoding]::UTF8.GetBytes("Write-Output 'pinned winutil'")
+    $bad  = [byte[]]$good.Clone()
+    $bad[0] = [byte]($bad[0] -bxor 1)
+    $sha  = [System.Security.Cryptography.SHA256]::Create()
+    $hash = [BitConverter]::ToString($sha.ComputeHash($good)) -replace '-', ''
+    $sha.Dispose()
+    function Invoke-WebRequest {
+        [CmdletBinding()]
+        param([string]$Uri, [switch]$UseBasicParsing)
+        [pscustomobject]@{ RawContentStream = [IO.MemoryStream]::new([byte[]]$fake) }
+    }
+    $fake = $good
+    $text = Get-VerifiedWinUtil -Uri 'https://example.invalid/winutil.ps1' -Sha256 $hash
+    if ($text -cne "Write-Output 'pinned winutil'") { throw "the verified download came back changed: '$text'" }
+    $fake = $bad
+    $refused = $false
+    try { [void](Get-VerifiedWinUtil -Uri 'https://example.invalid/winutil.ps1' -Sha256 $hash) }
+    catch { $refused = $_.Exception.Message -match 'does not match' }
+    if (-not $refused) { throw 'a download that does not match the pinned SHA256 was accepted' }
+
+    # And what the phase runs is what that returns, with nothing fetched around it.
+    $phase = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '04-winutil.ps1')
+    if ($phase -notmatch '\[ScriptBlock\]::Create\(\(Get-VerifiedWinUtil\)\)') { throw 'the WinUtil phase no longer runs the verified download' }
+    if ($phase -match '(Invoke-RestMethod|irm)\s+[^\r\n]*WinUtilSource') { throw 'the WinUtil phase fetches the source outside the check' }
+}
+
 # Running as administrator means a bare tool name resolves through PATH, and a
 # writable PATH entry then executes with those rights.
 Test-Phase 'System tools resolve to real system paths' {
@@ -906,8 +944,7 @@ Test-Phase 'All remote fetches are https and modern TLS' {
     # Adding a host here is meant to be a decision somebody makes on purpose.
     $allowed = @{
         'trimbloat.com'   = 'itself: the script, its published fingerprint, and the winutil config'
-        'christitus.com'  = 'the WinUtil handoff, credited in the README and NOTICE'
-        'github.com'      = 'the NVIDIA Profile Inspector release (pinned by version and SHA256) and the opt-in CTT PowerShell profile (not pinned)'
+        'github.com'      = 'the WinUtil release and the NVIDIA Profile Inspector release (each pinned by version and SHA256), and the opt-in CTT PowerShell profile (not pinned)'
     }
 
     $seen = @{}
@@ -931,8 +968,8 @@ Test-Phase 'All remote fetches are https and modern TLS' {
     }
 
     # If the scan finds no hosts at all, everything below passes and the
-    # promise it defends is unguarded. Three are known to be there.
-    if ($seen.Count -lt 3) {
+    # promise it defends is unguarded. Two are known to be there.
+    if ($seen.Count -lt 2) {
         throw "found only $($seen.Count) host(s) in the source; the URL scan has stopped working and this guard is checking nothing"
     }
 
@@ -956,9 +993,9 @@ Test-Phase 'All remote fetches are https and modern TLS' {
     }
 
     # Every host this can reach must be named on the landing page. It fetches
-    # its own fingerprint and tweak list, WinUtil from christitus.com, and
-    # NVIDIA Profile Inspector from GitHub - the last of those a binary it saves
-    # and runs. The page invites people to read the script, where they would
+    # its own fingerprint and tweak list from this site, and WinUtil and NVIDIA
+    # Profile Inspector from GitHub - the second of those a binary it saves and
+    # runs. The page invites people to read the script, where they would
     # find every one of those, so the set it names has to keep matching the set
     # the code can reach.
     $page = Join-Path $root 'hosting\site\index.html'
@@ -1393,14 +1430,9 @@ Test-Phase 'Elevation never downloads and executes' {
             if ($line -match '<#') { $inHelp = $true }
             if ($inHelp) { if ($line -match '#>') { $inHelp = $false }; continue }
             if ($line -match '^\s*#') { continue }
-            # The winutil handoff is a documented, deliberate execution of a
-            # third-party script; it is not an elevation command line.
-            if ($line -match 'WinUtilSource') { continue }
             if ($line -match "ScriptBlock\]::Create\(\(\s*irm" -or
                 $line -match "ScriptBlock\]::Create\(\(Invoke-RestMethod") {
-                if ($line -notmatch 'WinUtilSource') {
-                    $problems.Add("$($f.Name) line $($i + 1) builds a download-and-execute command") | Out-Null
-                }
+                $problems.Add("$($f.Name) line $($i + 1) builds a download-and-execute command") | Out-Null
             }
         }
     }
@@ -3098,18 +3130,36 @@ Test-Phase 'The pages promise what the code actually does' {
     }
 
     # --- it runs somebody else's code, so the page cannot imply otherwise ---
+    #
+    # Every shape that ends in somebody else's code running in this process:
+    # the pinned WinUtil handoff, an unpinned one if it ever came back, and the
+    # opt-in profile installer's irm | iex. Matching one construction is how
+    # this check stopped applying to anything the day the handoff was pinned.
     $remoteExec = @()
     foreach ($f in (Get-ChildItem (Join-Path $root 'src') -Filter '*.ps1')) {
-        $t = Get-Content -Raw -Encoding UTF8 -LiteralPath $f.FullName
-        if ($t -match '\[ScriptBlock\]::Create\(\(Invoke-RestMethod') { $remoteExec += $f.Name }
-    }
-    if ($remoteExec.Count) {
-        # The "Read it" card invites people to read the whole script. What they
-        # read does not include WinUtil, and the card has to admit that.
-        if ($site -notmatch '(?i)fetches while it runs') {
-            $problems.Add(("$($remoteExec -join ', ') downloads and executes code from another host, and the site's " +
-                           "'Read it' card does not say so. Someone who takes it up on reading the script finds that out themselves.")) | Out-Null
+        $inHelp = $false
+        foreach ($line in (Get-Content -LiteralPath $f.FullName)) {
+            # Help and comments quote both shapes while explaining them - the
+            # example one-liner, and the download-and-execute command line the
+            # header explains avoiding. Neither of those is a fetch.
+            if ($line -match '<#') { $inHelp = $true }
+            if ($inHelp) { if ($line -match '#>') { $inHelp = $false }; continue }
+            if ($line -match '^\s*#') { continue }
+            if ($line -match '\[ScriptBlock\]::Create\(\((Invoke-RestMethod|Get-Verified)' -or
+                $line -match '(?i)(Invoke-RestMethod|\birm\b)[^\r\n]*\|\s*(Invoke-Expression|\biex\b)') {
+                $remoteExec += $f.Name
+                break
+            }
         }
+    }
+    if ($remoteExec.Count -eq 0) {
+        throw 'nothing in src fetches and executes third-party code any more - this check has stopped reading the code it is about'
+    }
+    # The "Read it" card invites people to read the whole script. What they
+    # read does not include WinUtil, and the card has to admit that.
+    if ($site -notmatch '(?i)fetches while it runs') {
+        $problems.Add(("$($remoteExec -join ', ') downloads and executes code from another host, and the site's " +
+                       "'Read it' card does not say so. Someone who takes it up on reading the script finds that out themselves.")) | Out-Null
     }
 
     # --- the published screenshots are of a machine that does not exist -----

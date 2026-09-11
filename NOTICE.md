@@ -12,9 +12,10 @@ projects it depends on and go use them directly.
 ## WinUtil — Chris Titus Tech
 
 **The single largest dependency.** One of Trim's twelve phases is WinUtil's tweak
-set, applied by WinUtil rather than reimplemented: Trim invokes the official hosted
-script at `https://christitus.com/win` with a generated selection config, and
-WinUtil does that part of the work.
+set, applied by WinUtil rather than reimplemented: Trim downloads WinUtil's
+26.08.19 release from GitHub, runs it only if it matches the SHA256 GitHub
+publishes for that release, and hands it a generated selection config. WinUtil
+does that part of the work.
 
 Being precise about the share, because being vague in the generous direction is
 still being inaccurate: the remaining eleven — Fixes, Performance, Gaming,
@@ -37,7 +38,8 @@ than competing with it.
 
 What this project takes from WinUtil:
 
-- The hosted script itself, invoked with `-Config`.
+- The released script itself, pinned to 26.08.19 by SHA256 and invoked with
+  `-Config`.
 - WinUtil's selection key names (`WPFTweaksTelemetry`, `WPFFeaturesdotnet`, and so
   on), which are reproduced in `config/winutil-tweaks.json`.
 - The build pattern of compiling a modular source tree into one distributable

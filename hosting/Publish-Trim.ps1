@@ -203,6 +203,31 @@ foreach ($needed in @('https://trimbloat.com/go', 'https://trimbloat.com/config/
 }
 Good 'canonical URLs present'
 
+# WinUtil runs as administrator on every machine that keeps that phase, and the
+# script only runs the pinned release if its bytes match the pinned digest. A
+# digest copied wrongly would refuse WinUtil for everyone, and nothing offline
+# can tell, so the pin in what is about to ship is checked against the real
+# release here.
+$pinVersion = [regex]::Match($text, "\`$script:WinUtilVersion\s*=\s*'([^']+)'").Groups[1].Value
+$pinSha     = [regex]::Match($text, "\`$script:WinUtilSha256\s*=\s*'([0-9A-Fa-f]{64})'").Groups[1].Value
+if (-not $pinVersion -or -not $pinSha) { Fail 'The staged script does not carry a WinUtil version and SHA256 pin.' }
+$pinUrl = "https://github.com/ChrisTitusTech/winutil/releases/download/$pinVersion/winutil.ps1"
+try {
+    $ProgressPreference = 'SilentlyContinue'
+    $pinBytes = (Invoke-WebRequest -Uri $pinUrl -UseBasicParsing -TimeoutSec 60).RawContentStream.ToArray()
+} catch {
+    Fail "Could not download the pinned WinUtil release to check it: $($_.Exception.Message)"
+}
+$sha = [System.Security.Cryptography.SHA256]::Create()
+try     { $pinGot = [BitConverter]::ToString($sha.ComputeHash($pinBytes)) -replace '-', '' }
+finally { $sha.Dispose() }
+if ($pinGot -ne $pinSha) {
+    Write-Host "   pinned     $pinSha" -ForegroundColor Red
+    Write-Host "   downloaded $pinGot" -ForegroundColor Red
+    Fail "WinUtil $pinVersion does not match the SHA256 the script pins; every user would have it refused."
+}
+Good "WinUtil $pinVersion matches its pinned SHA256"
+
 # The page promises a fingerprint and a reproducible build. If the placeholder
 # were ever renamed or dropped, the worker would serve the literal token to
 # every visitor and the central claim of the page would read as broken.

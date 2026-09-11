@@ -115,11 +115,12 @@ the restore point), and `netsh` TCP settings — one command, printed in the log
 - No BIOS, fan curves, undervolting or overclocking.
 - Shared runtimes, winget and Xbox sign-in are protected from removal.
 - Hardware and Windows version are detected, not assumed.
-- No analytics, no account, no telemetry. It contacts three hosts and no others:
-  this site for the script, its fingerprint and the WinUtil config;
-  `christitus.com` for WinUtil, if that phase is kept; and GitHub for NVIDIA
-  Profile Inspector, pinned by version and SHA256. The last two are somebody
-  else's code, fetched at run time.
+- No analytics, no account, no telemetry. It contacts two hosts and no others:
+  this site for the script, its fingerprint and the WinUtil config; and GitHub
+  for WinUtil, if that phase is kept, and NVIDIA Profile Inspector, each pinned
+  to one release and its SHA256, plus Chris Titus Tech's PowerShell profile if
+  you tick it, which is not pinned. All three are somebody else's code, fetched
+  at run time.
 - It installs nothing, and writes four things: its log, its ledger and the undo
   script in `C:\ProgramData\Trim`, plus a copy of itself in the temp folder when
   it elevates — an elevated shell gets a file it can hash, not a second download

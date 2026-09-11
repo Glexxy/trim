@@ -184,13 +184,16 @@ Stated plainly, because it is part of the trust decision:
 
 | What | From | Trust |
 |---|---|---|
-| WinUtil | `christitus.com/win`, fetched and executed | Chris Titus Tech's infrastructure, at administrator level |
-| CTT PowerShell profile | GitHub, fetched and executed | same, PowerShell 7+ only, opt-in |
+| WinUtil | GitHub release 26.08.19, fetched, checked and executed | pinned by release and SHA256; a file that does not match is not run |
+| CTT PowerShell profile | GitHub, fetched and executed | Chris Titus Tech's repository as it stands, PowerShell 7+ only, opt-in |
 | NVIDIA Profile Inspector | GitHub release, downloaded and executed | pinned by version and SHA256 |
 
-The first two are `iex` of a remote script. That is inherent to using WinUtil at
-all — Trim orchestrates it rather than reimplementing it — but you should know
-it is happening. Skip them with `-Skip WinUtil,Fixes`.
+The first two are remote PowerShell run with administrator rights. That is
+inherent to using WinUtil at all — Trim orchestrates it rather than
+reimplementing it — so WinUtil is pinned to the release it was tested against
+and only runs if its bytes match. The CTT profile cannot be pinned the same way,
+because its installer downloads more of itself as it goes; it is opt-in for that
+reason. Skip them with `-Skip WinUtil,Fixes`.
 
 ---
 

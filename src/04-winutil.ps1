@@ -13,7 +13,41 @@
 #     "Unsupported selection key" if one appears in a config.
 # ---------------------------------------------------------------------------
 
-$script:WinUtilSource = 'https://christitus.com/win'
+# Pinned to the release this phase was verified against. christitus.com/win
+# redirects to whichever release is newest, and what this phase downloads runs
+# as administrator; a pinned release whose bytes must match the SHA256 GitHub
+# publishes for it cannot change underneath the people running this. Moving to
+# a newer WinUtil is a deliberate change: the tag, its digest, and a test run.
+$script:WinUtilVersion = '26.08.19'
+$script:WinUtilSource  = "https://github.com/ChrisTitusTech/winutil/releases/download/$($script:WinUtilVersion)/winutil.ps1"
+$script:WinUtilSha256  = '5DD76F9F26C78AFEE628B8D4C75C43A9DE7B5867D83BE80DEEA35AABAD0CDA8A'
+
+<#
+.SYNOPSIS
+    Download the pinned WinUtil release and return its text, only if its bytes
+    match the pinned SHA256.
+
+.DESCRIPTION
+    Hashed in memory and returned from the same bytes, so nothing on disk can be
+    swapped between the check and the run. A mismatch throws; the phase reports
+    that WinUtil failed and the rest of the run carries on without it.
+#>
+function Get-VerifiedWinUtil {
+    param(
+        [string]$Uri    = $script:WinUtilSource,
+        [string]$Sha256 = $script:WinUtilSha256
+    )
+    $ProgressPreference = 'SilentlyContinue'
+    $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -ErrorAction Stop
+    $bytes = $response.RawContentStream.ToArray()
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try     { $got = [BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '' }
+    finally { $sha.Dispose() }
+    if ($got -ne $Sha256) {
+        throw "WinUtil $($script:WinUtilVersion) does not match its pinned SHA256 (expected $Sha256, got $got), so it is not being run"
+    }
+    return [System.Text.Encoding]::UTF8.GetString($bytes).TrimStart([char]0xFEFF)
+}
 
 <#
 .SYNOPSIS
@@ -116,7 +150,7 @@ function Invoke-WinUtilPhase {
 
     Write-Log 'Handing off to winutil. This takes several minutes and is noisy.'
     try {
-        $block = [ScriptBlock]::Create((Invoke-RestMethod -Uri $script:WinUtilSource -UseBasicParsing))
+        $block = [ScriptBlock]::Create((Get-VerifiedWinUtil))
 
         # This script runs under Set-StrictMode -Version 2.0, and anything it
         # invokes inherits that. WinUtil is not written for it: it reads

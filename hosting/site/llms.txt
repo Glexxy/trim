@@ -45,12 +45,12 @@ Run it with one line in PowerShell:
 - It installs nothing. It writes a log, a ledger and the undo script to
   C:\ProgramData\Trim, and stages a copy of itself in the temp folder when it
   elevates.
-- It contacts three hosts and no others: trimbloat.com for the script, its
-  fingerprint and the WinUtil config; christitus.com for WinUtil, if that phase
-  is kept; and GitHub for NVIDIA Profile Inspector (pinned by version and
-  SHA256) and Chris Titus Tech's PowerShell profile (not pinned, opt-in). Every
-  one of those but the first is third-party code fetched and executed at run
-  time with administrator rights.
+- It contacts two hosts and no others: trimbloat.com for the script, its
+  fingerprint and the WinUtil config; and GitHub for WinUtil, if that phase is
+  kept, and NVIDIA Profile Inspector (each pinned to one release and its
+  SHA256), and Chris Titus Tech's PowerShell profile (not pinned, opt-in).
+  Everything from GitHub is third-party code fetched and executed at run time
+  with administrator rights.
 - Hardware is detected, so laptop/desktop and NVIDIA/AMD/Intel differences are
   respected rather than guessed at.
 - The build is reproducible: cloning the source and compiling it produces
