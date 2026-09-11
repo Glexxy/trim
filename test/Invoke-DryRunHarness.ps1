@@ -762,6 +762,49 @@ Test-Phase 'A phase list survives the elevated relaunch' {
     }
 }
 
+# The uninstall pane offers what an application left behind, starting from its
+# own install folder, with folders ticked. If the uninstaller was cancelled or
+# failed, that list is the live application one click from deletion - so an
+# application counts as installed until something proves it has gone.
+Test-Phase 'An application counts as installed until it is provably gone' {
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $base = Join-Path ([IO.Path]::GetTempPath()) "trim-installed-$([Guid]::NewGuid().ToString('N'))"
+    $key  = "HKCU:\Software\TrimStillInstalledTest_$([Guid]::NewGuid().ToString('N'))"
+    try {
+        $dir = Join-Path $base 'App Folder'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        $uninst = Join-Path $dir 'uninst.exe'
+        [IO.File]::WriteAllText($uninst, 'x')
+        $gone = Join-Path $base 'Removed'
+        New-Item -Path $key -Force | Out-Null
+
+        $cases = @(
+            @{ Why = 'nothing says where it is registered';  Want = $true;  App = @{ RegistryKey = '' } }
+            @{ Why = 'its uninstall entry has gone';          Want = $false; App = @{ RegistryKey = "$key\Missing" } }
+            @{ Why = 'its install folder is still there';     Want = $true;  App = @{ RegistryKey = $key; InstallDir = $dir } }
+            @{ Why = 'folder gone and no uninstaller named';  Want = $false; App = @{ RegistryKey = $key; InstallDir = $gone } }
+            @{ Why = 'folder and uninstaller both gone';      Want = $false; App = @{ RegistryKey = $key; InstallDir = $gone; Uninstall = "`"$gone\uninst.exe`" /S" } }
+            @{ Why = 'its uninstaller is still on disk';      Want = $true;  App = @{ RegistryKey = $key; Uninstall = "`"$uninst`" /S" } }
+            @{ Why = 'an MSI product Windows still has';      Want = $true;  App = @{ RegistryKey = $key; Uninstall = 'MsiExec.exe /X{00000000-0000-0000-0000-000000000000}' } }
+            @{ Why = 'an uninstaller path it cannot parse';   Want = $true;  App = @{ RegistryKey = $key; Uninstall = 'C:\Program Files\Some App\uninstall now.exe /S' } }
+            @{ Why = 'an uninstaller named by a variable';    Want = $true;  App = @{ RegistryKey = $key; Uninstall = '%SystemRoot%\System32\cmd.exe /c exit' } }
+            @{ Why = 'a Store package that is not present';   Want = $false; App = @{ Kind = 'appx'; PackageFullName = 'Trim.NotInstalled_1.0.0.0_x64__0000000000000' } }
+        )
+        foreach ($c in $cases) {
+            $app = [pscustomobject]@{ Kind = 'win32'; RegistryKey = ''; InstallDir = ''; Uninstall = ''; PackageFullName = '' }
+            foreach ($k in @($c.App.Keys)) { $app.$k = $c.App[$k] }
+            $got = [bool](Test-AppStillInstalled -App $app)
+            if ($got -ne $c.Want) {
+                $problems.Add("$($c.Why): reported $(if ($got) { 'installed' } else { 'gone' })") | Out-Null
+            }
+        }
+    } finally {
+        if (Test-Path -LiteralPath $key)  { Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    if ($problems.Count) { throw ($problems -join '; ') }
+}
+
 # Running as administrator means a bare tool name resolves through PATH, and a
 # writable PATH entry then executes with those rights.
 Test-Phase 'System tools resolve to real system paths' {
