@@ -688,10 +688,21 @@ function Write-LedgerJson {
     }
     $json = $payload | ConvertTo-Json -Depth 6
 
+    # A warning, not a stop. latest.json left behind by an elevated run belongs
+    # to Administrators and is read-only to everyone else, so the next dry run
+    # - the one mode that asks for no rights - died here, before its window
+    # ever opened. Nothing in the run depends on this file; only the verifier
+    # reads it.
+    $written = $true
     foreach ($p in @((Join-Path $dir "ledger_$($script:RunStamp).json"), (Join-Path $dir 'latest.json'))) {
-        Set-Content -LiteralPath $p -Value $json -Encoding UTF8
+        try {
+            Set-Content -LiteralPath $p -Value $json -Encoding UTF8 -ErrorAction Stop
+        } catch {
+            $written = $false
+            Write-Log -Level WARN -Message "Could not write the ledger to ${p}: $($_.Exception.Message)"
+        }
     }
-    Write-Log -Level OK -Message "Ledger written: $(Join-Path $dir 'latest.json')"
+    if ($written) { Write-Log -Level OK -Message "Ledger written: $(Join-Path $dir 'latest.json')" }
 }
 
 function New-SafetyRestorePoint {
