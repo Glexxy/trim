@@ -668,6 +668,135 @@ Check 'window icon renders' {
     if ($script:GuiWin.Icon.PixelWidth -ne 64) { throw "icon is $($script:GuiWin.Icon.PixelWidth)px" }
 }
 
+Check 'every button and checkbox has a name a screen reader can speak' {
+    # NVDA read the sidebar as "button" seven times and every row as "check
+    # box, checked". A checkbox with no Content and a button whose Content is a
+    # Grid have no name unless one is given, and a column of buttons that all
+    # say "Remove" is one name repeated.
+    function Assert-Named {
+        param([string]$Where, $Root, [switch]$Unique)
+        $names = @()
+        foreach ($c in @(Get-GuiFocusables -Root $Root)) {
+            $name = [Windows.Automation.AutomationProperties]::GetName($c)
+            if (-not $name -and $c.Content -is [string]) { $name = $c.Content }
+            if (-not "$name".Trim()) { throw "$Where has a $($c.GetType().Name) with no name, so a screen reader says only what it is" }
+            $names += $name
+        }
+        if ($Unique) {
+            $same = @($names | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
+            if ($same.Count) { throw "$Where has more than one control called '$($same -join "', '")'" }
+        }
+        return $names.Count
+    }
+
+    $was = @{ Clean = $script:GuiCleanItems; Scanned = $script:GuiCleanScanned
+              Startup = $script:GuiStartupItems; StartupLoaded = $script:GuiStartupLoaded
+              Apps = $script:GuiApps; AppsLoaded = $script:GuiAppsLoaded; Stage = $script:GuiUninstallStage
+              Target = $script:GuiUninstallTarget; Left = $script:GuiLeftovers }
+    try {
+        $seen = 0
+        foreach ($p in $script:GuiPhases) {
+            Set-GuiPhase $p
+            $seen += Assert-Named "the $p pane" $script:GuiUi.PanelItems -Unique
+        }
+        $seen += Assert-Named 'the sidebar' $script:GuiUi.PanelPhases -Unique
+
+        $script:GuiCleanItems = @(
+            [pscustomobject]@{ Category = 'Temp'; Why = 'x'; Path = 'C:\t1'; Size = '1 KB'; Bytes = 1024; Count = 2
+                               Tier = 'safe'; Selected = $true; Key = 'clean|C:\t1' },
+            [pscustomobject]@{ Category = 'Temp'; Why = 'x'; Path = 'C:\t2'; Size = '2 KB'; Bytes = 2048; Count = 3
+                               Tier = 'op'; Selected = $false; Key = 'clean|C:\t2' })
+        $script:GuiCleanScanned = $true
+        Set-GuiPhase 'Disk cleanup'
+        $seen += Assert-Named 'the cleanup pane' $script:GuiUi.PanelItems -Unique
+
+        $script:GuiStartupItems = @(
+            [pscustomobject]@{ Name = 'One'; Publisher = 'Contoso'; Source = 'Registry'; Scope = 'You'; State = 'Enabled'; CanChange = $true },
+            [pscustomobject]@{ Name = 'Two'; Publisher = ''; Source = 'Startup folder'; Scope = 'You'; State = 'Enabled'; CanChange = $true })
+        $script:GuiStartupLoaded = $true
+        Set-GuiPhase 'Startup apps'
+        $seen += Assert-Named 'the startup pane' $script:GuiUi.PanelItems -Unique
+
+        $script:GuiApps = @(
+            [pscustomobject]@{ Name = 'A'; DisplayName = 'Alpha'; PublisherDisplay = 'Contoso'; Version = '1'; IconSource = ''; SizeMB = 5; Kind = 'win32' },
+            [pscustomobject]@{ Name = 'B'; DisplayName = 'Beta'; PublisherDisplay = ''; Version = ''; IconSource = ''; SizeMB = 0; Kind = 'win32' })
+        $script:GuiAppsLoaded = $true
+        $script:GuiUninstallStage = 'list'
+        Set-GuiPhase 'Uninstall apps'
+        $seen += Assert-Named 'the uninstall list' $script:GuiUi.PanelItems -Unique
+
+        $script:GuiUninstallTarget = [pscustomobject]@{ DisplayName = 'Alpha'; Name = 'A' }
+        $script:GuiLeftovers = @(
+            [pscustomobject]@{ Kind = 'folder'; Path = 'C:\Alpha'; Bytes = 1; Size = '1 B'; Selected = $true; Key = 'left|folder|C:\Alpha' },
+            [pscustomobject]@{ Kind = 'registry'; Path = 'HKCU:\Software\Alpha'; Bytes = 0; Size = ''; Selected = $true; Key = 'left|registry|HKCU:\Software\Alpha' })
+        $script:LeftoversWithheld = [System.Collections.Generic.List[object]]::new()
+        $script:GuiUninstallStage = 'leftovers'
+        Set-GuiPhase 'Uninstall apps'
+        $seen += Assert-Named 'the leftovers pane' $script:GuiUi.PanelItems -Unique
+
+        if ($seen -lt 12) { throw "only $seen control(s) were checked - this guard has stopped finding them" }
+    } finally {
+        $script:GuiCleanItems = $was.Clean; $script:GuiCleanScanned = $was.Scanned
+        $script:GuiStartupItems = $was.Startup; $script:GuiStartupLoaded = $was.StartupLoaded
+        $script:GuiApps = $was.Apps; $script:GuiAppsLoaded = $was.AppsLoaded; $script:GuiUninstallStage = $was.Stage
+        $script:GuiUninstallTarget = $was.Target; $script:GuiLeftovers = $was.Left
+        $script:LeftoversWithheld = [System.Collections.Generic.List[object]]::new()
+        Set-GuiPhase 'Overview'
+    }
+}
+
+Check 'checkboxes speak plain language, not notation' {
+    # Heard through NVDA: "no cloud content search, SAFE, check box, checked,
+    # IsAADCloudSearchEnabled (not set) -> 0". Shouted tiers, arrows, and
+    # "[reversible: True]" are for the eye; the ear gets sentences.
+    $ap = [Windows.Automation.AutomationProperties]
+    $hasPosition = [bool]$ap.GetMethod('GetPositionInSet')
+    $sentences = 0; $boxes = 0
+    try {
+        foreach ($p in $script:GuiPhases) {
+            Set-GuiPhase $p
+            $i = 0
+            foreach ($cb in @(Get-GuiFocusables -Root $script:GuiUi.PanelItems | Where-Object { $_ -is [Windows.Controls.CheckBox] })) {
+                $i++; $boxes++
+                $name = $ap::GetName($cb); $help = $ap::GetHelpText($cb)
+                if ($name -cmatch '\b(SAFE|CAUTION|RISKY)\b') { throw "'$name' shouts its tier" }
+                if ("$name $help" -match '->|\[reversible') { throw "'$name' reads notation aloud: $help" }
+                if ("$name" -match '\\') { throw "'$name' reads a path aloud" }
+                if (-not "$help".Trim()) { throw "'$name' has no description" }
+                if ($help -match '^(Safe|Caution|Risky) change\. Now .+, will be .+\.') { $sentences++ }
+                if ($hasPosition -and $ap::GetPositionInSet($cb) -ne $i) {
+                    throw "'$name' says it is item $($ap::GetPositionInSet($cb)), but it is item $i"
+                }
+            }
+        }
+        if ($boxes -lt 5) { throw "only $boxes checkbox(es) were checked - this guard has stopped finding them" }
+        if (-not $sentences) { throw 'no registry change describes itself as "Now x, will be y"' }
+
+        if ((Get-GuiUndoSentence 'no - reinstall from microsoft.com/edge') -ne 'Cannot be undone: reinstall from microsoft.com/edge.') {
+            throw "undo wording reads '$(Get-GuiUndoSentence 'no - reinstall from microsoft.com/edge')'"
+        }
+        $task = [pscustomobject]@{ Title = 'Disable scheduled task: \Microsoft\Windows\Feedback\Siuf\DmClient' }
+        if ((Get-GuiSpokenTitle -Item $task) -ne 'Disable scheduled task DmClient') {
+            throw "a task reads as '$(Get-GuiSpokenTitle -Item $task)'"
+        }
+    } finally { Set-GuiPhase 'Overview' }
+}
+
+Check 'listing startup items shows the list, not a prompt' {
+    # It went through the apply progress window without the -Total that window
+    # requires, so the button stopped at a console prompt for a number.
+    $was = $script:GuiStartupItems; $wasLoaded = $script:GuiStartupLoaded
+    try {
+        Set-GuiPhase 'Startup apps'
+        Invoke-GuiLoadStartup
+        if (-not $script:GuiStartupLoaded) { throw 'the list was never marked as loaded' }
+        if ($script:GuiUi.TxtPhaseSub.Text -notmatch 'enabled$') { throw "counter reads '$($script:GuiUi.TxtPhaseSub.Text)'" }
+    } finally {
+        $script:GuiStartupItems = $was; $script:GuiStartupLoaded = $wasLoaded
+        Set-GuiPhase 'Overview'
+    }
+}
+
 
 # ---------------------------------------------------------------------------
 # The panes that act. Startup, Cleanup and Uninstall each ask their own

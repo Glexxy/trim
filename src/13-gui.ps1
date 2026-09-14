@@ -338,7 +338,7 @@ $script:GuiXaml = @'
       </Grid.ColumnDefinitions>
 
       <Border Grid.Column="0" Background="{StaticResource Panel}" BorderBrush="{StaticResource Rule}" BorderThickness="0,0,1,0">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Sections">
           <StackPanel x:Name="PanelPhases" Margin="8,10"/>
         </ScrollViewer>
       </Border>
@@ -430,6 +430,211 @@ function Get-GuiBrush {
     return [Windows.Media.BrushConverter]::new().ConvertFrom($Hex)
 }
 
+# ---------------------------------------------------------------------------
+#  Screen readers
+# ---------------------------------------------------------------------------
+
+<#
+.SYNOPSIS
+    Tell a screen reader what a control is.
+
+.DESCRIPTION
+    A checkbox with no Content, a button whose Content is a Grid, and a column
+    of buttons that all say "Remove" are spoken by NVDA, Narrator and JAWS as
+    "check box", "button" and "Remove, Remove, Remove". The name is what gets
+    spoken; the help text is read after it, as the description.
+
+    LiveSetting and HeadingLevel are newer than the .NET some supported Windows
+    builds ship, so they are set here in code - where a missing property costs
+    an announcement - rather than in the XAML, where it would cost the window.
+#>
+function Set-GuiAutomation {
+    param([Parameter(Mandatory)]$Element, [string]$Name, [string]$Help, [string]$Id,
+          [string]$Live, [int]$Heading = 0, [int]$Position = 0, [int]$SetSize = 0)
+    $ap = [Windows.Automation.AutomationProperties]
+    if ($PSBoundParameters.ContainsKey('Name')) { $ap::SetName($Element, $Name) }
+    if ($PSBoundParameters.ContainsKey('Help')) { $ap::SetHelpText($Element, $Help) }
+    if ($Id)      { $ap::SetAutomationId($Element, $Id) }
+    if ($Live)    { try { $ap::SetLiveSetting($Element, $Live) } catch { } }
+    if ($Heading) { try { $ap::SetHeadingLevel($Element, "Level$Heading") } catch { } }
+    # "3 of 12", read after the state.
+    if ($Position -gt 0 -and $SetSize -gt 0) {
+        try { $ap::SetPositionInSet($Element, $Position); $ap::SetSizeOfSet($Element, $SetSize) } catch { }
+    }
+}
+
+<#
+.SYNOPSIS
+    Windows PowerShell is a .NET 4.5-era host, so WPF keeps the UI Automation
+    features added since - live regions and headings - switched off for it.
+
+.DESCRIPTION
+    Has to run before WPF first reads the switches, which is the first window.
+#>
+function Enable-GuiAutomationFeatures {
+    foreach ($s in @('Switch.UseLegacyAccessibilityFeatures',
+                     'Switch.UseLegacyAccessibilityFeatures.2',
+                     'Switch.UseLegacyAccessibilityFeatures.3')) {
+        try { [AppContext]::SetSwitch($s, $false) } catch { }
+    }
+}
+
+<#
+.SYNOPSIS
+    Have a screen reader speak a line of text that just changed.
+
+.DESCRIPTION
+    The work behind most status lines runs on the UI thread, and a screen
+    reader fetches the text it was told about from that same thread. So the
+    queue is pumped for a moment after the event: otherwise "Scanning every
+    drive..." is spoken after the scan it announced, or not at all.
+#>
+function Send-GuiAnnouncement {
+    param([Parameter(Mandatory)]$Element)
+    try {
+        $live = [Windows.Automation.Peers.AutomationEvents]::LiveRegionChanged
+        if (-not [Windows.Automation.Peers.AutomationPeer]::ListenerExists($live)) { return }
+        $peer = [Windows.Automation.Peers.UIElementAutomationPeer]::CreatePeerForElement($Element)
+        if (-not $peer) { return }
+        $peer.RaiseAutomationEvent($live)
+        $until = [DateTime]::UtcNow.AddMilliseconds(250)
+        while ([DateTime]::UtcNow -lt $until) {
+            $Element.Dispatcher.Invoke([action]{}, [Windows.Threading.DispatcherPriority]::Background)
+            Start-Sleep -Milliseconds 25
+        }
+    } catch { }
+}
+
+# The line under the pane title, set before something slow and spoken aloud.
+function Set-GuiStatus {
+    param([string]$Text)
+    $script:GuiUi.TxtPhaseSub.Text = $Text
+    $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
+    Send-GuiAnnouncement -Element $script:GuiUi.TxtPhaseSub
+}
+
+<#
+.SYNOPSIS
+    Keep keyboard focus from falling off a pane that is rebuilt under it.
+
+.DESCRIPTION
+    Every button in the sidebar and in a pane rebuilds the panel it sits in, so
+    the control that had focus is gone the moment it is pressed, and WPF sends
+    focus back to the top of the window. Somebody using the keyboard or a
+    screen reader landed on the Recommended preset with nothing to say the pane
+    had changed at all.
+
+    The control is found again by its automation id where it still exists - a
+    startup switch that now says Turn on - and otherwise focus goes to the
+    first control in the new pane.
+#>
+function Save-GuiFocus {
+    param([Parameter(Mandatory)]$Panel)
+    $f = [Windows.Input.FocusManager]::GetFocusedElement($script:GuiWin)
+    if ($f -isnot [Windows.Media.Visual] -or -not $Panel.IsAncestorOf($f)) { return $null }
+    return [pscustomobject]@{ Id = [Windows.Automation.AutomationProperties]::GetAutomationId($f) }
+}
+
+# Buttons and checkboxes under a panel, in reading order.
+function Get-GuiFocusables {
+    param([Parameter(Mandatory)]$Root)
+    $found = [System.Collections.Generic.List[object]]::new()
+    $stack = [System.Collections.Generic.Stack[object]]::new()
+    $stack.Push($Root)
+    while ($stack.Count) {
+        $n = $stack.Pop()
+        if ($n -is [Windows.Controls.Primitives.ButtonBase]) { $found.Add($n) | Out-Null; continue }
+        $kids = @([Windows.LogicalTreeHelper]::GetChildren($n) | Where-Object { $_ -is [Windows.DependencyObject] })
+        for ($i = $kids.Count - 1; $i -ge 0; $i--) { $stack.Push($kids[$i]) }
+    }
+    return $found
+}
+
+function Restore-GuiFocus {
+    param([Parameter(Mandatory)]$Panel, [string]$Id, $Fallback)
+    $Panel.UpdateLayout()
+    $all = @(Get-GuiFocusables -Root $Panel | Where-Object { $_.IsEnabled })
+    $hit = $null
+    if ($Id) {
+        $hit = $all | Where-Object { [Windows.Automation.AutomationProperties]::GetAutomationId($_) -eq $Id } |
+               Select-Object -First 1
+    }
+    if (-not $hit) { $hit = $all | Select-Object -First 1 }
+    if (-not $hit) { $hit = $Fallback }
+    if ($hit) { [void]$hit.Focus() }
+}
+
+# What a sidebar button says: its section, its count, and whether it is open.
+function Get-GuiNavName {
+    param([Parameter(Mandatory)][string]$Phase)
+    $name = $Phase
+    if ($Phase -notin $script:GuiExtraPanes) {
+        $c = Get-GuiPhaseCounts -Phase $Phase
+        $name += ", $($c.On) of $($c.Total) selected"
+    }
+    if ($Phase -eq $script:GuiCurrent) { $name += ', current' }
+    return $name
+}
+
+<#
+.SYNOPSIS
+    What a checkbox in the plan says, in words rather than notation.
+
+.DESCRIPTION
+    Heard through NVDA, a row read "no cloud content search, SAFE, check box,
+    checked, IsAADCloudSearchEnabled (not set) -> 0" - and the row after it
+    had the same name. The visible row can afford notation because the eye
+    takes it in at once; speech is one word after another, so:
+
+      - the name is the title a sighted person reads, made unique where two
+        settings share one, and carries the tier only when it is a warning
+      - the description says what happens in a sentence: what it is now, what
+        it will be, and where
+      - a task is named by its last part, not by a path read out in full
+#>
+function ConvertTo-GuiWords {
+    param([string]$Text)
+    $w = $Text -creplace '(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', ' '
+    return (($w -replace '_', ' ') -replace '\s{2,}', ' ').Trim()
+}
+
+function Get-GuiUndoSentence {
+    param([string]$Reversible)
+    $r = "$Reversible".Trim()
+    if (-not $r) { return '' }
+    $rest = if ($r -match '^(yes|no|n/a)\b\s*[-,:;]?\s*(.*)$') { $Matches[2].Trim() } else { '' }
+    if ($r -match '^yes') { if ($rest) { return "Can be undone: $rest." } else { return 'Can be undone.' } }
+    if ($r -match '^no')  { if ($rest) { return "Cannot be undone: $rest." } else { return 'Cannot be undone.' } }
+    if ($r -match '^n/a') { return 'Nothing to undo.' }
+    return "To undo: $r."
+}
+
+function Get-GuiSpokenTitle {
+    param([Parameter(Mandatory)]$Item)
+    $t = "$($Item.Title)"
+    # "Disable scheduled task: \Microsoft\Windows\Feedback\Siuf\DmClient"
+    if ($t -match '^(.+?):\s*\\(?:.*\\)?([^\\]+)$') { return "$($Matches[1]) $($Matches[2])" }
+    if ($t -match '^winutil:(.+)$') { return "WinUtil: $(ConvertTo-GuiWords $Matches[1])" }
+    # No -Because, so the title is the bare registry value name.
+    if ($Item.PSObject.Properties['Setting'] -and $t -eq "$($Item.Setting)") { return (ConvertTo-GuiWords $t) }
+    return $t
+}
+
+function Get-GuiCheckBoxHelp {
+    # -NoSetting when the name already carries the setting, so it is not said twice.
+    param([Parameter(Mandatory)]$Item, [Parameter(Mandatory)][string]$TierWord, [switch]$NoSetting)
+    $parts = @("$TierWord change.")
+    if ($Item.PSObject.Properties['Spoken'] -and $Item.Spoken) { $parts += "$($Item.Spoken)" }
+    elseif ($Item.Detail) { $parts += "$($Item.Detail)" }
+    if (-not $NoSetting -and $Item.Kind -eq 'reg' -and $Item.PSObject.Properties['Setting'] -and $Item.Setting) {
+        $where = "Setting: $(ConvertTo-GuiWords $Item.Setting)"
+        if ($Item.PSObject.Properties['Scope'] -and $Item.Scope) { $where += ", for $($Item.Scope)" }
+        $parts += "$where."
+    }
+    if ("$($Item.Title)" -match '^.+?:\s*\\(.+)$') { $parts += "Full path: $($Matches[1])." }
+    return ($parts -join ' ')
+}
+
 <#
 .SYNOPSIS
     Windows 11 paints the title bar light unless asked otherwise, which looks
@@ -497,24 +702,39 @@ function Get-GuiItems {
         if ("$now" -eq '') { $now = '(empty)' }
         $to = if ($e.Action -eq 'remove') { '(removed)' } else { "$($e.NewValue)" }
 
+        # The same values as a sentence, for a screen reader. See Get-GuiCheckBoxHelp.
+        $saidNow = if (-not $e.HadValue) { 'not set' } elseif ("$($e.OldValue)" -eq '') { 'empty' } else { "$($e.OldValue)" }
+        $saidTo  = if ($e.Action -eq 'remove') { 'removed' } elseif ("$($e.NewValue)" -eq '') { 'empty' } else { "$($e.NewValue)" }
+
         $items.Add([pscustomobject]@{
             Key      = "reg|$($e.Path)|$($e.Name)"
             Kind     = 'reg'
             Phase    = "$($e.Phase)"
             Title    = if ($e.Because) { "$($e.Because)" } else { "$($e.Name)" }
             Detail   = "$($e.Name)   $now -> $to"
+            Setting  = "$($e.Name)"
+            Scope    = if ("$($e.Path)" -match '^HKLM') { 'all users' } elseif ("$($e.Path)" -match '^HKCU') { 'your account' } else { '' }
+            Spoken   = "Now $saidNow, will be $saidTo."
             Tier     = if ($e.PSObject.Properties.Name -contains 'Tier' -and $e.Tier) { "$($e.Tier)" } else { 'safe' }
             Selected = $true
         }) | Out-Null
     }
 
     foreach ($a in @($Actions)) {
+        # Details are written as fragments for the row ("sends feedback data");
+        # spoken after "Safe change." they need to start a sentence.
+        $saidDetail = "$($a.Detail)".Trim().TrimEnd('.')
+        if ($saidDetail) { $saidDetail = $saidDetail.Substring(0, 1).ToUpper() + $saidDetail.Substring(1) + '.' }
+
         $items.Add([pscustomobject]@{
             Key      = "act|$($a.Kind)|$($a.Target)"
             Kind     = "$($a.Kind)"
             Phase    = "$($a.Phase)"
             Title    = "$($a.Target)"
             Detail   = "$($a.Detail)   [reversible: $($a.Reversible)]"
+            Setting  = "$($a.Target)"
+            Scope    = ''
+            Spoken   = ((@($saidDetail, (Get-GuiUndoSentence $a.Reversible)) | Where-Object { $_ }) -join ' ')
             Tier     = if ($a.PSObject.Properties.Name -contains 'Tier' -and $a.Tier) { "$($a.Tier)" } else { 'safe' }
             Selected = $true
         }) | Out-Null
@@ -544,10 +764,14 @@ function Update-GuiCounts {
     $ui.BtnApply.IsEnabled = ($total -gt 0)
 
     if ($trade -gt 0) {
+        $wasHidden = $ui.BannerBox.Visibility -ne 'Visible'
         $ui.BannerBox.Visibility = 'Visible'
         $ui.TxtBanner.Text = "Risky change selected. Disabling Memory Integrity removes the check that stops a " +
             "malicious or vulnerable kernel driver tampering with Windows. Microsoft advise turning it off " +
             "for a session and back on afterwards, not leaving it off. A reboot is required."
+        # Spoken once, when it appears. It is the warning on this window that
+        # matters most, and it shows up somewhere nobody tabbing will reach.
+        if ($wasHidden) { Send-GuiAnnouncement -Element $ui.TxtBanner }
     } else {
         $ui.BannerBox.Visibility = 'Collapsed'
     }
@@ -568,11 +792,13 @@ function Update-GuiPhaseCounts {
         if ($grid -and $grid.Children.Count -ge 2) {
             $grid.Children[1].Text = "$($c.On)/$($c.Total)"
         }
+        Set-GuiAutomation -Element $child -Name (Get-GuiNavName -Phase $child.Tag)
     }
 }
 
 function Update-GuiPhases {
     $ui = $script:GuiUi
+    $hadFocus = Save-GuiFocus -Panel $ui.PanelPhases
     $ui.PanelPhases.Children.Clear()
 
     $brInk    = Get-GuiBrush '#E6EDEB'
@@ -593,6 +819,8 @@ function Update-GuiPhases {
         $b.Margin          = New-Object Windows.Thickness 0,0,0,2
         $b.FontWeight      = if ($isCur) { 'SemiBold' } else { 'Normal' }
         $b.Tag             = $p
+        # The content is a Grid, which gives a button no name of its own.
+        Set-GuiAutomation -Element $b -Name (Get-GuiNavName -Phase $p) -Id "nav|$p"
 
         $g  = New-Object Windows.Controls.Grid
         $c1 = New-Object Windows.Controls.ColumnDefinition; $c1.Width = New-Object Windows.GridLength 1, 'Star'
@@ -625,6 +853,7 @@ function Update-GuiPhases {
         $b.Add_Click({ Set-GuiPhase $this.Tag })
         $ui.PanelPhases.Children.Add($b) | Out-Null
     }
+    if ($hadFocus) { Restore-GuiFocus -Panel $ui.PanelPhases -Id "nav|$($script:GuiCurrent)" }
 }
 
 <#
@@ -694,6 +923,8 @@ function Add-GuiParagraph {
     $t.Margin = New-Object Windows.Thickness 0, $Top, 0, 0
     $t.MaxWidth = 720
     $t.HorizontalAlignment = 'Left'
+    # Weight is how this file marks a heading, so it is how a screen reader is told.
+    if ($Weight -eq 'SemiBold') { Set-GuiAutomation -Element $t -Heading 3 }
     $script:GuiUi.PanelItems.Children.Add($t) | Out-Null
 }
 
@@ -999,6 +1230,7 @@ function Show-GuiCleanup {
         $b = New-Object Windows.Controls.Button
         $b.Style = $script:GuiWin.FindResource($spec.Style)
         $b.Content = $spec.Text
+        Set-GuiAutomation -Element $b -Id "clean|$($spec.Text)"
         $b.Margin = New-Object Windows.Thickness 0,0,8,0
         $b.Add_Click($spec.Handler)
         $bar.Children.Add($b) | Out-Null
@@ -1059,6 +1291,10 @@ function Show-GuiCleanup {
             $cb.VerticalAlignment = 'Center'
             $cb.Tag = $item
             $cb.Add_Click({ $this.Tag.Selected = [bool]$this.IsChecked; Update-GuiCleanTotals })
+            $tw = switch ("$($item.Tier)") { 'op' { 'Caution' } 'trade' { 'Risky' } default { 'Safe' } }
+            Set-GuiAutomation -Element $cb -Id $item.Key `
+                -Name ("$($item.Path), $($item.Size)" + $(if ($tw -ne 'Safe') { " ($($tw.ToLower()))" } else { '' })) `
+                -Help "$tw to delete. $($grp.Name). $($item.Count) file(s)."
             [Windows.Controls.Grid]::SetColumn($cb, 0)
 
             $size = New-Object Windows.Controls.TextBlock
@@ -1115,8 +1351,7 @@ function Update-GuiCleanTotals {
 }
 
 function Invoke-GuiCleanScan {
-    $script:GuiUi.TxtPhaseSub.Text = 'Scanning every drive...'
-    $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
+    Set-GuiStatus 'Scanning every drive...'
     $script:GuiCleanItems = @(Get-CleanupScan -Quiet)
     $script:GuiCleanScanned = $true
     Update-GuiItems
@@ -1137,8 +1372,7 @@ $script:LargeScanSeconds   = 0
     are shown and never selected.
 #>
 function Invoke-GuiLargeFileScan {
-    $script:GuiUi.TxtPhaseSub.Text = 'Looking for large files across every drive. This can take a few minutes...'
-    $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
+    Set-GuiStatus 'Looking for large files across every drive. This can take a few minutes...'
 
     # The walk runs on this thread, so without pumping the queue the window is
     # frozen for the whole scan - and over a five-minute scan Windows greys the
@@ -1160,8 +1394,7 @@ function Invoke-GuiLargeFileScan {
 }
 
 function Invoke-GuiDuplicateScan {
-    $script:GuiUi.TxtPhaseSub.Text = 'Hashing files to find duplicates. This can take a minute...'
-    $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
+    Set-GuiStatus 'Hashing files to find duplicates. This can take a minute...'
     $existing = @($script:GuiCleanItems | Where-Object { $_.Key -notlike 'dupe|*' })
     $script:GuiCleanItems = @($existing) + @(Get-DuplicateScan)
     Update-GuiItems
@@ -1296,8 +1529,7 @@ function Invoke-GuiCleanDelete {
         'This cannot be undone by Trim. Files already in the Recycle Bin are removed permanently.')
     if ($answer -ne 'Yes') { return }
 
-    $script:GuiUi.TxtPhaseSub.Text = 'Deleting...'
-    $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
+    Set-GuiStatus 'Deleting...'
 
     $result = Invoke-GuiLive { Invoke-Cleanup -Items $sel }
     $script:GuiCleanItems = @(Get-CleanupScan -Quiet)
@@ -1430,6 +1662,7 @@ function New-GuiAppIconTile {
         $im.Width   = 24
         $im.Height  = 24
         $im.Stretch = 'Uniform'
+        Set-GuiAutomation -Element $im -Name "$($App.DisplayName) icon"
         [Windows.Media.RenderOptions]::SetBitmapScalingMode($im, 'HighQuality')
         $host_.Child = $im
         return $host_
@@ -1456,7 +1689,12 @@ $script:GuiStartupItems  = @()
 $script:GuiStartupLoaded = $false
 
 function Invoke-GuiLoadStartup {
-    $script:GuiStartupItems = @(Invoke-WithProgress -Title 'Reading startup items' -Work { Get-StartupItems })
+    # Not Invoke-WithProgress. That is the apply window: it never got the
+    # -Total it requires, so this button stopped at a console prompt behind a
+    # window that had stopped answering - and had it run, it would have ended
+    # by reporting changes applied and an undo script.
+    Set-GuiStatus 'Reading startup items...'
+    $script:GuiStartupItems = @(Get-StartupItems)
     $script:GuiStartupLoaded = $true
     Update-GuiItems
 }
@@ -1563,6 +1801,9 @@ function Show-GuiStartup {
             $btn = New-Object Windows.Controls.Button
             $btn.Style = $script:GuiWin.FindResource('Btn')
             $btn.Content = if ($item.State -eq 'Enabled') { 'Turn off' } else { 'Turn on' }
+            # "Turn off", once per row, says nothing about what it turns off.
+            Set-GuiAutomation -Element $btn -Name "$($btn.Content) $($item.Name)" -Help $meta.Text `
+                -Id "startup|$($item.Source)|$($item.Name)"
             $btn.VerticalAlignment = 'Center'
             $btn.Margin = New-Object Windows.Thickness 12,0,0,0
             # Captured per row deliberately: the handler must act on this item,
@@ -1694,6 +1935,8 @@ function Show-GuiUninstall {
         $btn.Style = $script:GuiWin.FindResource('Btn')
         $btn.Content = 'Remove'
         $btn.Tag = $app
+        Set-GuiAutomation -Element $btn -Name "Remove $($app.DisplayName)" -Id "app|$($app.Name)" `
+            -Help ((@($meta.Text, $size.Text) | Where-Object { $_ }) -join ', ')
         $btn.VerticalAlignment = 'Center'
         $btn.Add_Click({ Invoke-GuiUninstallApp $this.Tag })
         [Windows.Controls.Grid]::SetColumn($btn, 3)
@@ -1710,8 +1953,7 @@ function Show-GuiUninstall {
 }
 
 function Invoke-GuiLoadApps {
-    $script:GuiUi.TxtPhaseSub.Text = 'Reading installed applications...'
-    $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
+    Set-GuiStatus 'Reading installed applications...'
     $script:GuiApps = @(Get-InstalledApplications)
     $script:GuiAppsLoaded = $true
     Update-GuiItems
@@ -1726,8 +1968,7 @@ function Invoke-GuiUninstallApp {
         'anything it left behind, and remove only what you tick.')
     if ($answer -ne 'Yes') { return }
 
-    $script:GuiUi.TxtPhaseSub.Text = "Uninstalling $($App.DisplayName)..."
-    $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
+    Set-GuiStatus "Uninstalling $($App.DisplayName)..."
     [void](Invoke-GuiLive { Invoke-AppUninstaller -App $App })
 
     if ($script:UserAskedDryRun) {
@@ -1750,8 +1991,7 @@ function Invoke-GuiUninstallApp {
         return
     }
 
-    $script:GuiUi.TxtPhaseSub.Text = 'Looking for leftovers...'
-    $script:GuiWin.Dispatcher.Invoke([action]{}, 'Render')
+    Set-GuiStatus 'Looking for leftovers...'
     $script:GuiUninstallTarget = $App
     $script:GuiLeftovers = @(Get-AppLeftovers -App $App)
     $script:GuiUninstallStage = 'leftovers'
@@ -1906,6 +2146,15 @@ function Show-GuiLeftovers {
         $size.VerticalAlignment = 'Center'
         [Windows.Controls.Grid]::SetColumn($size, 3)
 
+        $kindWord = switch ($l.Kind) {
+            'registry' { 'Registry key' }
+            'service'  { 'Service' }
+            'task'     { 'Scheduled task' }
+            default    { 'Folder' }
+        }
+        Set-GuiAutomation -Element $cb -Name ((@("${kindWord}: $($path.Text)", $l.Size) | Where-Object { $_ }) -join ', ') `
+            -Id $(if ($l.PSObject.Properties['Key']) { "$($l.Key)" } else { '' })
+
         $g.Children.Add($cb)   | Out-Null
         $g.Children.Add($kind) | Out-Null
         $g.Children.Add($path) | Out-Null
@@ -1917,6 +2166,7 @@ function Show-GuiLeftovers {
     $del = New-Object Windows.Controls.Button
     $del.Style = $script:GuiWin.FindResource('Primary')
     $del.Content = 'Remove the ticked leftovers'
+    Set-GuiAutomation -Element $del -Id 'left|remove'
     $del.HorizontalAlignment = 'Left'
     $del.Margin = New-Object Windows.Thickness 0,18,0,0
     $del.Add_Click({ Invoke-GuiRemoveLeftovers })
@@ -1973,8 +2223,27 @@ function Invoke-GuiRemoveLeftovers {
 
 function Update-GuiItems {
     $ui = $script:GuiUi
+    $hadFocus = Save-GuiFocus -Panel $ui.PanelItems
     $ui.PanelItems.Children.Clear()
     $ui.ItemScroll.ScrollToTop()
+
+    # Cleared, so a pane that does not set its own spoken title reads the visible one.
+    Set-GuiAutomation -Element $ui.TxtPhase -Name ''
+    Show-GuiPane
+    Set-GuiAutomation -Element $ui.ItemScroll -Name $ui.TxtPhase.Text
+
+    # Only when a control in the pane was pressed. From the sidebar, focus
+    # stays on the sidebar, which is where the person pressing it still is.
+    if ($hadFocus) {
+        $nav = $ui.PanelPhases.Children | Where-Object { $_.Tag -eq $script:GuiCurrent } | Select-Object -First 1
+        Restore-GuiFocus -Panel $ui.PanelItems -Id $hadFocus.Id -Fallback $nav
+        # Focus says which button you are on; this says what the scan found.
+        if ($ui.TxtPhaseSub.Text) { Send-GuiAnnouncement -Element $ui.TxtPhaseSub }
+    }
+}
+
+function Show-GuiPane {
+    $ui = $script:GuiUi
 
     if ($script:GuiCurrent -eq 'Overview')     { Show-GuiOverview; return }
     if ($script:GuiCurrent -eq 'Disk cleanup')    { Show-GuiCleanup;   return }
@@ -1983,6 +2252,38 @@ function Update-GuiItems {
 
     $inPhase = @($script:GuiItems | Where-Object { $_.Phase -eq $script:GuiCurrent })
     $ui.TxtPhase.Text = $script:GuiCurrent
+
+    # Spoken once when the section opens (Set-GuiPhase): what a tick means.
+    # Written out, not "change(s)", which a synthesiser reads as "change s".
+    Set-GuiAutomation -Element $ui.TxtPhase -Name ("$($script:GuiCurrent): $($inPhase.Count) " +
+        $(if ($inPhase.Count -eq 1) { 'change' } else { 'changes' }) +
+        '. A ticked box means that change is made when you press Apply.')
+
+    # Checkbox names, unique within the pane. Two settings often serve one
+    # purpose - "Captures off" is three of them - and read aloud, identical
+    # names are identical controls. The setting and who it applies to tell
+    # them apart; a number is the last resort.
+    $names = @(foreach ($item in $inPhase) { Get-GuiSpokenTitle -Item $item })
+    $namedSetting = [System.Collections.Generic.HashSet[int]]::new()
+    if ($names.Count) {
+        $idx = 0..($names.Count - 1)
+        foreach ($grp in @($idx | Group-Object { $names[$_] } | Where-Object { $_.Count -gt 1 })) {
+            foreach ($i in $grp.Group) {
+                $it = $inPhase[$i]
+                $extra = @()
+                if ($it.PSObject.Properties['Setting'] -and $it.Setting -and "$($it.Setting)" -ne "$($it.Title)") {
+                    $extra += ConvertTo-GuiWords $it.Setting
+                }
+                if ($it.PSObject.Properties['Scope'] -and $it.Scope) { $extra += "for $($it.Scope)" }
+                if ($extra.Count) { $names[$i] += " ($($extra -join ', '))"; [void]$namedSetting.Add($i) }
+            }
+        }
+        foreach ($grp in @($idx | Group-Object { $names[$_] } | Where-Object { $_.Count -gt 1 })) {
+            $n = 0
+            foreach ($i in $grp.Group) { $n++; $names[$i] += " ($n of $($grp.Count))" }
+        }
+    }
+    $pos = 0
 
     $brInk   = Get-GuiBrush '#E6EDEB'
     $brFaint = Get-GuiBrush '#8C9A97'
@@ -2032,6 +2333,13 @@ function Update-GuiItems {
         # Counts only. Rebuilding this list from here destroys the very control
         # raising the event.
         $cb.Add_Click({ $this.Tag.Selected = [bool]$this.IsChecked; Update-GuiCounts })
+        # The title is beside the box, not in it, so the box has no name of
+        # its own. The values are the description, read after it.
+        $pos++
+        $tw = switch ("$($item.Tier)") { 'op' { 'Caution' } 'trade' { 'Risky' } default { 'Safe' } }
+        Set-GuiAutomation -Element $cb -Id $item.Key -Position $pos -SetSize $inPhase.Count `
+            -Name ($names[$pos - 1] + $(if ($tw -ne 'Safe') { " ($($tw.ToLower()))" } else { '' })) `
+            -Help (Get-GuiCheckBoxHelp -Item $item -TierWord $tw -NoSetting:($namedSetting.Contains($pos - 1)))
 
         $title = New-Object Windows.Controls.TextBlock
         $title.Text = $item.Title
@@ -2106,14 +2414,21 @@ function Update-GuiItems {
 
 function Set-GuiPhase {
     param([Parameter(Mandatory)][string]$Phase)
+    $fromSidebar = Save-GuiFocus -Panel $script:GuiUi.PanelPhases
     $script:GuiCurrent = $Phase
     Update-GuiPhases
     Update-GuiItems
     Update-GuiCounts
+    # Focus stays on the sidebar, so nothing else says what a tick in the
+    # section does.
+    if ($fromSidebar -and $Phase -notin $script:GuiExtraPanes) {
+        Send-GuiAnnouncement -Element $script:GuiUi.TxtPhase
+    }
 }
 
 function Set-GuiPreset {
-    param([Parameter(Mandatory)][ValidateSet('recommended','advanced','everything','none')][string]$Name)
+    param([Parameter(Mandatory)][ValidateSet('recommended','advanced','everything','none')][string]$Name,
+          [switch]$Announce)
 
     $script:GuiPreset = $Name
     foreach ($i in $script:GuiItems) {
@@ -2142,6 +2457,8 @@ function Set-GuiPreset {
         $pair[1].BorderBrush = if ($on) { $brAccent } else { $brRule }
         $pair[1].Foreground  = if ($on) { $brAccent } else { $brInk }
         $pair[1].Background  = $brRaise
+        # The active preset is shown only by colour.
+        Set-GuiAutomation -Element $pair[1] -Name $(if ($on) { "$($pair[1].Content) (current preset)" } else { "$($pair[1].Content)" })
     }
     $ui.TxtPresetHint.Text = switch ($Name) {
         'recommended' { 'Only the changes that are safe on any system. The default.' }
@@ -2152,6 +2469,13 @@ function Set-GuiPreset {
 
     Update-GuiItems
     Update-GuiCounts
+
+    # Pressing a preset changes nothing under the keyboard, so without this it
+    # sounds like nothing happened.
+    if ($Announce) {
+        Send-GuiAnnouncement -Element $ui.TxtPresetHint
+        Send-GuiAnnouncement -Element $ui.TxtCount
+    }
 }
 
 
@@ -2188,6 +2512,7 @@ $script:ProgXaml = @'
     </StackPanel>
 
     <ProgressBar x:Name="ProgBar" Grid.Row="1" Height="8" Minimum="0" Maximum="100" Value="0"
+                 AutomationProperties.Name="Progress"
                  Background="#263130" BorderThickness="0" Foreground="#46C6B0"/>
 
     <StackPanel Grid.Row="2" Margin="0,14,0,0">
@@ -2207,9 +2532,17 @@ $script:ProgXaml = @'
           <Setter Property="Template">
             <Setter.Value>
               <ControlTemplate TargetType="Button">
-                <Border Background="{TemplateBinding Background}" CornerRadius="4" Padding="22,7">
+                <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="4" Padding="22,7"
+                        BorderBrush="Transparent" BorderThickness="2">
                   <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
+                <!-- This template replaces the focus adorner as well, and Close
+                     is where focus lands when the run ends. -->
+                <ControlTemplate.Triggers>
+                  <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter TargetName="b" Property="BorderBrush" Value="#E6EDEB"/>
+                  </Trigger>
+                </ControlTemplate.Triggers>
               </ControlTemplate>
             </Setter.Value>
           </Setter>
@@ -2250,6 +2583,7 @@ function Invoke-WithProgress {
         [string]$Title = 'Applying changes'
     )
 
+    Enable-GuiAutomationFeatures
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
     [xml]$x = $script:ProgXaml
     $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $x))
@@ -2264,6 +2598,8 @@ function Invoke-WithProgress {
     $heading = $win.FindName('ProgTitle')
     $sub     = $win.FindName('ProgSub')
     $heading.Text = $Title
+    # The title is what a screen reader announces when the window opens.
+    $win.Title = "Trim - $Title"
 
     $icon = New-TrimIcon
     if ($icon) { $win.Icon = $icon }
@@ -2316,6 +2652,10 @@ function Invoke-WithProgress {
         $counter.Text = "Undo script: $($script:UndoPath)"
     }
     $close.IsEnabled = $true
+    # Focus moving to Close is the only thing a screen reader hears when the
+    # run ends, so the outcome travels with it as the button's description.
+    Set-GuiAutomation -Element $close -Help ((@($heading.Text, $sub.Text, $status.Text, $counter.Text) |
+        Where-Object { $_ }) -join ' ')
     $close.Focus() | Out-Null
 
     [Windows.Threading.Dispatcher]::PushFrame($frame)
@@ -2392,6 +2732,7 @@ function Initialize-TrimWindow {
         [int]$AlreadyCorrect = 0
     )
 
+    Enable-GuiAutomationFeatures
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
     [xml]$x = $script:GuiXaml
@@ -2422,10 +2763,17 @@ function Initialize-TrimWindow {
     $ui.TxtMachine.Text = "$($Facts.OSCaption) $($Facts.DisplayVersion)  -  " +
         "$(if ($Facts.IsLaptop) { 'laptop' } else { 'desktop' })  -  $($Facts.GpuNames -join ', ')"
 
-    $ui.BtnRecommended.Add_Click({ Set-GuiPreset 'recommended' })
-    $ui.BtnAdvanced.Add_Click({    Set-GuiPreset 'advanced' })
-    $ui.BtnEverything.Add_Click({  Set-GuiPreset 'everything' })
-    $ui.BtnClear.Add_Click({       Set-GuiPreset 'none' })
+    Set-GuiAutomation -Element $ui.TxtPhase      -Heading 2 -Live 'Polite'
+    Set-GuiAutomation -Element $ui.TxtPhaseSub   -Live 'Polite'
+    Set-GuiAutomation -Element $ui.TxtPresetHint -Live 'Polite'
+    Set-GuiAutomation -Element $ui.TxtCount      -Live 'Polite'
+    Set-GuiAutomation -Element $ui.TxtBanner     -Live 'Assertive'
+    Set-GuiAutomation -Element $ui.BtnApply      -Help 'Applies the ticked changes in every section.'
+
+    $ui.BtnRecommended.Add_Click({ Set-GuiPreset 'recommended' -Announce })
+    $ui.BtnAdvanced.Add_Click({    Set-GuiPreset 'advanced' -Announce })
+    $ui.BtnEverything.Add_Click({  Set-GuiPreset 'everything' -Announce })
+    $ui.BtnClear.Add_Click({       Set-GuiPreset 'none' -Announce })
     $ui.BtnApply.Add_Click({  $script:GuiApplied = $true;  $script:GuiWin.Close() })
     $ui.BtnCancel.Add_Click({ $script:GuiApplied = $false; $script:GuiWin.Close() })
 
