@@ -32,6 +32,10 @@ $script:NpiVersion = 'v3.0.2.1'
 $script:NpiUrl     = "https://github.com/Orbmu2k/nvidiaProfileInspector/releases/download/$($script:NpiVersion)/nvidiaProfileInspector.zip"
 $script:NpiSha256  = '88DCF3514111E8DE630688467C03C36D8C2A8AD9EBC8073F27C069F82B75BB40'
 $script:NpiBytes   = 433354
+# The executable inside that zip, pinned in its own right: a cached or planted
+# copy is trusted only when its bytes match this, never because the file exists.
+$script:NpiExeSha256 = '1EBD8129B3C564BF226291FB3344819FD59668066F0C5E03334A69A04A62859E'
+$script:NpiExeBytes  = 1043456
 
 # ---------------------------------------------------------------------------
 #  Capability detection
@@ -498,18 +502,113 @@ function Import-NvidiaProfile {
     }
 }
 
+<#
+.SYNOPSIS
+    Can only administrators and the system write to this directory?
+
+.DESCRIPTION
+    True only when every allow rule on it belongs to the Administrators group
+    (S-1-5-32-544) or SYSTEM (S-1-5-18). Inherited rules are included, so the
+    Users:Write that C:\ProgramData hands its children shows up here and fails
+    it - which is the whole test: anything a non-administrator can write to has
+    a rule that says so. SIDs, not names, because the account names are localised;
+    an account this cannot resolve counts against it, so it fails safe.
+#>
+function Test-DirectoryAdminOnly {
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+        $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+        $allowed = @('S-1-5-32-544', 'S-1-5-18')
+        foreach ($rule in $acl.Access) {
+            if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) { continue }
+            $sid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+            if ($allowed -notcontains $sid) { return $false }
+        }
+        return $true
+    } catch { return $false }
+}
+
+<#
+.SYNOPSIS
+    Make a directory one only administrators can write to, resetting it if it
+    already exists as something looser.
+
+.DESCRIPTION
+    Anything run from here runs as administrator, and C:\ProgramData grants
+    standard users write access that its children inherit. A user-writable
+    directory is one an unprivileged process can plant or swap a binary in
+    between the moment it is verified and the moment it is run.
+
+    A directory that already passes Test-DirectoryAdminOnly is left as it is, so
+    a verified download survives between runs. One that does not - a user-writable
+    directory an older version created, or one somebody made to plant a binary in -
+    is deleted and remade, which makes this elevated process its owner. Then
+    inheritance is switched off (so C:\ProgramData's Users:Write is not handed
+    back down) and full control is granted to the Administrators group and SYSTEM
+    by SID. The result is checked before it is trusted.
+#>
+function Protect-ToolDirectory {
+    param([Parameter(Mandatory)][string]$Path)
+    if ((Test-Path -LiteralPath $Path) -and -not (Test-DirectoryAdminOnly -Path $Path)) {
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+    }
+    if (Test-DirectoryAdminOnly -Path $Path) { return }
+    New-Item -ItemType Directory -Force -Path $Path | Out-Null
+
+    # The directory was just created, so its only rules are inherited; dropping
+    # inheritance without copying them across leaves it with none, and the two
+    # full-control rules below are all it ends up with.
+    $acl = Get-Acl -LiteralPath $Path
+    $acl.SetAccessRuleProtection($true, $false)
+    $inherit = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+    foreach ($sid in @('S-1-5-32-544', 'S-1-5-18')) {
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+            (New-Object System.Security.Principal.SecurityIdentifier $sid),
+            'FullControl', $inherit, [System.Security.AccessControl.PropagationFlags]::None, 'Allow')))
+    }
+    Set-Acl -LiteralPath $Path -AclObject $acl
+    if (-not (Test-DirectoryAdminOnly -Path $Path)) {
+        throw "could not lock $Path to administrators"
+    }
+}
+
+<#
+.SYNOPSIS
+    Is this the pinned Profile Inspector executable, by its own bytes?
+#>
+function Test-VerifiedNpiExe {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    if ((Get-Item -LiteralPath $Path).Length -ne $script:NpiExeBytes) { return $false }
+    return ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -eq $script:NpiExeSha256)
+}
+
 function Get-ProfileInspector {
     $dir = Join-Path $script:RunRoot 'tools\nvidiaProfileInspector'
     $exe = Join-Path $dir 'nvidiaProfileInspector.exe'
-    if (Test-Path -LiteralPath $exe) { return $exe }
     if ($DryRun) {
         Write-Log -Level DRY -Message "  would download NVIDIA Profile Inspector $($script:NpiVersion) from $($script:NpiUrl)"
         return $null
     }
 
+    # This runs as administrator, so it has to run from somewhere a standard user
+    # cannot write to. Done before anything here is trusted or downloaded, and it
+    # resets the permissions on a directory that already exists - a user-writable
+    # one left by an older version, or one somebody created to plant a binary in.
+    try {
+        Protect-ToolDirectory -Path $dir
+    } catch {
+        Write-Log -Level FAIL -Message "  Could not secure the tools directory, so Profile Inspector will not be run: $($_.Exception.Message)"
+        return $null
+    }
+
+    # A cached copy is trusted on its bytes, never on its presence: a file planted
+    # while the directory was still writable outlives the permission reset above.
+    if (Test-VerifiedNpiExe -Path $exe) { return $exe }
+    if (Test-Path -LiteralPath $exe) { Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue }
+
     Write-Log "  Downloading NVIDIA Profile Inspector $($script:NpiVersion) from $($script:NpiUrl)"
     try {
-        New-Item -ItemType Directory -Force -Path $dir | Out-Null
         $zip = Join-Path $dir 'npi.zip'
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -Uri $script:NpiUrl -OutFile $zip -UseBasicParsing -ErrorAction Stop
@@ -530,10 +629,16 @@ function Get-ProfileInspector {
 
         Expand-Archive -LiteralPath $zip -DestinationPath $dir -Force
         Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
-        if (Test-Path -LiteralPath $exe) { return $exe }
-        $found = Get-ChildItem -LiteralPath $dir -Filter 'nvidiaProfileInspector.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($found) { return $found.FullName }
-        Write-Log -Level FAIL -Message '  Profile Inspector executable not found after extraction.'
+
+        $found = if (Test-Path -LiteralPath $exe) { $exe }
+                 else {
+                     $hit = Get-ChildItem -LiteralPath $dir -Filter 'nvidiaProfileInspector.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                     if ($hit) { $hit.FullName } else { $null }
+                 }
+        # Even straight out of the verified zip, the exe is checked against its own
+        # pinned bytes before it can be returned to something that will run it.
+        if ($found -and (Test-VerifiedNpiExe -Path $found)) { return $found }
+        Write-Log -Level FAIL -Message '  Profile Inspector did not match its pinned fingerprint after extraction; it will not be run.'
         return $null
     } catch {
         Write-Log -Level FAIL -Message "  Could not obtain Profile Inspector: $($_.Exception.Message)"

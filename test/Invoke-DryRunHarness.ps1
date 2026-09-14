@@ -899,12 +899,114 @@ Test-Phase 'The downloaded tool is pinned by version and hash' {
     if ($script:NpiSha256.Length -ne 64)         { throw "pinned hash is $($script:NpiSha256.Length) characters" }
     if ($script:NpiSha256 -notmatch '^[0-9A-F]{64}$') { throw 'pinned hash is not hexadecimal' }
     if (-not $script:NpiBytes -or $script:NpiBytes -le 0) { throw 'no pinned size' }
+    # The exe inside the zip is pinned in its own right, because a cached or
+    # planted copy is trusted on its bytes rather than on being present.
+    if ($script:NpiExeSha256 -notmatch '^[0-9A-F]{64}$') { throw 'the exe hash is not a SHA256' }
+    if (-not $script:NpiExeBytes -or $script:NpiExeBytes -le 0) { throw 'no pinned exe size' }
+    if ($script:NpiExeSha256 -eq $script:NpiSha256) { throw 'the exe hash equals the zip hash - one of them is wrong' }
     if ($script:NpiUrl -notmatch '^https://github\.com/Orbmu2k/nvidiaProfileInspector/releases/download/') {
         throw "the download URL is not a pinned GitHub release: $($script:NpiUrl)"
     }
     if ($script:NpiUrl -notmatch [regex]::Escape($script:NpiVersion)) {
         throw 'the URL does not carry the pinned version'
     }
+}
+
+# The exe this downloads is run as administrator, out of a directory under
+# C:\ProgramData that standard users can write to by inheritance. Two things
+# keep that from being a way to run planted code as administrator: the directory
+# is locked to administrators before anything is trusted, and the exe is checked
+# against its own pinned bytes, not merely found by name.
+Test-Phase 'The tool directory is locked to administrators and the exe verified by its bytes' {
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $me   = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    $ir   = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+    $none = [System.Security.AccessControl.PropagationFlags]::None
+    function New-Rule([string]$Sid, [string]$Rights = 'FullControl') {
+        New-Object System.Security.AccessControl.FileSystemAccessRule(
+            (New-Object System.Security.Principal.SecurityIdentifier $Sid), $Rights, $ir, $none, 'Allow')
+    }
+    # An admin-only directory denies this (possibly unelevated) process; owner
+    # can still rewrite the DACL, so grant ourselves back before deleting.
+    function Remove-LockedDir([string]$Path) {
+        if (-not (Test-Path -LiteralPath $Path)) { return }
+        try { $c = Get-Acl -LiteralPath $Path; $c.AddAccessRule((New-Rule $me.Value)); Set-Acl -LiteralPath $Path -AclObject $c } catch {}
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    function New-TempDir { $d = Join-Path ([IO.Path]::GetTempPath()) "trim-dao-$([Guid]::NewGuid().ToString('N'))"; New-Item -ItemType Directory -Force -Path $d | Out-Null; $d }
+
+    # --- Test-DirectoryAdminOnly, one dimension at a time ------------------
+    # A user-writable directory has a non-administrator allow rule, and must fail.
+    $loose = New-TempDir
+    try {
+        $a = Get-Acl -LiteralPath $loose; $a.AddAccessRule((New-Rule 'S-1-5-32-545' 'Write')); Set-Acl -LiteralPath $loose -AclObject $a
+        if (Test-DirectoryAdminOnly -Path $loose) { $problems.Add('a directory a standard user can write to was judged admin-only') | Out-Null }
+    } finally { Remove-LockedDir $loose }
+
+    # Protected, but with a non-administrator rule: still must fail. Isolates the
+    # rule-ownership check from anything to do with inheritance.
+    $protUser = New-TempDir
+    try {
+        $a = Get-Acl -LiteralPath $protUser; $a.SetAccessRuleProtection($true, $false)
+        foreach ($s in @('S-1-5-32-544','S-1-5-18','S-1-5-32-545')) { $a.AddAccessRule((New-Rule $s)) }
+        Set-Acl -LiteralPath $protUser -AclObject $a
+        if (Test-DirectoryAdminOnly -Path $protUser) { $problems.Add('a directory that still grants a non-administrator was judged admin-only') | Out-Null }
+    } finally { Remove-LockedDir $protUser }
+
+    # Administrators and SYSTEM only: this one must pass, or nothing would ever be
+    # trusted and the cache would be rebuilt every run.
+    $adminOnly = New-TempDir
+    try {
+        $a = Get-Acl -LiteralPath $adminOnly; $a.SetAccessRuleProtection($true, $false)
+        foreach ($s in @('S-1-5-32-544','S-1-5-18')) { $a.AddAccessRule((New-Rule $s)) }
+        Set-Acl -LiteralPath $adminOnly -AclObject $a
+        if (-not (Test-DirectoryAdminOnly -Path $adminOnly)) { $problems.Add('a directory only administrators and SYSTEM can write to was not judged admin-only') | Out-Null }
+    } finally { Remove-LockedDir $adminOnly }
+
+    # --- Protect-ToolDirectory turns a planted, writable directory safe -----
+    $dir = New-TempDir
+    try {
+        $a = Get-Acl -LiteralPath $dir; $a.AddAccessRule((New-Rule 'S-1-5-32-545' 'Write')); Set-Acl -LiteralPath $dir -AclObject $a
+        $planted = Join-Path $dir 'nvidiaProfileInspector.exe'
+        [IO.File]::WriteAllText($planted, 'planted')
+
+        Protect-ToolDirectory -Path $dir
+        if (-not (Test-DirectoryAdminOnly -Path $dir)) { $problems.Add('the directory is not admin-only after being locked') | Out-Null }
+        if (-not (Get-Acl -LiteralPath $dir).AreAccessRulesProtected) { $problems.Add('inheritance was not switched off') | Out-Null }
+        if (Test-Path -LiteralPath $planted) { $problems.Add('a planted exe survived the lock of a writable directory') | Out-Null }
+
+        # Locking an already-locked directory leaves it in place, so a verified
+        # download is not thrown away every run.
+        $created = (Get-Item -LiteralPath $dir).CreationTimeUtc
+        Protect-ToolDirectory -Path $dir
+        if ((Get-Item -LiteralPath $dir).CreationTimeUtc -ne $created) { $problems.Add('an already-locked directory was remade instead of kept') | Out-Null }
+    } finally { Remove-LockedDir $dir }
+
+    # --- verification is by bytes ------------------------------------------
+    # A right-sized file of the wrong content, a wrong size, and a missing file
+    # all fail; only the pinned bytes would pass.
+    $probe = Join-Path ([IO.Path]::GetTempPath()) "trim-npi-$([Guid]::NewGuid().ToString('N')).bin"
+    try {
+        [IO.File]::WriteAllBytes($probe, (New-Object byte[] $script:NpiExeBytes))
+        if (Test-VerifiedNpiExe -Path $probe) { $problems.Add('a right-sized file of the wrong content was accepted as the exe') | Out-Null }
+    } finally { Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue }
+    if (Test-VerifiedNpiExe -Path (Join-Path ([IO.Path]::GetTempPath()) "trim-absent-$([Guid]::NewGuid().ToString('N')).bin")) {
+        $problems.Add('a missing file was accepted as the exe') | Out-Null
+    }
+
+    # --- and the phase code actually uses both -----------------------------
+    # Nothing may return the exe to a caller that will run it without the by-bytes
+    # check, and the directory must be locked before anything is trusted.
+    $gpu = (Get-Content -Encoding UTF8 -LiteralPath (Join-Path (Join-Path $root 'src') '11-gpu.ps1') |
+            Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+    if ($gpu -match 'Test-Path -LiteralPath \$exe\) \{ return \$exe \}') {
+        $problems.Add('Get-ProfileInspector returns a cached exe on its presence, without verifying its bytes') | Out-Null
+    }
+    if ($gpu -notmatch 'Protect-ToolDirectory -Path \$dir') {
+        $problems.Add('Get-ProfileInspector no longer locks the tools directory before use') | Out-Null
+    }
+
+    if ($problems.Count) { throw ($problems -join '; ') }
 }
 
 # Every remote fetch has to be TLS, and modern TLS at that.
