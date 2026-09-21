@@ -3198,6 +3198,15 @@ Test-Phase 'The pages promise what the code actually does' {
     if (-not $fn.Success -or $fn.Value -notmatch 'Checkpoint-Computer') {
         throw 'cannot find New-SafetyRestorePoint - this guard has stopped reading the code it checks'
     }
+    # Checkpoint-Computer stalls at 99% for minutes on real machines, so it
+    # must be time-bounded and must reuse a recent point rather than block
+    # the whole apply making another.
+    if ($fn.Value -notmatch 'Wait-Job[^\r\n]*-Timeout') {
+        $problems.Add('New-SafetyRestorePoint no longer bounds Checkpoint-Computer with a timeout; a VSS stall can hang the whole apply at 99%') | Out-Null
+    }
+    if ($fn.Value -notmatch 'Get-ComputerRestorePoint') {
+        $problems.Add('New-SafetyRestorePoint no longer reuses a recent restore point; it will churn VSS on every run') | Out-Null
+    }
 
     # It swallows the failure and carries on, which is the right behaviour and
     # the reason no page may state the restore point as a certainty.
