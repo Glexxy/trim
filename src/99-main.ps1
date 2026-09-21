@@ -162,7 +162,20 @@ function Invoke-Selection {
     if ($isAdmin) {
         Set-Variable -Name DryRun -Value $false -Scope Script
         $script:SelectionFilter = @{}
-        foreach ($s in $Selection) { $script:SelectionFilter[$s.Key] = $true }
+        foreach ($s in $Selection) {
+            # Strict-safe, and lossless: an item with no key is one no phase
+            # can act on - Test-SelectedChange matches on the key - so it could
+            # never be applied. Skip it rather than let a strict property read
+            # abort the whole apply, the one action that matters most.
+            $keyProp = $s.PSObject.Properties['Key']
+            if ($keyProp -and $keyProp.Value) {
+                $script:SelectionFilter["$($keyProp.Value)"] = $true
+            } else {
+                $bits = @('Kind','Phase','Title') | ForEach-Object {
+                    $p = $s.PSObject.Properties[$_]; if ($p) { "$_=$($p.Value)" } }
+                Write-Log -Level WARN -Message "A selected change had no key and was skipped (nothing matches it to apply): $($bits -join ' ')"
+            }
+        }
         return $true    # the caller runs the phases
     }
 
@@ -307,7 +320,10 @@ function Invoke-Main {
         $script:SelectionFilter = @{}
         $rejected = 0
         foreach ($s in @($sel)) {
-            $k = "$($s.Key)"
+            # Untrusted input, read strict-safely: an entry with no Key is
+            # rejected as malformed, not a crash.
+            $keyProp = $s.PSObject.Properties['Key']
+            $k = if ($keyProp) { "$($keyProp.Value)" } else { '' }
             if ($k -notmatch '^(reg|act)\|[^\x00-\x1F]{1,512}$') { $rejected++; continue }
             $script:SelectionFilter[$k] = $true
         }
