@@ -81,6 +81,13 @@ Test-Phase 'Read-WinUtilConfig'   {
     if (@($sel).Count -lt 15) { throw "expected 15+ selections, got $(@($sel).Count)" }
     $bad = @($sel | Where-Object { $_ -notmatch '^WPF(Install|Tweaks|Toggle|Feature|Appx)' })
     if ($bad.Count) { throw "config has keys winutil will reject: $($bad -join ', ')" }
+    # Trim takes its own restore point before every phase, so it already covers
+    # whatever winutil changes. Selecting WPFTweaksRestorePoint makes winutil take
+    # a second, redundant one - and that one is inside winutil's script, so Trim
+    # cannot time-bound it and it can hang the apply at 99% the way Checkpoint does.
+    if ($sel -contains 'WPFTweaksRestorePoint') {
+        throw 'the winutil config selects WPFTweaksRestorePoint; Trim already takes a restore point before every phase, so remove it - a second one is redundant and, being inside winutil, cannot be time-bounded'
+    }
 }
 Test-Phase 'Invoke-WinUtilPhase'  { Invoke-WinUtilPhase -ConfigUrl $WinUtilConfigUrl }
 Test-Phase 'Invoke-FixesPhase'    { Invoke-FixesPhase }
