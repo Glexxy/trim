@@ -714,15 +714,43 @@ function New-SafetyRestorePoint {
         # Checkpoint-Computer silently no-ops when it is. Turn it on first.
         Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop
 
-        # Windows rate-limits restore points to one per 24h unless this is relaxed.
-        Set-Reg -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' `
-                -Name 'SystemRestorePointCreationFrequency' -Value 0 `
-                -Because 'allow a restore point even if one was made today'
+        # If Windows already has a recent restore point, that is the rollback.
+        # Making another costs minutes of VSS work for no more safety, and on a
+        # machine this has run on before it is pure churn - so reuse it.
+        $recent = $null
+        try {
+            $recent = @(Get-ComputerRestorePoint -ErrorAction Stop) |
+                      Sort-Object { [Management.ManagementDateTimeConverter]::ToDateTime($_.CreationTime) } -Descending |
+                      Select-Object -First 1
+        } catch { $recent = $null }
+        if ($recent) {
+            $when = [Management.ManagementDateTimeConverter]::ToDateTime($recent.CreationTime)
+            if (((Get-Date) - $when) -lt [TimeSpan]::FromHours(24)) {
+                $script:RestorePointCreated = $true
+                Write-Log -Level OK -Message "A recent restore point ($($when.ToString('g'))) is the rollback; not making another."
+                return
+            }
+        }
 
-        Checkpoint-Computer -Description 'Before Trim' `
-                            -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
-        $script:RestorePointCreated = $true
-        Write-Log -Level OK -Message 'System restore point created.'
+        # Checkpoint-Computer waits on VSS and is the slowest thing in the run:
+        # it can sit at 99% for minutes, or wedge behind another VSS writer. It
+        # runs in a job with a time budget so a stall can never hang the whole
+        # apply; if the budget passes the run carries on, and the undo script is
+        # the rollback that always works.
+        $job = Start-Job -ScriptBlock {
+            Checkpoint-Computer -Description 'Before Trim' -RestorePointType 'MODIFY_SETTINGS'
+        }
+        if (Wait-Job -Job $job -Timeout 90) {
+            $null = Receive-Job -Job $job -ErrorAction Stop
+            $script:RestorePointCreated = $true
+            Write-Log -Level OK -Message 'System restore point created.'
+        } else {
+            $script:RestorePointCreated = $false
+            Write-Log -Level WARN -Message 'The restore point is taking too long (Windows can stall this at 99% for minutes); not waiting any longer.'
+            Write-Log -Level WARN -Message 'Continuing. The undo script is still your rollback path.'
+        }
+        Stop-Job   -Job $job -ErrorAction SilentlyContinue
+        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
     } catch {
         $script:RestorePointCreated = $false
         Write-Log -Level WARN -Message "Could not create a restore point: $($_.Exception.Message)"

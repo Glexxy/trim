@@ -81,6 +81,13 @@ Test-Phase 'Read-WinUtilConfig'   {
     if (@($sel).Count -lt 15) { throw "expected 15+ selections, got $(@($sel).Count)" }
     $bad = @($sel | Where-Object { $_ -notmatch '^WPF(Install|Tweaks|Toggle|Feature|Appx)' })
     if ($bad.Count) { throw "config has keys winutil will reject: $($bad -join ', ')" }
+    # Trim takes its own restore point before every phase, so it already covers
+    # whatever winutil changes. Selecting WPFTweaksRestorePoint makes winutil take
+    # a second, redundant one - and that one is inside winutil's script, so Trim
+    # cannot time-bound it and it can hang the apply at 99% the way Checkpoint does.
+    if ($sel -contains 'WPFTweaksRestorePoint') {
+        throw 'the winutil config selects WPFTweaksRestorePoint; Trim already takes a restore point before every phase, so remove it - a second one is redundant and, being inside winutil, cannot be time-bounded'
+    }
 }
 Test-Phase 'Invoke-WinUtilPhase'  { Invoke-WinUtilPhase -ConfigUrl $WinUtilConfigUrl }
 Test-Phase 'Invoke-FixesPhase'    { Invoke-FixesPhase }
@@ -3197,6 +3204,15 @@ Test-Phase 'The pages promise what the code actually does' {
     $fn = [regex]::Match($core, '(?s)function New-SafetyRestorePoint \{.*?\r?\n\}')
     if (-not $fn.Success -or $fn.Value -notmatch 'Checkpoint-Computer') {
         throw 'cannot find New-SafetyRestorePoint - this guard has stopped reading the code it checks'
+    }
+    # Checkpoint-Computer stalls at 99% for minutes on real machines, so it
+    # must be time-bounded and must reuse a recent point rather than block
+    # the whole apply making another.
+    if ($fn.Value -notmatch 'Wait-Job[^\r\n]*-Timeout') {
+        $problems.Add('New-SafetyRestorePoint no longer bounds Checkpoint-Computer with a timeout; a VSS stall can hang the whole apply at 99%') | Out-Null
+    }
+    if ($fn.Value -notmatch 'Get-ComputerRestorePoint') {
+        $problems.Add('New-SafetyRestorePoint no longer reuses a recent restore point; it will churn VSS on every run') | Out-Null
     }
 
     # It swallows the failure and carries on, which is the right behaviour and

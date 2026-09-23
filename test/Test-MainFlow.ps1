@@ -291,6 +291,31 @@ if (-not $written) {
     }
 }
 
+# A field crash: on some machines a selected item reached the elevated apply
+# without a Key, and $s.Key under StrictMode aborted the entire apply
+# (PropertyNotFoundStrict) before anything was applied. A keyless item matches
+# no phase, so it cannot be applied - it must be skipped, never fatal.
+$script:SelectionFilter = $null
+$keylessThrew = $false
+try {
+    $null = Invoke-Selection -Selection @(
+        [pscustomobject]@{ Key = 'reg|HKCU:\Software\Trim\Keeps|V'; Kind = 'reg'; Phase = 'Privacy'; Title = 'has a key'; Tier = 'safe' }
+        [pscustomobject]@{ Kind = 'reg'; Phase = 'Privacy'; Title = 'no key at all'; Tier = 'safe' }
+    )
+} catch { $keylessThrew = $true; $keylessErr = $_.FullyQualifiedErrorId }
+if ($keylessThrew) {
+    $failures.Add("a keyless selected item aborted Invoke-Selection ($keylessErr) instead of being skipped") | Out-Null
+    Write-Host "FAIL  a keyless selected item is skipped, not fatal ($keylessErr)" -ForegroundColor Red
+} elseif (-not $script:SelectionFilter -or $script:SelectionFilter.Count -ne 1 -or
+          -not $script:SelectionFilter.ContainsKey('reg|HKCU:\Software\Trim\Keeps|V')) {
+    $failures.Add("a keyless item was tolerated but the keyed one did not reach the filter (count $(@($script:SelectionFilter).Count))") | Out-Null
+    Write-Host 'FAIL  a keyless selected item is skipped, not fatal (the keyed item was lost)' -ForegroundColor Red
+} else {
+    Write-Host 'PASS  a keyless selected item is skipped, not fatal' -ForegroundColor Green
+}
+$script:SelectionFilter = $null
+$script:DryRun = $false
+
 Case '-Cleanup runs the sweep and nothing else' @{ Cleanup = $true } {
     param($t)
     if ($t -notcontains 'cleanup')    { throw '-Cleanup did not run the sweep' }
