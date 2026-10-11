@@ -28,7 +28,10 @@ if ($removed -le 0) {
 
 $backup = "$hostsFile.trim-backup-" + (Get-Date -Format 'yyyyMMdd_HHmmss')
 Copy-Item -LiteralPath $hostsFile -Destination $backup -Force
-Set-Content -LiteralPath $hostsFile -Value $keep -Encoding ASCII
+# WriteAllLines, not Set-Content: on modern Windows the default hosts file is
+# empty, so once the Adobe lines go there can be nothing left, and
+# Set-Content -Encoding ASCII throws "Stream was not readable" on empty content.
+[System.IO.File]::WriteAllLines($hostsFile, [string[]]@($keep), (New-Object System.Text.ASCIIEncoding))
 cmd /c 'ipconfig /flushdns' | Out-Null
 Write-Host ("Removed {0} Adobe-blocking line(s) from the hosts file." -f $removed) -ForegroundColor Green
 Write-Host ("Backup of the original saved to: {0}" -f $backup) -ForegroundColor DarkGray
