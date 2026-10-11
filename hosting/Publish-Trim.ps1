@@ -131,7 +131,7 @@ Copy-Item -LiteralPath (Join-Path $root 'config\winutil-tweaks.json') `
 # apart from one substitution, so what is in site\ is what ships.
 $site = Join-Path $PSScriptRoot 'site'
 foreach ($f in @('index.html', 'styles.css', 'app.js', 'favicon.svg',
-                 'robots.txt', 'sitemap.xml', 'llms.txt')) {
+                 'robots.txt', 'sitemap.xml', 'llms.txt', 'unblock-adobe.ps1')) {
     $from = Join-Path $site $f
     if (-not (Test-Path -LiteralPath $from)) { Fail "Missing site file: $from" }
     Copy-Item -LiteralPath $from -Destination (Join-Path $public $f)

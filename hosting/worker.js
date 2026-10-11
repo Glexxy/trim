@@ -48,6 +48,11 @@ const ROUTES = {
   '/trim.ps1.sha256':           { file: '/trim.ps1.sha256', type: 'text/plain; charset=utf-8',       cache: 300 },
   '/config/winutil-tweaks.json':{ file: '/config/winutil-tweaks.json', type: 'application/json; charset=utf-8', cache: 300 },
 
+  // Fixer for machines where "Block Adobe Networking" was applied. text/plain so
+  // `irm trimbloat.com/unblock-adobe | iex` works and it is readable in a browser.
+  '/unblock-adobe':             { file: '/unblock-adobe.ps1', type: 'text/plain; charset=utf-8',        cache: 300 },
+  '/unblock-adobe.ps1':         { file: '/unblock-adobe.ps1', type: 'text/plain; charset=utf-8',        cache: 300 },
+
   // The site.
   '/styles.css':  { file: '/styles.css',  type: 'text/css; charset=utf-8',        cache: 300 },
   '/app.js':      { file: '/app.js',      type: 'text/javascript; charset=utf-8', cache: 300 },

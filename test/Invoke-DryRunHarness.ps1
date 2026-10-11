@@ -81,12 +81,15 @@ Test-Phase 'Read-WinUtilConfig'   {
     if (@($sel).Count -lt 15) { throw "expected 15+ selections, got $(@($sel).Count)" }
     $bad = @($sel | Where-Object { $_ -notmatch '^WPF(Install|Tweaks|Toggle|Feature|Appx)' })
     if ($bad.Count) { throw "config has keys winutil will reject: $($bad -join ', ')" }
-    # Trim takes its own restore point before every phase, so it already covers
-    # whatever winutil changes. Selecting WPFTweaksRestorePoint makes winutil take
-    # a second, redundant one - and that one is inside winutil's script, so Trim
-    # cannot time-bound it and it can hang the apply at 99% the way Checkpoint does.
-    if ($sel -contains 'WPFTweaksRestorePoint') {
-        throw 'the winutil config selects WPFTweaksRestorePoint; Trim already takes a restore point before every phase, so remove it - a second one is redundant and, being inside winutil, cannot be time-bounded'
+    # Tweaks Trim must not ship on by default, because they cause problems for
+    # ordinary users - Trim's rule is that anything which can cause issues is off
+    # by default, and these are selected (safe-tier), so they must not be here.
+    $banned = [ordered]@{
+        'WPFTweaksRestorePoint'  = 'Trim already takes a restore point before every phase; a second one, inside winutil, cannot be time-bounded and can hang the apply at 99%'
+        'WPFTweaksBlockAdobeNet' = 'it writes Adobe activation and licensing domains into the hosts file, which breaks legitimate Adobe installs and activation for anyone who uses Adobe products'
+    }
+    foreach ($b in $banned.Keys) {
+        if ($sel -contains $b) { throw "the winutil config selects $b, which Trim must not ship on by default: $($banned[$b])" }
     }
 }
 Test-Phase 'Invoke-WinUtilPhase'  { Invoke-WinUtilPhase -ConfigUrl $WinUtilConfigUrl }
@@ -475,20 +478,27 @@ Test-Phase 'Selection filter gates every change' {
         throw "filter matched nothing but $($script:Ledger.Count) change(s) were still planned"
     }
 
-    # 2. A filter naming exactly one key must produce exactly that one.
+    # 2. A filter naming exactly one key must gate to exactly that one. Counted
+    #    as everything the phase considered - newly planned (Ledger) plus already
+    #    correct (AlreadySet) - not only what it newly planned. Test-SelectedChange
+    #    gates before the already-set check, so a filtered-out key reaches neither
+    #    list; but on a machine that has already run Trim the gaming values are
+    #    set, so they land in AlreadySet, and counting only Ledger would make this
+    #    test fail on exactly the machines the tool has been used on.
     $script:SelectionFilter = $null
-    $script:Ledger.Clear()
+    $script:Ledger.Clear(); $script:AlreadySet.Clear()
     Invoke-GamingPhase -Facts $script:facts
-    if ($script:Ledger.Count -lt 2) { throw 'expected the unfiltered phase to plan more than one change' }
-    $pick = $script:Ledger[0]
+    $considered = @($script:Ledger) + @($script:AlreadySet)
+    if ($considered.Count -lt 2) { throw 'expected the unfiltered phase to consider more than one change' }
+    $pick = $considered[0]
     $key  = "reg|$($pick.Path)|$($pick.Name)"
 
-    $script:Ledger.Clear()
+    $script:Ledger.Clear(); $script:AlreadySet.Clear()
     $script:SelectionFilter = @{ $key = $true }
     Invoke-GamingPhase -Facts $script:facts
-    $got = $script:Ledger.Count
+    $got = @($script:Ledger).Count + @($script:AlreadySet).Count
     $script:SelectionFilter = $null
-    if ($got -ne 1) { throw "filter named 1 key but $got change(s) were planned" }
+    if ($got -ne 1) { throw "filter named 1 key but $got change(s) were considered" }
 }
 
 # The GUI's item model is what the filter keys are built from, so a mismatch
